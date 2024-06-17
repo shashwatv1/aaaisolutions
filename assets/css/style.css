@@ -192,7 +192,7 @@ body {
 .img-cover {
   width: 100%;
   height: 100%;
-  object-fit: cover;
+  object-fit: contain;
 }
 
 .section { padding-block: var(--section-padding); }
@@ -319,7 +319,7 @@ body {
 .hero-banner {
   width: 150px;
   height: 172px;
-  background-color: var(--independence);
+  background-color: transparent;
   border-radius: var(--radius-10);
   margin-inline: auto;
   margin-block-end: 30px;
@@ -868,6 +868,8 @@ textarea.contact-input {
     height: 390px;
     margin-inline: 0;
     margin-inline-start: auto;
+    margin-top: 0px;
+    margin-right: -40px;
   }
 
   .elem {
@@ -881,15 +883,15 @@ textarea.contact-input {
   }
 
   .elem-1 {
-    top: 20px;
-    left: -130px;
+    top: 140px;
+    left: -160px;
   }
 
   .elem-1 .elem-title { color: var(--vivid-sky-blue); }
 
   .elem-2 {
-    bottom: 30px;
-    right: -80px;
+    top: 140px;
+    right: -140px;
   }
 
   .elem-2 .elem-title { color: var(--fiery-rose); }
