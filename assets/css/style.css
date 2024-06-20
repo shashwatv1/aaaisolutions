@@ -561,7 +561,7 @@ body {
 /* Specific styling for application subtitles */
 .applications-subtitle {
   margin-bottom: 10px;
-  color: var(--orange-soda); /* Differentiating color for subtitles */
+  color: var(--white); /* Differentiating color for subtitles */
   font-size: var(--fs-5);
 }
 
@@ -570,6 +570,17 @@ body {
 }
 
 
+.applications-list {
+  display: grid;
+  grid-template-columns: 1fr; /* Default to 1 column for mobile devices */
+  gap: 30px;
+}
+
+@media (min-width: 768px) { /* Adjust this breakpoint as needed for your design */
+  .applications-list {
+    grid-template-columns: repeat(2, 1fr); /* 2 columns for larger screens */
+  }
+}
 
 
 
