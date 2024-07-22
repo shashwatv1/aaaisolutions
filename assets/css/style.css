@@ -824,6 +824,84 @@ textarea.contact-input {
 }
 
 
+/*-----------------------------------*\
+  #PRIVACY POLICY
+\*-----------------------------------*/
+
+/* Privacy Policy Container styles */
+/* Privacy Policy Container styles */
+/*-----------------------------------*\
+  #PRIVACY POLICY
+\*-----------------------------------*/
+
+/* Privacy Policy Container styles */
+/*-----------------------------------*\
+  #PRIVACY POLICY
+\*-----------------------------------*/
+
+/* Privacy Policy Container styles */
+.privacy-container {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 15px;
+}
+
+/* Privacy Policy Section styles */
+.privacy-section {
+  padding: var(--section-padding) 0;
+}
+
+.privacy-title {
+  font-size: var(--fs-2); /* Increased from 2.5rem */
+  font-weight: var(--fw-700);
+  margin-bottom: 40px;
+  margin-top: 40px;
+  text-align: center;
+  color: var(--cadet-blue-crayola);
+}
+
+.privacy-text {
+  font-size: var(--fs-5); /* Increased from 1rem to 1.8rem */
+  line-height: 1.8; /* Increased from 1.6 */
+  color: var(--cadet-blue-crayola);
+  margin-bottom: 20px;
+  text-align: justify;
+}
+
+.privacy-list {
+  list-style-type: disc;
+  padding-left: 40px; /* Increased padding for better visibility */
+  margin-bottom: 20px;
+  position: relative;
+}
+
+.privacy-list li {
+  font-size: var(--fs-5); /* Increased from 1rem to 1.8rem */
+  line-height: 1.8; /* Increased from 1.6 */
+  color: var(--cadet-blue-crayola);
+  margin-bottom: 5px;
+}
+
+.privacy-list li::before {
+  content: '○'; /* Unicode for a hollow circle */
+  color: var(--cadet-blue-crayola);
+  position: absolute;
+  left: 0.5em; /* Adjust this value to position the bullet */
+  font-size: var(--fs-5); /* Ensure the bullet is the same size as the text */
+}
+
+.privacy-subtitle {
+  font-size: 2.2rem; /* Adjusted size slightly bigger than h3 */
+  font-weight: var(--fw-700);
+  color: var(--cadet-blue-crayola);
+  margin-bottom: 5px;
+}
+
+
+
+
+
+
 
 
 
