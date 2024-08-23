@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Zhonya: League of Legends Highlight Reel Creator - Aaai Solutions</title>
+  <link rel="stylesheet" href="./assets/css/style.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Barlow:wght@600;700&family=Open+Sans:wght@400;500;700&family=Poppins:wght@400;600&display=swap" rel="stylesheet">
+  
+  
+  <style>
+    /* Additional styles for Zhonya page */
+    .zhonya-hero {
+      background-color: var(--indigo);
+      padding: 150px 0;
+      text-align: center;
+      
+    }
+    .zhonya-hero h1 {
+      font-size: 4rem;
+      margin-bottom: 20px;
+      color: var(--white);
+
+    }
+    .feature-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+      gap: 30px;
+      margin-top: 50px;
+    }
+    .feature-item {
+      background-color: var(--independence);
+      padding: 30px;
+      border-radius: var(--radius-10);
+      text-align: center;
+    }
+    .feature-icon {
+      font-size: 3rem;
+      color: var(--independence);
+      margin-bottom: 20px;
+    }
+    .how-it-works {
+      background-color: var(--indigo);
+      padding: 80px 0;
+    }
+    .step-list {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-around;
+      gap: 30px;
+      margin-top: 50px;
+    }
+    .step-item {
+      flex-basis: calc(25% - 30px);
+      text-align: center;
+    }
+    .step-number {
+      font-size: 3rem;
+      font-weight: bold;
+      color: var(--white);
+      margin-bottom: 15px;
+    }
+    .faq-section {
+      background-color: var(--space-cadet);
+      padding: 80px 0;
+    }
+    .faq-list {
+      max-width: 800px;
+      margin: 0 auto;
+    }
+    .faq-item {
+      background-color: var(--independence);
+      margin-bottom: 20px;
+      border-radius: var(--radius-10);
+      overflow: hidden;
+    }
+    .faq-question {
+      padding: 20px;
+      cursor: pointer;
+      font-weight: bold;
+    }
+    .faq-answer {
+      padding: 0 20px 20px;
+      display: none;
+    }
+    .cta-section {
+      background-color: var(--indigo);
+      padding: 100px 0;
+      text-align: center;
+    }
+
+    
+  </style>
+</head>
+
+<body id="top">
+
+  <!-- Header (kept the same as the main site) -->
+  <header class="header" data-header>
+    <div class="container">
+
+      <a href="index.html">
+        <h1 class="logo">Aaai Solutions</h1>
+      </a>
+
+      <button class="nav-toggle-btn" aria-label="Toggle Menu" data-nav-toggle-btn>
+        <ion-icon name="menu-outline" class="menu-icon"></ion-icon>
+        <ion-icon name="close-outline" class="close-icon"></ion-icon>
+      </button>
+
+      <nav class="navbar container">
+        <ul class="navbar-list">
+          <li><a href="index.html" class="navbar-link" data-nav-link>Home</a></li>
+          <li><a href="#about" class="navbar-link" data-nav-link>About</a></li>
+          <li><a href="#solutions" class="navbar-link" data-nav-link>Solutions</a></li>
+          <li><a href="#applications" class="navbar-link" data-nav-link>Applications</a></li>
+          <li><a href="#contact" class="navbar-link" data-nav-link>Contact</a></li>
+          <li><a href="https://calendly.com/shash-aaai/30min" class="btn btn-primary">Schedule a Demo</a></li>
+        </ul>
+      </nav>
+      
+    </div>
+  </header>
+
+  <main>
+    <!-- Hero Section -->
+    <section class="zhonya-hero">
+      <div class="container">
+        <h1>Zhonya: League of Legends Highlight Reel Creator</h1>
+        <p>Turn Your Best Plays into Epic Highlights with Our AI-Powered Assistant!</p>
+      </div>
+    </section>
+
+    <!-- Features Section -->
+    <section class="section" id="features">
+      <div class="container">
+        <h2 class="h2 section-title">Zhonya's Features</h2>
+        <div class="feature-grid">
+          <div class="feature-item">
+            <div class="feature-icon">
+              <ion-icon name="layers-outline"></ion-icon>
+            </div>
+            <h3>Multi-Match Analysis</h3>
+            <p>Combine highlights from multiple games into one epic reel.</p>
+          </div>
+          <div class="feature-item">
+            <div class="feature-icon">
+              <ion-icon name="eye-outline"></ion-icon>
+            </div>
+            <h3>AI-Powered Play Detection</h3>
+            <p>Zhonya recognizes key moments like pentakills, baron steals, and game-winning teamfights.</p>
+          </div>
+          <div class="feature-item">
+            <div class="feature-icon">
+              <ion-icon name="options-outline"></ion-icon>
+            </div>
+            <h3>Custom Preferences</h3>
+            <p>Focus on specific champions, roles, or types of plays.</p>
+          </div>
+          <div class="feature-item">
+            <div class="feature-icon">
+              <ion-icon name="film-outline"></ion-icon>
+            </div>
+            <h3>High-Quality Editing</h3>
+            <p>Smooth transitions, dynamic camera angles, and synced audio for a professional feel.</p>
+          </div>
+          <div class="feature-item">
+            <div class="feature-icon">
+              <ion-icon name="stopwatch-outline"></ion-icon>
+            </div>
+            <h3>Quick Turnaround</h3>
+            <p>Receive your highlight reel within hours of your request.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- How It Works Section -->
+    <section class="how-it-works" id="how-it-works">
+      <div class="container">
+        <h2 class="h2 section-title">How Zhonya Works</h2>
+        <div class="step-list">
+          <div class="step-item">
+            <div class="step-number">1</div>
+            <h3>Connect Your Account</h3>
+            <p>Provide your Summoner Name, Tagline, and Region to get started.</p>
+          </div>
+          <div class="step-item">
+            <div class="step-number">2</div>
+            <h3>Select Your Matches</h3>
+            <p>Choose up to 5 recent matches you want to include in your highlight reel.</p>
+          </div>
+          <div class="step-item">
+            <div class="step-number">3</div>
+            <h3>Customize Your Reel</h3>
+            <p>Tell Zhonya what type of plays you want to highlight.</p>
+          </div>
+          <div class="step-item">
+            <div class="step-number">4</div>
+            <h3>Receive Your Highlights</h3>
+            <p>Get your professionally edited highlight reel delivered straight to your inbox.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- FAQ Section -->
+    <section class="faq-section" id="faq">
+      <div class="container">
+        <h2 class="h2 section-title">Frequently Asked Questions</h2>
+        <div class="faq-list">
+          <div class="faq-item">
+            <div class="faq-question">How long does it take to receive my highlight reel?</div>
+            <div class="faq-answer">Typically within 2-4 hours, depending on the number of matches.</div>
+          </div>
+          <div class="faq-item">
+            <div class="faq-question">Can I specify which moments to include?</div>
+            <div class="faq-answer">Yes! You can provide preferences for types of plays or specific game times.</div>
+          </div>
+          <div class="faq-item">
+            <div class="faq-question">What regions are supported?</div>
+            <div class="faq-answer">We support all major League of Legends regions.</div>
+          </div>
+          <div class="faq-item">
+            <div class="faq-question">Can I get highlights for my whole team?</div>
+            <div class="faq-answer">Absolutely! Contact us for special team packages.</div>
+          </div>
+          <div class="faq-item">
+            <div class="faq-question">Is my account information secure?</div>
+            <div class="faq-answer">Yes, we use industry-standard encryption and never store your login details.</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- CTA Section -->
+    <section class="cta-section" id="get-started">
+        <div class="container">
+          <h2 class="h2 section-title">Ready to Elevate Your League Highlights?</h2>
+          <p>Experience the power of Zhonya's AI-driven highlight creation!</p>
+          <div class="cta-button-container">
+            <a href="https://chatgpt.com/g/g-Zvt3s4xek-zhonya-by-aaai" class="btn btn-cta">Try Zhonya GPT Now</a>
+          </div>
+        </div>
+      </section>
+      
+      <style>
+        .cta-section {
+          background-color: var(--indigo);
+          padding: 100px 0;
+          text-align: center;
+        }
+        .cta-button-container {
+          margin-top: 50px;
+          display: flex;
+          justify-content: center;
+        }
+        .btn-cta {
+          font-size: 2rem;
+          padding: 20px 60px;
+          background-color: #FF4500; /* Bright orange color */
+          color: white;
+          border: none;
+          border-radius: 50px;
+          text-transform: uppercase;
+          font-weight: bold;
+          transition: all 0.3s ease;
+          display: inline-block;
+          text-align: center;
+          min-width: 300px;
+        }
+        .btn-cta:hover {
+          transform: scale(1.05);
+          box-shadow: 0 6px 20px rgba(255, 69, 0, 0.4);
+          background-color: #FF6347; /* Slightly lighter orange on hover */
+        }
+        @media (max-width: 768px) {
+          .btn-cta {
+            font-size: 1.5rem;
+            padding: 15px 40px;
+            min-width: 250px;
+          }
+        }
+      </style>
+      
+    
+
+  </main>
+
+  <footer class="footer">
+    <div class="container">
+      <p class="copyright">
+        &copy; 2024 <a href="#" class="copyright-link">Aaai Solutions</a>. All Rights Reserved
+      </p>
+      <ul class="footer-list">
+        <li>
+          <a href="#" class="footer-link">Terms & Condition</a>
+        </li>
+        <li>
+          <a href="privacy_policy.html" class="footer-link">Privacy Policy</a></li>
+      </ul>
+    </div>
+  </footer>
+
+  <a href="#top" class="back-to-top" data-back-to-top>BACK TOP</a>
+
+  <script src="./assets/js/script.js"></script>
+  <script type="module" src="https://unpkg.com/ionicons@5.5.2/dist/ionicons/ionicons.esm.js"></script>
+  <script nomodule src="https://unpkg.com/ionicons@5.5.2/dist/ionicons/ionicons.js"></script>
+  <script>
+    // Simple script to toggle FAQ answers
+    document.querySelectorAll('.faq-question').forEach(question => {
+      question.addEventListener('click', () => {
+        const answer = question.nextElementSibling;
+        answer.style.display = answer.style.display === 'block' ? 'none' : 'block';
+      });
+    });
+  </script>
+</body>
+
+</html>

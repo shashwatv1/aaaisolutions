@@ -36,6 +36,13 @@
   --rufous: hsl(2, 85%, 35%);
   --black: hsl(0, 0%, 0%);
   --white: hsl(0, 0%, 100%);
+  /* New purple-toned colors */
+  --royal-purple: hsl(273, 80%, 36%);
+  --amethyst: hsl(270, 50%, 60%);
+  --lavender: hsl(270, 60%, 85%);
+  --deep-purple: hsl(280, 100%, 25%);
+  --plum: hsl(300, 47%, 75%);
+  --indigo: hsl(275, 100%, 25%);
 
   /**
    * typography
