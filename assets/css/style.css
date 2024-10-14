@@ -23,15 +23,22 @@
   --cadet-blue-crayola: hsl(240, 10%, 70%);
   --gold-web-golden: hsl(50, 100%, 54%);
   --vivid-sky-blue: hsl(196, 84%, 63%);
-  --midnight-blue: hsl(231, 83%, 25%);
+  /* --midnight-blue: hsl(231, 83%, 25%); */
+  --midnight-blue: hsl(275, 80%, 25%);
+
   --minion-yellow: hsl(50, 100%, 64%);
   --independence: hsl(225, 24%, 27%);
-  --orange-soda: hsl(7, 96%, 61%);
+  /* --orange-soda: hsl(7, 96%, 61%); */
+  --orange-soda: hsl(15, 95%, 60%);
+
   --space-cadet: hsl(243, 23%, 18%);
   --fiery-rose: hsl(353, 83%, 65%);
-  --klein-blue: hsl(230, 80%, 39%);
+  /* --klein-blue: hsl(230, 80%, 39%); */
+  --klein-blue: hsl(15, 95%, 60%);
+
   --bluetiful: hsl(222, 88%, 55%);
-  --glaucous: hsl(230, 52%, 63%);
+  /* --glaucous: hsl(230, 52%, 63%); */
+  --glaucous: hsl(270, 50%, 60%);
   --manatee: hsl(254, 7%, 65%);
   --rufous: hsl(2, 85%, 35%);
   --black: hsl(0, 0%, 0%);
@@ -258,7 +265,6 @@ body {
 
 
 
-
 /*-----------------------------------*\
   #HEADER
 \*-----------------------------------*/
@@ -350,6 +356,25 @@ body {
   min-height: 100vh;
   display: grid;
   place-items: center;
+}
+
+.hero {
+  position: relative;
+  z-index: 1;
+}
+
+.hero::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-color: rgba(0, 0, 0, 0.5);
+  z-index: -1;
+  mix-blend-mode: color;
+  background-color: rgba(128, 0, 128, 0.3); /* Purple tint */
+  filter: brightness(0.7) contrast(1.2) saturate(1.2);
 }
 
 .hero-banner {
@@ -923,11 +948,11 @@ textarea.contact-input {
    */
 
   .portfolio-card {
-    background-size: 115%;
+    background-size: 100%;
     padding-inline: 80px;
   }
 
-  .portfolio-card:is(:hover, :focus) { background-size: 130%; }
+  .portfolio-card:is(:hover, :focus) { background-size: 110%; }
 
 
 
@@ -1076,14 +1101,14 @@ textarea.contact-input {
     left: -135px;
   }
 
-  .elem-1 .elem-title { color: var(--vivid-sky-blue); }
+  .elem-1 .elem-title { color: var(--royal-purple); }
 
   .elem-2 {
     top: 175px;
     right: -115px;
   }
 
-  .elem-2 .elem-title { color: var(--fiery-rose); }
+  .elem-2 .elem-title { color: var(--royal-purple); }
 
   .elem-title {
     font-size: 3.5rem;
@@ -1165,19 +1190,19 @@ textarea.contact-input {
   .abs-icon-1 {
     top: 50px;
     left: -60px;
-    background-color: var(--bluetiful);
+    background-color: var(--royal-purple);
   }
 
   .abs-icon-2 {
     top: -40px;
     right: -40px;
-    background-color: var(--gold-web-golden);
+    background-color: var(--royal-purple);
   }
 
   .abs-icon-3 {
     bottom: -40px;
     left: 250px;
-    background-color: var(--rufous);
+    background-color: var(--royal-purple);
   }
 
 
