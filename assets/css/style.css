@@ -373,9 +373,12 @@ body {
   background-color: rgba(0, 0, 0, 0.5);
   z-index: -1;
   mix-blend-mode: color;
-  background-color: rgba(128, 0, 128, 0.3); /* Purple tint */
-  filter: brightness(0.7) contrast(1.2) saturate(1.2);
-}
+  background-color: rgba(128, 0, 128, 0.3); 
+  filter: brightness(1.5) contrast(1.2) saturate(1.2);
+} 
+
+
+
 
 .hero-banner {
   width: 150px;
