@@ -462,6 +462,20 @@ body {
   gap: 60px;
 }
 
+/* New styles for mobile devices */
+@media (max-width: 767px) {
+  .portfolio-card {
+    background-size: cover;
+    background-position: center;
+  }
+
+  /* Mirror background for even cards */
+  .portfolio-list > li:nth-child(even) .portfolio-card {
+    transform: scaleX(-1);
+  }
+}
+
+
 .portfolio-card {
   background-color: var(--independence);
   background-repeat: no-repeat;
