@@ -473,6 +473,11 @@ body {
   .portfolio-list > li:nth-child(even) .portfolio-card {
     transform: scaleX(-1);
   }
+
+  /* Flip the content back for even cards */
+  .portfolio-list > li:nth-child(even) .portfolio-card .card-content {
+    transform: scaleX(-1);
+  }
 }
 
 
