@@ -1,277 +1,284 @@
 /**
- * UI Component Renderer for AAAI Solutions Chat
- * Renders rich UI components in the chat interface
+ * WebSocket-based Chat Service for AAAI Solutions
+ * Provides real-time messaging capabilities
  */
-const UIComponentRenderer = {
+const ChatService = {
     /**
-     * Initialize the component renderer
-     * @param {Object} options - Renderer options
+     * Initialize the chat service
+     * @param {Object} authService - Authentication service instance
+     * @param {Object} options - Configuration options
      */
-    init(options = {}) {
+    init(authService, options = {}) {
+        this.authService = authService;
         this.options = Object.assign({
-            linkHandler: null,
-            actionHandler: null
+            reconnectInterval: 3000,
+            maxReconnectAttempts: 5,
+            debug: false
         }, options);
         
+        this.socket = null;
+        this.isConnected = false;
+        this.reconnectAttempts = 0;
+        this.messageListeners = [];
+        this.statusListeners = [];
+        this.messageQueue = [];
+        
+        // Bind methods
+        this._onMessage = this._onMessage.bind(this);
+        this._onOpen = this._onOpen.bind(this);
+        this._onClose = this._onClose.bind(this);
+        this._onError = this._onError.bind(this);
+        
+        // Return this for chaining
         return this;
     },
     
     /**
-     * Render a component in the chat
-     * @param {Object} component - Component data
-     * @param {Element} container - Container element
+     * Connect to the WebSocket server
+     * @returns {Promise<boolean>} - Connection result
      */
-    renderComponent(component, container) {
-        if (!component || !component.type || !container) {
-            console.error('Invalid component or container');
-            return null;
-        }
-        
-        let componentElement = null;
-        
-        switch (component.type) {
-            case 'button':
-                componentElement = this._renderButton(component);
-                break;
-                
-            case 'card':
-                componentElement = this._renderCard(component);
-                break;
-                
-            case 'quick_replies':
-                componentElement = this._renderQuickReplies(component);
-                break;
-                
-            case 'contact_list':
-                componentElement = this._renderContactList(component);
-                break;
-                
-            default:
-                console.warn('Unknown component type:', component.type);
-                return null;
-        }
-        
-        if (componentElement) {
-            container.appendChild(componentElement);
-            return componentElement;
-        }
-        
-        return null;
-    },
-    
-    /**
-     * Render a button component
-     * @private
-     */
-    _renderButton(component) {
-        const button = document.createElement('button');
-        button.className = 'chat-component-button';
-        button.textContent = component.label || 'Button';
-        
-        // Add style class
-        if (component.style) {
-            button.classList.add(`chat-button-${component.style}`);
-        }
-        
-        // Add action handler
-        button.addEventListener('click', (event) => {
-            event.preventDefault();
-            
-            if (component.action === 'link' && component.value) {
-                // Handle link action
-                if (this.options.linkHandler) {
-                    this.options.linkHandler(component.value);
-                } else {
-                    window.location.href = component.value;
-                }
-            } else if (this.options.actionHandler) {
-                // Handle other actions
-                this.options.actionHandler(component.action, component.value);
+    connect() {
+        return new Promise((resolve, reject) => {
+            if (!this.authService.isAuthenticated()) {
+                this._debug('Authentication required');
+                reject(new Error('Authentication required'));
+                return;
             }
-        });
-        
-        return button;
-    },
-    
-    /**
-     * Render a card component
-     * @private
-     */
-    _renderCard(component) {
-        const card = document.createElement('div');
-        card.className = 'chat-component-card';
-        
-        // Add image if present
-        if (component.image_url) {
-            const imageContainer = document.createElement('div');
-            imageContainer.className = 'chat-card-image';
             
-            const image = document.createElement('img');
-            image.src = component.image_url;
-            image.alt = component.title || 'Card image';
+            if (this.isConnected) {
+                this._debug('Already connected');
+                resolve(true);
+                return;
+            }
             
-            imageContainer.appendChild(image);
-            card.appendChild(imageContainer);
-        }
-        
-        // Add content container
-        const content = document.createElement('div');
-        content.className = 'chat-card-content';
-        
-        // Add title
-        const title = document.createElement('h3');
-        title.className = 'chat-card-title';
-        title.textContent = component.title || '';
-        content.appendChild(title);
-        
-        // Add subtitle if present
-        if (component.subtitle) {
-            const subtitle = document.createElement('p');
-            subtitle.className = 'chat-card-subtitle';
-            subtitle.textContent = component.subtitle;
-            content.appendChild(subtitle);
-        }
-        
-        // Add buttons if present
-        if (component.buttons && Array.isArray(component.buttons)) {
-            const buttonContainer = document.createElement('div');
-            buttonContainer.className = 'chat-card-buttons';
-            
-            component.buttons.forEach(buttonData => {
-                const button = this._renderButton(buttonData);
-                buttonContainer.appendChild(button);
-            });
-            
-            content.appendChild(buttonContainer);
-        }
-        
-        card.appendChild(content);
-        return card;
-    },
-    
-    /**
-     * Render quick replies
-     * @private
-     */
-    _renderQuickReplies(component) {
-        const container = document.createElement('div');
-        container.className = 'chat-component-quick-replies';
-        
-        // Add title if present
-        if (component.title) {
-            const title = document.createElement('div');
-            title.className = 'chat-quick-replies-title';
-            title.textContent = component.title;
-            container.appendChild(title);
-        }
-        
-        // Add options
-        if (component.options && Array.isArray(component.options)) {
-            const optionsContainer = document.createElement('div');
-            optionsContainer.className = 'chat-quick-replies-options';
-            
-            component.options.forEach(option => {
-                const button = document.createElement('button');
-                button.className = 'chat-quick-reply-button';
-                button.textContent = option.label || 'Option';
+            try {
+                const user = this.authService.getCurrentUser();
+                const token = this.authService.token;
                 
-                // Add action handler
-                button.addEventListener('click', (event) => {
-                    event.preventDefault();
-                    
-                    if (option.action === 'link' && option.url) {
-                        // Handle link action
-                        if (this.options.linkHandler) {
-                            this.options.linkHandler(option.url);
-                        } else {
-                            window.location.href = option.url;
-                        }
-                    } else if (option.action === 'reply') {
-                        // Handle reply action - simulate a user message
-                        if (this.options.actionHandler) {
-                            this.options.actionHandler('reply', option.label);
-                        }
-                    } else if (this.options.actionHandler) {
-                        // Handle other actions
-                        this.options.actionHandler(option.action, option.value);
-                    }
-                    
-                    // Remove quick replies after selection
-                    container.remove();
+                // Use token in the WebSocket URL for authentication
+                const wsUrl = `${this.authService.WS_BASE_URL}/ws/${user.id}?token=${token}`;
+                
+                this.socket = new WebSocket(wsUrl);
+                
+                // Set up event listeners
+                this.socket.addEventListener('open', (event) => {
+                    this._onOpen(event);
+                    resolve(true);
                 });
                 
-                optionsContainer.appendChild(button);
-            });
-            
-            container.appendChild(optionsContainer);
-        }
-        
-        return container;
+                this.socket.addEventListener('message', this._onMessage);
+                this.socket.addEventListener('close', this._onClose);
+                this.socket.addEventListener('error', (event) => {
+                    this._onError(event);
+                    reject(new Error('WebSocket connection error'));
+                });
+                
+            } catch (error) {
+                this._debug('Connection error:', error);
+                reject(error);
+            }
+        });
     },
     
     /**
-     * Render contact list
+     * Disconnect from the WebSocket server
+     */
+    disconnect() {
+        if (this.socket) {
+            this.socket.close(1000, 'Client disconnected');
+            this.socket = null;
+            this.isConnected = false;
+            this._notifyStatusChange('disconnected');
+        }
+    },
+    
+    /**
+     * Send a message through the WebSocket
+     * @param {string} message - Message to send
+     * @returns {Promise<boolean>} - Send result
+     */
+    sendMessage(message) {
+        return new Promise((resolve, reject) => {
+            if (!message || message.trim() === '') {
+                reject(new Error('Message cannot be empty'));
+                return;
+            }
+            
+            if (!this.isConnected) {
+                // Queue message and try to reconnect
+                this.messageQueue.push(message);
+                this.connect()
+                    .then(() => this._debug('Connected and queued message'))
+                    .catch(err => {
+                        this._debug('Failed to connect:', err);
+                        reject(new Error('Not connected'));
+                    });
+                return;
+            }
+            
+            try {
+                const payload = {
+                    message,
+                    timestamp: new Date().toISOString()
+                };
+                
+                this.socket.send(JSON.stringify(payload));
+                resolve(true);
+                
+            } catch (error) {
+                this._debug('Send error:', error);
+                reject(error);
+            }
+        });
+    },
+    
+    /**
+     * Add a message listener
+     * @param {Function} callback - Message callback function
+     */
+    onMessage(callback) {
+        if (typeof callback === 'function') {
+            this.messageListeners.push(callback);
+        }
+    },
+    
+    /**
+     * Add a status listener
+     * @param {Function} callback - Status callback function
+     */
+    onStatusChange(callback) {
+        if (typeof callback === 'function') {
+            this.statusListeners.push(callback);
+        }
+    },
+    
+    /**
+     * Handle WebSocket open event
      * @private
      */
-    _renderContactList(component) {
-        const container = document.createElement('div');
-        container.className = 'chat-component-contact-list';
+    _onOpen(event) {
+        this._debug('WebSocket connected');
+        this.isConnected = true;
+        this.reconnectAttempts = 0;
         
-        // Add items
-        if (component.items && Array.isArray(component.items)) {
-            component.items.forEach(item => {
-                const contactItem = document.createElement('div');
-                contactItem.className = 'chat-contact-item';
-                
-                // Add icon
-                const icon = document.createElement('div');
-                icon.className = `chat-contact-icon chat-icon-${item.icon || 'default'}`;
-                contactItem.appendChild(icon);
-                
-                // Add content
-                const content = document.createElement('div');
-                content.className = 'chat-contact-content';
-                
-                // Add title
-                const title = document.createElement('div');
-                title.className = 'chat-contact-title';
-                title.textContent = item.title || '';
-                content.appendChild(title);
-                
-                // Add value
-                const value = document.createElement('div');
-                value.className = 'chat-contact-value';
-                value.textContent = item.value || '';
-                content.appendChild(value);
-                
-                contactItem.appendChild(content);
-                
-                // Add action button
-                if (item.action === 'copy') {
-                    const copyButton = document.createElement('button');
-                    copyButton.className = 'chat-contact-copy';
-                    copyButton.innerHTML = '<ion-icon name="copy-outline"></ion-icon>';
-                    copyButton.title = 'Copy to clipboard';
-                    
-                    copyButton.addEventListener('click', () => {
-                        navigator.clipboard.writeText(item.value)
-                            .then(() => {
-                                // Show copied tooltip
-                                copyButton.classList.add('copied');
-                                setTimeout(() => {
-                                    copyButton.classList.remove('copied');
-                                }, 2000);
-                            })
-                            .catch(err => console.error('Failed to copy:', err));
-                    });
-                    
-                    contactItem.appendChild(copyButton);
-                }
-                
-                container.appendChild(contactItem);
-            });
+        // Notify status listeners
+        this._notifyStatusChange('connected');
+        
+        // Send queued messages
+        while (this.messageQueue.length > 0) {
+            const message = this.messageQueue.shift();
+            this.sendMessage(message)
+                .catch(err => this._debug('Failed to send queued message:', err));
+        }
+    },
+    
+    /**
+     * Handle WebSocket message event
+     * @private
+     */
+    _onMessage(event) {
+        try {
+            const data = JSON.parse(event.data);
+            this._debug('Received message:', data);
+            
+            // Notify listeners
+            this._notifyMessageListeners(data);
+            
+        } catch (error) {
+            this._debug('Error processing message:', error);
+        }
+    },
+    
+    /**
+     * Handle WebSocket close event
+     * @private
+     */
+    _onClose(event) {
+        this.isConnected = false;
+        this._debug('WebSocket disconnected, code:', event.code, 'reason:', event.reason);
+        
+        // Notify status listeners
+        this._notifyStatusChange('disconnected');
+        
+        // Try to reconnect if not a normal closure
+        if (event.code !== 1000 && event.code !== 1001) {
+            this._tryReconnect();
+        }
+    },
+    
+    /**
+     * Handle WebSocket error event
+     * @private
+     */
+    _onError(event) {
+        this._debug('WebSocket error:', event);
+        // Notify status listeners
+        this._notifyStatusChange('error');
+    },
+    
+    /**
+     * Try to reconnect to the WebSocket server
+     * @private
+     */
+    _tryReconnect() {
+        if (this.reconnectAttempts >= this.options.maxReconnectAttempts) {
+            this._debug('Max reconnect attempts reached');
+            return;
         }
         
-        return container;
+        this.reconnectAttempts++;
+        this._debug(`Reconnecting (${this.reconnectAttempts}/${this.options.maxReconnectAttempts}) in ${this.options.reconnectInterval}ms`);
+        
+        // Notify status listeners
+        this._notifyStatusChange('reconnecting');
+        
+        setTimeout(() => {
+            if (!this.isConnected) {
+                this.connect()
+                    .then(() => this._debug('Reconnected successfully'))
+                    .catch(err => {
+                        this._debug('Reconnect failed:', err);
+                        this._tryReconnect();
+                    });
+            }
+        }, this.options.reconnectInterval);
+    },
+    
+    /**
+     * Notify message listeners
+     * @private
+     */
+    _notifyMessageListeners(data) {
+        this.messageListeners.forEach(callback => {
+            try {
+                callback(data);
+            } catch (error) {
+                this._debug('Error in message listener:', error);
+            }
+        });
+    },
+    
+    /**
+     * Notify status listeners
+     * @private
+     */
+    _notifyStatusChange(status) {
+        this.statusListeners.forEach(callback => {
+            try {
+                callback(status);
+            } catch (error) {
+                this._debug('Error in status listener:', error);
+            }
+        });
+    },
+    
+    /**
+     * Debug log
+     * @private
+     */
+    _debug(...args) {
+        if (this.options.debug) {
+            console.log('[ChatService]', ...args);
+        }
     }
 };

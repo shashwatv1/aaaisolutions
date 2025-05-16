@@ -1,18 +1,17 @@
 /**
- * Enhanced Authentication module for AAAI Solutions
+ * Authentication module for AAAI Solutions
  * Handles OTP request/verification and token management with improved security
  */
 const AuthService = {
-    API_BASE_URL: 'https://api-server-559730737995.us-central1.run.app',
-    API_KEY: 'your-api-key-here', // Replace with your actual API key
-    WS_BASE_URL: 'wss://api-server-559730737995.us-central1.run.app', // WebSocket URL
+    // Cloud Functions or API Gateway URL
+    API_BASE_URL: 'https://aaai-gateway-754x89jf.uc.gateway.dev', // Or API Gateway URL
+    WS_BASE_URL: 'wss://api-server-559730737995.us-central1.run.app',       // WebSocket URL (unchanged)
     
     // Initialize the auth service
     init() {
         this.token = this._getSecureItem('auth_token');
         this.userEmail = this._getSecureItem('user_email');
         this.userId = this._getSecureItem('user_id');
-        this.csrfToken = this._getSecureItem('csrf_token');
         
         // Check token expiration
         if (this.token) {
@@ -49,11 +48,10 @@ const AuthService = {
             // Generate a browser fingerprint for additional security
             const fingerprint = await this._generateFingerprint();
             
-            const response = await fetch(`${this.API_BASE_URL}/auth/request-otp`, {
+            const response = await fetch(`${this.API_BASE_URL}/requestOTP`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
-                    'X-API-Key': this.API_KEY,
                     'X-Device-Fingerprint': fingerprint
                 },
                 body: JSON.stringify({ email })
@@ -61,7 +59,7 @@ const AuthService = {
             
             if (!response.ok) {
                 const error = await response.json();
-                throw new Error(error.detail || 'Failed to request OTP');
+                throw new Error(error.error || 'Failed to request OTP');
             }
             
             return await response.json();
@@ -77,11 +75,10 @@ const AuthService = {
             // Generate a browser fingerprint for additional security
             const fingerprint = await this._generateFingerprint();
             
-            const response = await fetch(`${this.API_BASE_URL}/auth/verify-otp`, {
+            const response = await fetch(`${this.API_BASE_URL}/verifyOTP`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
-                    'X-API-Key': this.API_KEY,
                     'X-Device-Fingerprint': fingerprint
                 },
                 body: JSON.stringify({ email, otp })
@@ -89,7 +86,7 @@ const AuthService = {
             
             if (!response.ok) {
                 const error = await response.json();
-                throw new Error(error.detail || 'Invalid OTP');
+                throw new Error(error.error || 'Invalid OTP');
             }
             
             const data = await response.json();
@@ -98,9 +95,6 @@ const AuthService = {
             this.token = data.access_token;
             this.userEmail = email;
             this.userId = data.id;
-            
-            // Get CSRF token
-            await this._refreshCSRFToken();
             
             // Store in secure storage
             this._setSecureItem('auth_token', data.access_token);
@@ -114,62 +108,82 @@ const AuthService = {
         }
     },
     
+    // Execute a function
+    async executeFunction(functionName, inputData) {
+        if (!this.isAuthenticated()) {
+            throw new Error('Authentication required');
+        }
+        
+        try {
+            const response = await fetch(`${this.API_BASE_URL}/executeFunction`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${this.token}`
+                },
+                body: JSON.stringify({
+                    function_name: functionName,
+                    input_data: inputData
+                })
+            });
+            
+            if (!response.ok) {
+                const error = await response.json();
+                throw new Error(error.error || `Failed to execute function: ${functionName}`);
+            }
+            
+            return await response.json();
+        } catch (error) {
+            console.error(`Function execution error (${functionName}):`, error);
+            throw error;
+        }
+    },
+    
+    // Send a chat message
+    async sendChatMessage(message) {
+        if (!this.isAuthenticated()) {
+            throw new Error('Authentication required');
+        }
+        
+        try {
+            const response = await fetch(`${this.API_BASE_URL}/chat`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${this.token}`
+                },
+                body: JSON.stringify({ message })
+            });
+            
+            if (!response.ok) {
+                const error = await response.json();
+                throw new Error(error.error || 'Failed to send message');
+            }
+            
+            return await response.json();
+        } catch (error) {
+            console.error('Chat error:', error);
+            throw error;
+        }
+    },
+    
     // Logout user
     logout() {
         this.token = null;
         this.userEmail = null;
         this.userId = null;
-        this.csrfToken = null;
         
         // Remove from secure storage
         this._removeSecureItem('auth_token');
         this._removeSecureItem('user_email');
         this._removeSecureItem('user_id');
-        this._removeSecureItem('csrf_token');
     },
     
     // Get authorization header
     getAuthHeader() {
-        const headers = {
-            'Authorization': `Bearer ${this.token}`,
-            'X-API-Key': this.API_KEY
+        return {
+            'Authorization': `Bearer ${this.token}`
         };
-        
-        if (this.csrfToken) {
-            headers['X-CSRF-Token'] = this.csrfToken;
-        }
-        
-        return headers;
-    },
-    
-    // Refresh CSRF token
-    async _refreshCSRFToken() {
-        try {
-            if (!this.token || !this.userId) {
-                return null;
-            }
-            
-            const response = await fetch(`${this.API_BASE_URL}/auth/csrf-token`, {
-                method: 'GET',
-                headers: {
-                    'Authorization': `Bearer ${this.token}`,
-                    'X-API-Key': this.API_KEY
-                }
-            });
-            
-            if (!response.ok) {
-                return null;
-            }
-            
-            const data = await response.json();
-            this.csrfToken = data.csrf_token;
-            this._setSecureItem('csrf_token', data.csrf_token);
-            
-            return this.csrfToken;
-        } catch (error) {
-            console.error('CSRF token refresh error:', error);
-            return null;
-        }
     },
     
     // Generate a browser fingerprint for additional security
