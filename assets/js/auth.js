@@ -48,7 +48,7 @@ const AuthService = {
             // Generate a browser fingerprint for additional security
             const fingerprint = await this._generateFingerprint();
             
-            const response = await fetch(`${this.API_BASE_URL}/requestOTP`, {
+            const response = await fetch(`${this.API_BASE_URL}/auth/request-otp`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -75,7 +75,7 @@ const AuthService = {
             // Generate a browser fingerprint for additional security
             const fingerprint = await this._generateFingerprint();
             
-            const response = await fetch(`${this.API_BASE_URL}/verifyOTP`, {
+            const response = await fetch(`${this.API_BASE_URL}/auth/verify-otp`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -115,7 +115,7 @@ const AuthService = {
         }
         
         try {
-            const response = await fetch(`${this.API_BASE_URL}/executeFunction`, {
+            const response = await fetch(`${this.API_BASE_URL}/auth/execute-function`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -146,7 +146,7 @@ const AuthService = {
         }
         
         try {
-            const response = await fetch(`${this.API_BASE_URL}/chat`, {
+            const response = await fetch(`${this.API_BASE_URL}/auth/chat`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',

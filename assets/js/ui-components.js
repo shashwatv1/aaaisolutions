@@ -1,7 +1,7 @@
 /**
  * UI Component Renderer for AAAI Solutions Chat
  * Renders rich UI components in the chat interface
- */
+*/
 const UIComponentRenderer = {
   /**
    * Initialize the component renderer
