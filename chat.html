@@ -1,0 +1,1083 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AAAI Solutions - Chatbot Interface</title>
+  <link rel="shortcut icon" href="./robot.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="./assets/css/style.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Barlow:wght@600;700&family=Open+Sans:wght@400;500;700&family=Poppins:wght@400;600&display=swap" rel="stylesheet">
+  
+  <!-- Additional styles specific to the chat page -->
+  <style>
+    /* Hero section styles */
+    .demo-hero {
+      background-color: var(--indigo);
+      padding: 150px 0;
+      text-align: center;
+    }
+    
+    .demo-hero h1 {
+      font-size: 4rem;
+      margin-bottom: 20px;
+      color: var(--white);
+    }
+    
+    /* Chat container styles */
+    .chat-container {
+      max-width: 900px;
+      margin: 50px auto;
+      background-color: var(--independence);
+      border-radius: var(--radius-15);
+      overflow: hidden;
+      box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
+      position: relative;
+    }
+    
+    /* Auth section styles */
+    .auth-section {
+      padding: 20px;
+      background-color: var(--space-cadet);
+      border-top-left-radius: var(--radius-15);
+      border-top-right-radius: var(--radius-15);
+      text-align: center;
+      color: var(--white);
+    }
+    
+    .auth-form {
+      display: flex;
+      flex-direction: column;
+      max-width: 400px;
+      margin: 0 auto;
+      gap: 15px;
+    }
+    
+    .auth-input {
+      padding: 12px 15px;
+      border-radius: 5px;
+      border: none;
+      background-color: var(--independence);
+      color: var(--white);
+    }
+    
+    .auth-button {
+      padding: 12px 20px;
+      border: none;
+      border-radius: 5px;
+      background-color: var(--orange-soda);
+      color: var(--white);
+      font-weight: bold;
+      cursor: pointer;
+      transition: all 0.3s ease;
+    }
+    
+    .auth-button:hover {
+      background-color: var(--klein-blue);
+    }
+    
+    /* Chat interface styles */
+    .chat-interface {
+      display: none; /* Hidden initially, shown after auth */
+    }
+    
+    .chat-header {
+      background-color: var(--indigo);
+      padding: 15px 20px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    
+    .chat-title {
+      color: var(--white);
+      font-size: 1.8rem;
+      margin: 0;
+    }
+    
+    .user-info {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      color: var(--white);
+    }
+    
+    .credits-badge {
+      background-color: var(--orange-soda);
+      padding: 5px 10px;
+      border-radius: 15px;
+      font-size: 0.9rem;
+    }
+    
+    .logout-btn {
+      background: transparent;
+      border: none;
+      color: var(--white);
+      cursor: pointer;
+    }
+    
+    .chat-body {
+      height: 500px;
+      padding: 20px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      background-color: var(--space-cadet);
+    }
+    
+    .message {
+      max-width: 70%;
+      padding: 12px 15px;
+      margin-bottom: 15px;
+      border-radius: 15px;
+      position: relative;
+      line-height: 1.5;
+    }
+    
+    .message-bot {
+      background-color: var(--independence);
+      color: var(--white);
+      align-self: flex-start;
+      border-bottom-left-radius: 5px;
+    }
+    
+    .message-user {
+      background-color: var(--klein-blue);
+      color: var(--white);
+      align-self: flex-end;
+      border-bottom-right-radius: 5px;
+    }
+    
+    .chat-footer {
+      display: flex;
+      padding: 15px;
+      border-top: 1px solid rgba(255, 255, 255, 0.1);
+      background-color: var(--independence);
+    }
+    
+    .chat-input {
+      flex: 1;
+      background-color: var(--space-cadet);
+      color: var(--white);
+      border: none;
+      padding: 12px 15px;
+      border-radius: 20px;
+      margin-right: 10px;
+    }
+    
+    .chat-send-btn {
+      background-color: var(--orange-soda);
+      color: white;
+      border: none;
+      padding: 10px 20px;
+      border-radius: 20px;
+      cursor: pointer;
+      transition: all 0.3s ease;
+    }
+    
+    .chat-send-btn:hover {
+      background-color: var(--klein-blue);
+    }
+    
+    /* Loading indicator */
+    .typing-indicator {
+      display: flex;
+      align-items: center;
+      padding: 10px 15px;
+      background-color: var(--independence);
+      border-radius: 15px;
+      margin-bottom: 15px;
+      width: fit-content;
+      align-self: flex-start;
+    }
+    
+    .typing-dot {
+      width: 8px;
+      height: 8px;
+      background-color: var(--white);
+      border-radius: 50%;
+      margin: 0 2px;
+      animation: typing-animation 1.4s infinite ease-in-out;
+    }
+    
+    .typing-dot:nth-child(2) {
+      animation-delay: 0.2s;
+    }
+    
+    .typing-dot:nth-child(3) {
+      animation-delay: 0.4s;
+    }
+    
+    @keyframes typing-animation {
+      0%, 100% {
+        transform: translateY(0);
+      }
+      50% {
+        transform: translateY(-5px);
+      }
+    }
+    
+    /* Status indicators */
+    .status-indicator {
+      position: absolute;
+      top: 10px;
+      left: 50%;
+      transform: translateX(-50%);
+      padding: 5px 15px;
+      border-radius: 20px;
+      font-size: 0.9rem;
+      opacity: 0;
+      transition: opacity 0.3s ease;
+      z-index: 10;
+    }
+    
+    .status-connected {
+      background-color: rgba(46, 204, 113, 0.8);
+      color: white;
+    }
+    
+    .status-disconnected {
+      background-color: rgba(231, 76, 60, 0.8);
+      color: white;
+    }
+    
+    .status-reconnecting {
+      background-color: rgba(243, 156, 18, 0.8);
+      color: white;
+    }
+    
+    .status-indicator.visible {
+      opacity: 1;
+    }
+    
+    /* OTP section */
+    .otp-section {
+      display: none;
+      text-align: center;
+      padding: 20px;
+    }
+    
+    .otp-title {
+      color: var(--white);
+      margin-bottom: 10px;
+    }
+    
+    .otp-subtitle {
+      color: var(--cadet-blue-crayola);
+      margin-bottom: 20px;
+    }
+    
+    .error-message {
+      color: #e74c3c;
+      margin-top: 10px;
+      font-size: 0.9rem;
+    }
+    
+    /* Message timestamp */
+    .message-timestamp {
+      font-size: 0.7rem;
+      color: rgba(255, 255, 255, 0.5);
+      margin-top: 5px;
+      text-align: right;
+    }
+    
+    /* UI Components Styling */
+    .chat-components-container {
+      margin-top: 10px;
+    }
+    
+    /* Button Component */
+    .chat-component-button {
+      padding: 8px 16px;
+      border-radius: 20px;
+      font-size: 0.9rem;
+      border: none;
+      background-color: var(--klein-blue);
+      color: white;
+      cursor: pointer;
+      margin: 5px;
+      transition: all 0.2s ease;
+    }
+    
+    .chat-component-button:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+    }
+    
+    .chat-button-primary {
+      background-color: var(--klein-blue);
+    }
+    
+    .chat-button-secondary {
+      background-color: var(--independence);
+    }
+    
+    .chat-button-success {
+      background-color: #2ecc71;
+    }
+    
+    .chat-button-danger {
+      background-color: #e74c3c;
+    }
+    
+    /* Card Component */
+    .chat-component-card {
+      width: 100%;
+      max-width: 280px;
+      background-color: var(--independence);
+      border-radius: 10px;
+      overflow: hidden;
+      margin: 10px 0;
+      box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+    }
+    
+    .chat-card-image {
+      width: 100%;
+      height: 140px;
+      overflow: hidden;
+    }
+    
+    .chat-card-image img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+    
+    .chat-card-content {
+      padding: 15px;
+    }
+    
+    .chat-card-title {
+      font-size: 1.1rem;
+      margin: 0 0 5px 0;
+      color: white;
+    }
+    
+    .chat-card-subtitle {
+      font-size: 0.9rem;
+      color: rgba(255, 255, 255, 0.7);
+      margin: 0 0 15px 0;
+    }
+    
+    .chat-card-buttons {
+      display: flex;
+      flex-wrap: wrap;
+      margin-top: 10px;
+    }
+    
+    /* Quick Replies */
+    .chat-component-quick-replies {
+      width: 100%;
+      margin: 10px 0;
+    }
+    
+    .chat-quick-replies-title {
+      font-size: 0.9rem;
+      color: rgba(255, 255, 255, 0.7);
+      margin-bottom: 8px;
+    }
+    
+    .chat-quick-replies-options {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 5px;
+    }
+    
+    .chat-quick-reply-button {
+      padding: 6px 12px;
+      border-radius: 15px;
+      font-size: 0.8rem;
+      border: 1px solid rgba(255, 255, 255, 0.3);
+      background-color: transparent;
+      color: white;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+    
+    .chat-quick-reply-button:hover {
+      background-color: rgba(255, 255, 255, 0.1);
+    }
+    
+    /* Contact List */
+    .chat-component-contact-list {
+      width: 100%;
+      margin: 10px 0;
+    }
+    
+    .chat-contact-item {
+      display: flex;
+      align-items: center;
+      padding: 10px;
+      border-radius: 8px;
+      background-color: rgba(255, 255, 255, 0.05);
+      margin-bottom: 5px;
+    }
+    
+    .chat-contact-icon {
+      width: 30px;
+      height: 30px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-right: 10px;
+      color: white;
+    }
+    
+    .chat-contact-content {
+      flex: 1;
+    }
+    
+    .chat-contact-title {
+      font-size: 0.9rem;
+      color: rgba(255, 255, 255, 0.7);
+    }
+    
+    .chat-contact-value {
+      font-size: 1rem;
+      color: white;
+    }
+    
+    .chat-contact-copy {
+      background: transparent;
+      border: none;
+      color: white;
+      cursor: pointer;
+      position: relative;
+    }
+    
+    .chat-contact-copy::after {
+      content: 'Copied!';
+      position: absolute;
+      top: -25px;
+      left: 50%;
+      transform: translateX(-50%);
+      background-color: rgba(46, 204, 113, 0.9);
+      color: white;
+      padding: 3px 8px;
+      border-radius: 3px;
+      font-size: 0.8rem;
+      opacity: 0;
+      transition: opacity 0.2s ease;
+      pointer-events: none;
+    }
+    
+    .chat-contact-copy.copied::after {
+      opacity: 1;
+    }
+    
+    /* Message History Section */
+    .message-history-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 15px;
+      background-color: rgba(0, 0, 0, 0.2);
+      border-radius: 5px;
+      margin-bottom: 15px;
+    }
+    
+    .message-history-title {
+      font-size: 0.9rem;
+      color: rgba(255, 255, 255, 0.7);
+    }
+    
+    .message-history-actions {
+      display: flex;
+      gap: 10px;
+    }
+    
+    .message-history-button {
+      background: transparent;
+      border: none;
+      color: white;
+      cursor: pointer;
+      font-size: 0.8rem;
+    }
+    
+    .message-history-date {
+      text-align: center;
+      margin: 15px 0;
+      position: relative;
+    }
+    
+    .message-history-date::before,
+    .message-history-date::after {
+      content: '';
+      position: absolute;
+      top: 50%;
+      width: 35%;
+      height: 1px;
+      background-color: rgba(255, 255, 255, 0.2);
+    }
+    
+    .message-history-date::before {
+      left: 0;
+    }
+    
+    .message-history-date::after {
+      right: 0;
+    }
+    
+    .message-history-date-text {
+      display: inline-block;
+      padding: 3px 10px;
+      background-color: rgba(0, 0, 0, 0.3);
+      border-radius: 10px;
+      font-size: 0.8rem;
+      color: rgba(255, 255, 255, 0.6);
+    }
+  </style>
+</head>
+
+<body id="top">
+
+  <!-- Header (kept the same as the main site) -->
+  <header class="header" data-header>
+    <div class="container">
+      <a href="index.html">
+        <h1 class="logo">Aaai Solutions</h1>
+      </a>
+      <button class="nav-toggle-btn" aria-label="Toggle Menu" data-nav-toggle-btn>
+        <ion-icon name="menu-outline" class="menu-icon"></ion-icon>
+        <ion-icon name="close-outline" class="close-icon"></ion-icon>
+      </button>
+      <nav class="navbar container">
+        <ul class="navbar-list">
+          <li><a href="index.html" class="navbar-link" data-nav-link>Home</a></li>
+          <li><a href="index.html#about" class="navbar-link" data-nav-link>About</a></li>
+          <li><a href="index.html#solutions" class="navbar-link" data-nav-link>Solutions</a></li>
+          <li><a href="index.html#applications" class="navbar-link" data-nav-link>Pursuits</a></li>
+          <li><a href="index.html#contact" class="navbar-link" data-nav-link>Contact</a></li>
+          <li><a href="https://calendly.com/shash-aaai/30min" class="btn btn-primary">Schedule a Demo</a></li>
+        </ul>
+      </nav>
+    </div>
+  </header>
+
+  <main>
+    <!-- Hero Section -->
+    <section class="demo-hero">
+      <div class="container">
+        <h1>AAAI Solutions Chatbot</h1>
+        <p>Experience our intelligent conversational interface that transforms customer engagement</p>
+      </div>
+    </section>
+
+    <!-- Chat Interface Section -->
+    <section class="section" id="demo">
+      <div class="container">
+        <h2 class="h2 section-title">AI Assistant</h2>
+        <p class="section-text">
+          Chat with our AI to learn more about our services and get personalized assistance
+        </p>
+        
+        <div class="chat-container">
+          <!-- Status Indicators -->
+          <div class="status-indicator status-connected">Connected</div>
+          <div class="status-indicator status-disconnected">Disconnected</div>
+          <div class="status-indicator status-reconnecting">Reconnecting...</div>
+          
+          <!-- Authentication Section -->
+          <div class="auth-section" id="authSection">
+            <h3>Login to Access the Chat</h3>
+            <form class="auth-form" id="authForm">
+              <input type="email" class="auth-input" id="emailInput" placeholder="Your Email Address" required>
+              <button type="submit" class="auth-button" id="requestOtpBtn">Request OTP</button>
+              <div class="error-message" id="authError"></div>
+            </form>
+          </div>
+          
+          <!-- OTP Verification Section -->
+          <div class="otp-section" id="otpSection">
+            <h3 class="otp-title">Enter Verification Code</h3>
+            <p class="otp-subtitle">We've sent a code to your email address</p>
+            <form class="auth-form" id="otpForm">
+              <input type="text" class="auth-input" id="otpInput" placeholder="6-digit OTP" maxlength="6" pattern="[0-9]{6}" required>
+              <button type="submit" class="auth-button" id="verifyOtpBtn">Verify OTP</button>
+              <div class="error-message" id="otpError"></div>
+            </form>
+          </div>
+          
+          <!-- Chat Interface -->
+          <div class="chat-interface" id="chatInterface">
+            <div class="chat-header">
+              <h3 class="chat-title">Aaai Assistant</h3>
+              <div class="user-info">
+                <span class="credits-badge" id="creditsDisplay">Credits: 0</span>
+                <span id="userEmail">user@example.com</span>
+                <button class="logout-btn" id="logoutBtn" title="Logout">
+                  <ion-icon name="log-out-outline"></ion-icon>
+                </button>
+              </div>
+            </div>
+            <div class="chat-body" id="chatBody">
+              <!-- Message history -->
+              <div class="message-history-header" id="historyHeader" style="display: none;">
+                <div class="message-history-title">Previous Conversations</div>
+                <div class="message-history-actions">
+                  <button class="message-history-button" id="clearHistoryBtn" title="Clear History">
+                    <ion-icon name="trash-outline"></ion-icon>
+                  </button>
+                </div>
+              </div>
+              
+              <!-- Messages will be inserted here -->
+            </div>
+            <div class="chat-footer">
+              <input type="text" class="chat-input" id="messageInput" placeholder="Type your message here...">
+              <button class="chat-send-btn" id="sendMessageBtn">
+                <ion-icon name="send"></ion-icon>
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- Footer (copied from other pages) -->
+  <footer class="footer">
+    <div class="container">
+      <p class="copyright">
+        &copy; 2024 <a href="#" class="copyright-link">Aaai Solutions</a>. All Rights Reserved
+      </p>
+      <ul class="footer-list">
+        <li>
+          <a href="terms_conditions.html" class="footer-link">Terms & Condition</a>
+        </li>
+        <li>
+          <a href="privacy_policy.html" class="footer-link">Privacy Policy</a>
+        </li>
+        <li>
+          <a href="https://docs.google.com/document/d/1ZH5H3gvn3b9xcXepwS9wx7juUfULOvW5MPSKCX3bYu4/edit?addon_store&pli=1#heading=h.ednect7ygrp2" class="footer-link">ByLaws</a>
+        </li>
+      </ul>
+    </div>
+  </footer>
+
+  <a href="#top" class="back-to-top" data-back-to-top>BACK TOP</a>
+
+  <!-- JS scripts -->
+  <script src="./assets/js/script.js"></script>
+  <script src="./assets/js/auth.js"></script>
+  <script src="./assets/js/websocket-chat.js"></script>
+  <script src="./assets/js/ui-components.js"></script>
+  <script type="module" src="https://unpkg.com/ionicons@5.5.2/dist/ionicons/ionicons.esm.js"></script>
+  <script nomodule src="https://unpkg.com/ionicons@5.5.2/dist/ionicons/ionicons.js"></script>
+  
+  <!-- Main chat application script -->
+  <script>
+    document.addEventListener('DOMContentLoaded', function() {
+      // Initialize authentication
+      AuthService.init();
+      
+      // Initialize UI components renderer
+      const uiRenderer = UIComponentRenderer.init({
+        linkHandler: (url) => {
+          // Handle link actions
+          window.location.href = url;
+        },
+        actionHandler: (action, value) => {
+          // Handle other actions
+          if (action === 'reply') {
+            // Simulate user typing the reply
+            messageInput.value = value;
+            setTimeout(() => sendMessage(), 100);
+          } else if (action === 'copy') {
+            // Copy to clipboard
+            navigator.clipboard.writeText(value)
+              .then(() => {
+                showStatus('copied', `Copied: ${value}`);
+              })
+              .catch(err => console.error('Failed to copy:', err));
+          }
+        }
+      });
+      
+      // Initialize chat service with WebSocket
+      const chatService = ChatService.init(AuthService, {
+        reconnectInterval: 3000,
+        maxReconnectAttempts: 5,
+        debug: true
+      });
+      
+      // Elements
+      const authSection = document.getElementById('authSection');
+      const otpSection = document.getElementById('otpSection');
+      const chatInterface = document.getElementById('chatInterface');
+      const authForm = document.getElementById('authForm');
+      const otpForm = document.getElementById('otpForm');
+      const authError = document.getElementById('authError');
+      const otpError = document.getElementById('otpError');
+      const emailInput = document.getElementById('emailInput');
+      const otpInput = document.getElementById('otpInput');
+      const userEmailDisplay = document.getElementById('userEmail');
+      const creditsDisplay = document.getElementById('creditsDisplay');
+      const logoutBtn = document.getElementById('logoutBtn');
+      const chatBody = document.getElementById('chatBody');
+      const messageInput = document.getElementById('messageInput');
+      const sendMessageBtn = document.getElementById('sendMessageBtn');
+      const historyHeader = document.getElementById('historyHeader');
+      const clearHistoryBtn = document.getElementById('clearHistoryBtn');
+      const connectedStatus = document.querySelector('.status-connected');
+      const disconnectedStatus = document.querySelector('.status-disconnected');
+      const reconnectingStatus = document.querySelector('.status-reconnecting');
+      
+      let userEmail = '';
+      let hasAddedWelcomeMessage = false;
+      
+      // Add message and status listeners
+      chatService.onMessage(handleChatMessage);
+      chatService.onStatusChange(handleConnectionStatus);
+      
+      // Check if already authenticated
+      if (AuthService.isAuthenticated()) {
+        showChatInterface();
+        connectToWebSocket();
+      } else {
+        showAuthSection();
+      }
+      
+      // Event: Request OTP
+      authForm.addEventListener('submit', async function(e) {
+        e.preventDefault();
+        
+        userEmail = emailInput.value.trim();
+        if (!userEmail) {
+          authError.textContent = 'Please enter your email address';
+          return;
+        }
+        
+        try {
+          authError.textContent = '';
+          const requestOtpBtn = document.getElementById('requestOtpBtn');
+          requestOtpBtn.textContent = 'Sending...';
+          requestOtpBtn.disabled = true;
+          
+          await AuthService.requestOTP(userEmail);
+          
+          // Show OTP section
+          authSection.style.display = 'none';
+          otpSection.style.display = 'block';
+          otpInput.focus();
+          
+        } catch (error) {
+          authError.textContent = error.message || 'Failed to send OTP. Please try again.';
+          requestOtpBtn.textContent = 'Request OTP';
+          requestOtpBtn.disabled = false;
+        }
+      });
+      
+      // Event: Verify OTP
+      otpForm.addEventListener('submit', async function(e) {
+        e.preventDefault();
+        
+        const otp = otpInput.value.trim();
+        if (!otp) {
+          otpError.textContent = 'Please enter the verification code';
+          return;
+        }
+        
+        try {
+          otpError.textContent = '';
+          const verifyOtpBtn = document.getElementById('verifyOtpBtn');
+          verifyOtpBtn.textContent = 'Verifying...';
+          verifyOtpBtn.disabled = true;
+          
+          await AuthService.verifyOTP(userEmail, otp);
+          
+          // Show chat interface
+          showChatInterface();
+          
+          // Connect to WebSocket
+          connectToWebSocket();
+          
+        } catch (error) {
+          otpError.textContent = error.message || 'Invalid OTP. Please try again.';
+          verifyOtpBtn.textContent = 'Verify OTP';
+          verifyOtpBtn.disabled = false;
+        }
+      });
+      
+      // Event: Logout
+      logoutBtn.addEventListener('click', function() {
+        disconnectWebSocket();
+        AuthService.logout();
+        showAuthSection();
+        chatBody.innerHTML = '';
+        messageInput.value = '';
+        hasAddedWelcomeMessage = false;
+      });
+      
+      // Event: Send message
+      sendMessageBtn.addEventListener('click', sendMessage);
+      messageInput.addEventListener('keypress', function(e) {
+        if (e.key === 'Enter') {
+          sendMessage();
+        }
+      });
+      
+      // Event: Clear history
+      clearHistoryBtn.addEventListener('click', function() {
+        if (confirm('Are you sure you want to clear your chat history?')) {
+          // In a real implementation, you would call an API to clear history
+          alert('This feature would clear your chat history from the server.');
+        }
+      });
+      
+      // Function: Connect to WebSocket
+      async function connectToWebSocket() {
+        try {
+          await chatService.connect();
+          showStatus('connected');
+        } catch (error) {
+          console.error('WebSocket connection error:', error);
+          showStatus('disconnected');
+        }
+      }
+      
+      // Function: Disconnect WebSocket
+      function disconnectWebSocket() {
+        chatService.disconnect();
+        showStatus('disconnected');
+      }
+      
+      // Function: Handle chat messages from WebSocket
+      function handleChatMessage(data) {
+        switch (data.type) {
+          case 'message':
+            // Add both user and bot messages to chat
+            if (data.user_message) {
+              addMessageToChat(
+                data.user_message.text, 
+                'user', 
+                data.user_message.timestamp,
+                null
+              );
+            }
+            
+            if (data.bot_message) {
+              addMessageToChat(
+                data.bot_message.text, 
+                'bot', 
+                data.bot_message.timestamp,
+                data.bot_message.components
+              );
+            }
+            break;
+            
+          case 'history_loaded':
+            // Process message history
+            processMessageHistory(data.messages);
+            break;
+        }
+      }
+      
+      // Function: Handle connection status changes
+      function handleConnectionStatus(status) {
+        showStatus(status);
+        
+        if (status === 'connected' && !hasAddedWelcomeMessage) {
+          // No need to add welcome message here as it will come from the history
+          hasAddedWelcomeMessage = true;
+        }
+      }
+      
+      // Function: Send a message
+      async function sendMessage() {
+        const messageText = messageInput.value.trim();
+        if (!messageText) return;
+        
+        // Clear input
+        messageInput.value = '';
+        
+        try {
+          // Send message through WebSocket
+          await chatService.sendMessage(messageText);
+          
+          // Note: We don't add the message to the chat here
+          // It will be added when we receive the confirmation from the server
+          
+        } catch (error) {
+          console.error('Error sending message:', error);
+          
+          // Show error message in chat
+          addMessageToChat('Failed to send message. Please try again.', 'bot');
+          
+          // Show disconnected status
+          showStatus('disconnected');
+        }
+      }
+      
+      // Function: Process message history
+      function processMessageHistory(messages) {
+        if (!messages || !messages.length) return;
+        
+        // Show history header
+        historyHeader.style.display = 'flex';
+        
+        // Clear chat before adding history
+        chatBody.innerHTML = '';
+        chatBody.appendChild(historyHeader);
+        
+        // Group messages by date
+        const messagesByDate = {};
+        
+        messages.forEach(message => {
+          const date = new Date(message.timestamp);
+          const dateKey = date.toDateString();
+          
+          if (!messagesByDate[dateKey]) {
+            messagesByDate[dateKey] = [];
+          }
+          
+          messagesByDate[dateKey].push(message);
+        });
+        
+        // Add messages by date group
+        Object.keys(messagesByDate).forEach(dateKey => {
+          // Add date separator
+          const dateContainer = document.createElement('div');
+          dateContainer.className = 'message-history-date';
+          
+          const dateText = document.createElement('span');
+          dateText.className = 'message-history-date-text';
+          dateText.textContent = dateKey;
+          
+          dateContainer.appendChild(dateText);
+          chatBody.appendChild(dateContainer);
+          
+          // Add messages for this date
+          messagesByDate[dateKey].forEach(message => {
+            addMessageToChat(
+              message.text,
+              message.sender,
+              message.timestamp,
+              message.components
+            );
+          });
+        });
+        
+        // Scroll to bottom
+        chatBody.scrollTop = chatBody.scrollHeight;
+      }
+      
+      // Function: Add message to chat
+      function addMessageToChat(text, type, timestamp = null, components = null) {
+        // Create message container
+        const messageDiv = document.createElement('div');
+        messageDiv.className = type === 'user' ? 'message message-user' : 'message message-bot';
+        messageDiv.textContent = text;
+        
+        // Add timestamp if available
+        if (timestamp) {
+          const date = new Date(timestamp);
+          const timeString = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+          
+          const timestampDiv = document.createElement('div');
+          timestampDiv.className = 'message-timestamp';
+          timestampDiv.textContent = timeString;
+          
+          messageDiv.appendChild(timestampDiv);
+        }
+        
+        // Add components container if bot message
+        if (type === 'bot' && components && components.length > 0) {
+          const componentsContainer = document.createElement('div');
+          componentsContainer.className = 'chat-components-container';
+          
+          // Render each component
+          components.forEach(component => {
+            uiRenderer.renderComponent(component, componentsContainer);
+          });
+          
+          messageDiv.appendChild(componentsContainer);
+        }
+        
+        chatBody.appendChild(messageDiv);
+        chatBody.scrollTop = chatBody.scrollHeight;
+        
+        return messageDiv;
+      }
+      
+      // Function: Show chat interface
+      function showChatInterface() {
+        authSection.style.display = 'none';
+        otpSection.style.display = 'none';
+        chatInterface.style.display = 'block';
+        
+        const user = AuthService.getCurrentUser();
+        userEmailDisplay.textContent = user.email || '';
+        
+        // Focus on message input
+        messageInput.focus();
+      }
+      
+      // Function: Show auth section
+      function showAuthSection() {
+        authSection.style.display = 'block';
+        otpSection.style.display = 'none';
+        chatInterface.style.display = 'none';
+        
+        // Reset forms
+        authForm.reset();
+        otpForm.reset();
+        authError.textContent = '';
+        otpError.textContent = '';
+        
+        document.getElementById('requestOtpBtn').disabled = false;
+        document.getElementById('requestOtpBtn').textContent = 'Request OTP';
+        document.getElementById('verifyOtpBtn').disabled = false;
+        document.getElementById('verifyOtpBtn').textContent = 'Verify OTP';
+      }
+      
+      // Function: Show connection status
+      function showStatus(status, message = null) {
+        // Hide all status indicators
+        connectedStatus.classList.remove('visible');
+        disconnectedStatus.classList.remove('visible');
+        reconnectingStatus.classList.remove('visible');
+        
+        // Update text if provided
+        if (message) {
+          if (status === 'connected') connectedStatus.textContent = message;
+          if (status === 'disconnected') disconnectedStatus.textContent = message;
+          if (status === 'reconnecting') reconnectingStatus.textContent = message;
+        } else {
+          // Reset to default text
+          connectedStatus.textContent = 'Connected';
+          disconnectedStatus.textContent = 'Disconnected';
+          reconnectingStatus.textContent = 'Reconnecting...';
+        }
+        
+        // Show appropriate status
+        if (status === 'connected') {
+          connectedStatus.classList.add('visible');
+          
+          // Hide after 3 seconds
+          setTimeout(() => {
+            connectedStatus.classList.remove('visible');
+          }, 3000);
+        } else if (status === 'disconnected') {
+          disconnectedStatus.classList.add('visible');
+        } else if (status === 'reconnecting') {
+          reconnectingStatus.classList.add('visible');
+        }
+      }
+      
+      // Enhance security: Add event listeners for visibility changes
+      document.addEventListener('visibilitychange', function() {
+        if (document.visibilityState === 'visible') {
+          // Reconnect if authenticated and not connected
+          if (AuthService.isAuthenticated() && !chatService.isConnected) {
+            connectToWebSocket();
+          }
+        }
+      });
+    });
+  </script>
+</body>
+
+</html>
