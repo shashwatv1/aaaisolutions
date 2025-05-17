@@ -42,24 +42,20 @@ const AuthService = {
         };
     },
     
-    // Request OTP via email
+    // Request OTP
     async requestOTP(email) {
         try {
-            // Generate a browser fingerprint for additional security
-            const fingerprint = await this._generateFingerprint();
-            
             const response = await fetch(`${this.API_BASE_URL}/auth/request-otp`, {
                 method: 'POST',
                 headers: {
-                    'Content-Type': 'application/json',
-                    'X-Device-Fingerprint': fingerprint
+                    'Content-Type': 'application/json'
                 },
                 body: JSON.stringify({ email })
             });
             
             if (!response.ok) {
                 const error = await response.json();
-                throw new Error(error.error || 'Failed to request OTP');
+                throw new Error(error.detail || 'Failed to request OTP');
             }
             
             return await response.json();
@@ -69,34 +65,29 @@ const AuthService = {
         }
     },
     
-    // Verify OTP and get token
+    // Verify OTP
     async verifyOTP(email, otp) {
         try {
-            // Generate a browser fingerprint for additional security
-            const fingerprint = await this._generateFingerprint();
-            
             const response = await fetch(`${this.API_BASE_URL}/auth/verify-otp`, {
                 method: 'POST',
                 headers: {
-                    'Content-Type': 'application/json',
-                    'X-Device-Fingerprint': fingerprint
+                    'Content-Type': 'application/json'
                 },
                 body: JSON.stringify({ email, otp })
             });
             
             if (!response.ok) {
                 const error = await response.json();
-                throw new Error(error.error || 'Invalid OTP');
+                throw new Error(error.detail || 'Invalid OTP');
             }
             
             const data = await response.json();
             
-            // Store token and user info securely
+            // Store token and user info
             this.token = data.access_token;
             this.userEmail = email;
             this.userId = data.id;
             
-            // Store in secure storage
             this._setSecureItem('auth_token', data.access_token);
             this._setSecureItem('user_email', email);
             this._setSecureItem('user_id', data.id);
@@ -115,21 +106,18 @@ const AuthService = {
         }
         
         try {
-            const response = await fetch(`${this.API_BASE_URL}/auth/execute-function`, {
+            const response = await fetch(`${this.API_BASE_URL}/api/function/${functionName}`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
                     'Authorization': `Bearer ${this.token}`
                 },
-                body: JSON.stringify({
-                    function_name: functionName,
-                    input_data: inputData
-                })
+                body: JSON.stringify(inputData)
             });
             
             if (!response.ok) {
                 const error = await response.json();
-                throw new Error(error.error || `Failed to execute function: ${functionName}`);
+                throw new Error(error.detail || `Failed to execute function: ${functionName}`);
             }
             
             return await response.json();

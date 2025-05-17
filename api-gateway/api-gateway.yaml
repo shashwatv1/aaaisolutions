@@ -1,9 +1,9 @@
 swagger: '2.0'
 info:
   title: AAAI Solutions API
-  description: Secure API Gateway for AAAI Solutions
+  description: Direct API Gateway for AAAI Solutions
   version: 1.0.0
-host: gateway-xxxxxxxx.uc.gateway.dev
+host: aaai-gateway-754x89jf.uc.gateway.dev
 schemes:
   - https
 produces:
@@ -14,7 +14,7 @@ paths:
       summary: Request OTP for authentication
       operationId: requestOTP
       x-google-backend:
-        address: https://us-central1-aai-solutions-api-021201.cloudfunctions.net/requestOTP
+        address: https://api-server-559730737995.us-central1.run.app/auth/request-otp
       responses:
         '200':
           description: OTP requested successfully
@@ -26,7 +26,7 @@ paths:
       summary: CORS support
       operationId: corsRequestOTP
       x-google-backend:
-        address: https://us-central1-aai-solutions-api-021201.cloudfunctions.net/requestOTP
+        address: https://api-server-559730737995.us-central1.run.app/auth/request-otp
       responses:
         '204':
           description: CORS preflight response
@@ -36,7 +36,7 @@ paths:
       summary: Verify OTP and get token
       operationId: verifyOTP
       x-google-backend:
-        address: https://us-central1-aai-solutions-api-021201.cloudfunctions.net/verifyOTP
+        address: https://api-server-559730737995.us-central1.run.app/auth/verify-otp
       responses:
         '200':
           description: OTP verified successfully
@@ -50,33 +50,7 @@ paths:
       summary: CORS support
       operationId: corsVerifyOTP
       x-google-backend:
-        address: https://us-central1-aai-solutions-api-021201.cloudfunctions.net/verifyOTP
-      responses:
-        '204':
-          description: CORS preflight response
-          
-  /api/chat:
-    post:
-      summary: Send a chat message
-      operationId: chat
-      x-google-backend:
-        address: https://us-central1-aai-solutions-api-021201.cloudfunctions.net/chat
-      security:
-        - api_key: []
-      responses:
-        '200':
-          description: Message processed successfully
-        '400':
-          description: Bad request
-        '401':
-          description: Unauthorized
-        '500':
-          description: Server error
-    options:
-      summary: CORS support
-      operationId: corsChat
-      x-google-backend:
-        address: https://us-central1-aai-solutions-api-021201.cloudfunctions.net/chat
+        address: https://api-server-559730737995.us-central1.run.app/auth/verify-otp
       responses:
         '204':
           description: CORS preflight response
@@ -92,7 +66,7 @@ paths:
           type: string
           description: Name of the function to execute
       x-google-backend:
-        address: https://us-central1-aai-solutions-api-021201.cloudfunctions.net/executeFunction
+        address: https://api-server-559730737995.us-central1.run.app/api/function/{function_name}
       security:
         - api_key: []
       responses:
@@ -115,7 +89,7 @@ paths:
           required: true
           type: string
       x-google-backend:
-        address: https://us-central1-aai-solutions-api-021201.cloudfunctions.net/executeFunction
+        address: https://api-server-559730737995.us-central1.run.app/api/function/{function_name}
       responses:
         '204':
           description: CORS preflight response
@@ -125,3 +99,4 @@ securityDefinitions:
     type: apiKey
     name: Authorization
     in: header
+    description: "Bearer token using HS256 JWT format"
