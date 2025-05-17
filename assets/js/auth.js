@@ -45,14 +45,19 @@ const AuthService = {
     // Request OTP
     async requestOTP(email) {
         try {
+            // Get API key from Secret Manager
+            const apiKey = await getSecret('api-key');
+
+            // Forward the request to the API Gateway (not directly to the API server)
             const response = await fetch(`${this.API_BASE_URL}/auth/request-otp`, {
                 method: 'POST',
                 headers: {
-                    'Content-Type': 'application/json'
+                    'Content-Type': 'application/json',
+                    'X-API-Key': apiKey
                 },
                 body: JSON.stringify({ email })
             });
-            
+
             if (!response.ok) {
                 const error = await response.json();
                 throw new Error(error.detail || 'Failed to request OTP');
