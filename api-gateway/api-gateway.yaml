@@ -14,7 +14,7 @@ paths:
       summary: Request OTP for authentication
       operationId: requestOTP
       x-google-backend:
-        address: https://api-server-559730737995.us-central1.run.app/auth/request-otp
+        address: https://us-central1-aai-solutions-api-021201.cloudfunctions.net/requestOTP
       responses:
         '200':
           description: OTP requested successfully
@@ -26,7 +26,7 @@ paths:
       summary: CORS support
       operationId: corsRequestOTP
       x-google-backend:
-        address: https://api-server-559730737995.us-central1.run.app/auth/request-otp
+        address: https://us-central1-aai-solutions-api-021201.cloudfunctions.net/requestOTP
       responses:
         '204':
           description: CORS preflight response
@@ -36,7 +36,7 @@ paths:
       summary: Verify OTP and get token
       operationId: verifyOTP
       x-google-backend:
-        address: https://api-server-559730737995.us-central1.run.app/auth/verify-otp
+        address: https://us-central1-aai-solutions-api-021201.cloudfunctions.net/verifyOTP
       responses:
         '200':
           description: OTP verified successfully
@@ -50,7 +50,7 @@ paths:
       summary: CORS support
       operationId: corsVerifyOTP
       x-google-backend:
-        address: https://api-server-559730737995.us-central1.run.app/auth/verify-otp
+        address: https://us-central1-aai-solutions-api-021201.cloudfunctions.net/verifyOTP
       responses:
         '204':
           description: CORS preflight response
@@ -66,7 +66,7 @@ paths:
           type: string
           description: Name of the function to execute
       x-google-backend:
-        address: https://api-server-559730737995.us-central1.run.app/api/function/{function_name}
+        address: https://us-central1-aai-solutions-api-021201.cloudfunctions.net/executeFunction
       security:
         - api_key: []
       responses:
@@ -89,14 +89,7 @@ paths:
           required: true
           type: string
       x-google-backend:
-        address: https://api-server-559730737995.us-central1.run.app/api/function/{function_name}
+        address: https://us-central1-aai-solutions-api-021201.cloudfunctions.net/executeFunction
       responses:
         '204':
           description: CORS preflight response
-          
-securityDefinitions:
-  api_key:
-    type: apiKey
-    name: Authorization
-    in: header
-    description: "Bearer token using HS256 JWT format"

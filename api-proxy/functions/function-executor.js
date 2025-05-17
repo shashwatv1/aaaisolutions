@@ -1,22 +1,11 @@
 const axios = require('axios');
 const cors = require('cors')({origin: true});
 const {getSecret} = require('../utils/secret-manager');
-const {handleError} = require('../utils/error-handler');
 
-/**
- * Execute any function on the main API
- */
 async function functionExecutor(req, res) {
-  // Handle CORS
   return cors(req, res, async () => {
-    // Handle OPTIONS request for CORS preflight
     if (req.method === 'OPTIONS') {
       res.status(204).send('');
-      return;
-    }
-    
-    if (req.method !== 'POST') {
-      res.status(405).send('Method Not Allowed');
       return;
     }
     
@@ -24,37 +13,42 @@ async function functionExecutor(req, res) {
       // Get API key from Secret Manager
       const apiKey = await getSecret('api-key');
       
-      // Get authorization header from request
-      const authHeader = req.headers.authorization;
-      if (!authHeader) {
-        res.status(401).json({ error: 'Authorization header missing' });
-        return;
-      }
-      
-      // Get function name from request body
+      // Get function name from request
       const functionName = req.body.function_name;
       if (!functionName) {
         res.status(400).json({ error: 'Function name is required' });
         return;
       }
       
-      // Forward the request to the main API
-      const response = await axios.post(
-        `https://api-server-559730737995.us-central1.run.app/api/function/${functionName}`,
-        req.body.input_data || {},
-        {
-          headers: {
-            'Content-Type': 'application/json',
-            'X-API-Key': apiKey,
-            'Authorization': authHeader
-          }
+      // Create a new axios instance with clean headers
+      const apiClient = axios.create({
+        baseURL: 'https://api-server-559730737995.us-central1.run.app',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-API-Key': apiKey
         }
+      });
+      
+      // Forward the request to the API server
+      const response = await apiClient.post(
+        `/api/function/${functionName}`,
+        req.body
       );
       
-      // Return the response to the client
+      // Return the API server response
       res.status(200).json(response.data);
+      
     } catch (error) {
-      handleError(error, res);
+      console.error('Function execution error:', error);
+      
+      // Handle errors
+      const statusCode = error.response?.status || 500;
+      const errorMessage = error.response?.data?.detail || error.message || 'Internal server error';
+      
+      res.status(statusCode).json({ 
+        error: errorMessage,
+        timestamp: new Date().toISOString()
+      });
     }
   });
 }

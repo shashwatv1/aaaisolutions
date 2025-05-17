@@ -4,8 +4,7 @@
  */
 const AuthService = {
     // Cloud Functions or API Gateway URL
-    API_BASE_URL: 'https://aaai-gateway-754x89jf.uc.gateway.dev', // Or API Gateway URL
-    WS_BASE_URL: 'wss://api-server-559730737995.us-central1.run.app',       // WebSocket URL (unchanged)
+    API_BASE_URL: 'https://aaai-gateway-754x89jf.uc.gateway.dev',
     
     // Initialize the auth service
     init() {
@@ -16,9 +15,12 @@ const AuthService = {
         // Check token expiration
         if (this.token) {
             try {
-                const payload = JSON.parse(atob(this.token.split('.')[1]));
-                if (payload.exp < Date.now() / 1000) {
-                    this.logout(); // Token expired
+                const tokenParts = this.token.split('.');
+                if (tokenParts.length === 3) {
+                    const payload = JSON.parse(atob(tokenParts[1]));
+                    if (payload.exp && payload.exp < Date.now() / 1000) {
+                        this.logout(); // Token expired
+                    }
                 }
             } catch (error) {
                 console.error('Error parsing token:', error);
@@ -45,34 +47,38 @@ const AuthService = {
     // Request OTP
     async requestOTP(email) {
         try {
-            // Get API key from Secret Manager
-            const apiKey = await getSecret('api-key');
-
-            // Forward the request to the API Gateway (not directly to the API server)
+            console.log(`Requesting OTP for email: ${email}`);
+            
+            // Forward the request to the API Gateway
             const response = await fetch(`${this.API_BASE_URL}/auth/request-otp`, {
                 method: 'POST',
                 headers: {
-                    'Content-Type': 'application/json',
-                    'X-API-Key': apiKey
+                    'Content-Type': 'application/json'
                 },
                 body: JSON.stringify({ email })
             });
 
+            const responseData = await response.json();
+            
             if (!response.ok) {
-                const error = await response.json();
-                throw new Error(error.detail || 'Failed to request OTP');
+                console.error('OTP request failed:', responseData);
+                throw new Error(responseData.error || responseData.detail || 'Failed to request OTP');
             }
             
-            return await response.json();
+            console.log('OTP request successful');
+            return responseData;
         } catch (error) {
             console.error('OTP Request error:', error);
-            throw error;
+            // Provide more context in the error message
+            throw new Error(`OTP request failed: ${error.message}`);
         }
     },
     
     // Verify OTP
     async verifyOTP(email, otp) {
         try {
+            console.log(`Verifying OTP for email: ${email}`);
+            
             const response = await fetch(`${this.API_BASE_URL}/auth/verify-otp`, {
                 method: 'POST',
                 headers: {
@@ -81,12 +87,14 @@ const AuthService = {
                 body: JSON.stringify({ email, otp })
             });
             
+            const data = await response.json();
+            
             if (!response.ok) {
-                const error = await response.json();
-                throw new Error(error.detail || 'Invalid OTP');
+                console.error('OTP verification failed:', data);
+                throw new Error(data.error || data.detail || 'Invalid OTP');
             }
             
-            const data = await response.json();
+            console.log('OTP verification successful');
             
             // Store token and user info
             this.token = data.access_token;
@@ -100,7 +108,7 @@ const AuthService = {
             return data;
         } catch (error) {
             console.error('OTP Verification error:', error);
-            throw error;
+            throw new Error(`OTP verification failed: ${error.message}`);
         }
     },
     
@@ -111,6 +119,8 @@ const AuthService = {
         }
         
         try {
+            console.log(`Executing function: ${functionName}`);
+            
             const response = await fetch(`${this.API_BASE_URL}/api/function/${functionName}`, {
                 method: 'POST',
                 headers: {
@@ -120,15 +130,17 @@ const AuthService = {
                 body: JSON.stringify(inputData)
             });
             
+            const data = await response.json();
+            
             if (!response.ok) {
-                const error = await response.json();
-                throw new Error(error.detail || `Failed to execute function: ${functionName}`);
+                console.error(`Function execution failed:`, data);
+                throw new Error(data.error || data.detail || `Failed to execute function: ${functionName}`);
             }
             
-            return await response.json();
+            return data;
         } catch (error) {
             console.error(`Function execution error (${functionName}):`, error);
-            throw error;
+            throw new Error(`Function execution failed: ${error.message}`);
         }
     },
     
@@ -139,7 +151,7 @@ const AuthService = {
         }
         
         try {
-            const response = await fetch(`${this.API_BASE_URL}/auth/chat`, {
+            const response = await fetch(`${this.API_BASE_URL}/api/chat`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -148,15 +160,17 @@ const AuthService = {
                 body: JSON.stringify({ message })
             });
             
+            const data = await response.json();
+            
             if (!response.ok) {
-                const error = await response.json();
-                throw new Error(error.error || 'Failed to send message');
+                console.error('Chat message failed:', data);
+                throw new Error(data.error || 'Failed to send message');
             }
             
-            return await response.json();
+            return data;
         } catch (error) {
             console.error('Chat error:', error);
-            throw error;
+            throw new Error(`Chat message failed: ${error.message}`);
         }
     },
     
@@ -170,6 +184,8 @@ const AuthService = {
         this._removeSecureItem('auth_token');
         this._removeSecureItem('user_email');
         this._removeSecureItem('user_id');
+        
+        console.log('User logged out successfully');
     },
     
     // Get authorization header
@@ -179,57 +195,12 @@ const AuthService = {
         };
     },
     
-    // Generate a browser fingerprint for additional security
-    async _generateFingerprint() {
-        // Simple fingerprint based on available browser information
-        const fingerprint = {
-            userAgent: navigator.userAgent,
-            language: navigator.language,
-            screenWidth: window.screen.width,
-            screenHeight: window.screen.height,
-            timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-            colorDepth: window.screen.colorDepth,
-            devicePixelRatio: window.devicePixelRatio,
-            platform: navigator.platform
-        };
-        
-        // Convert to string and hash it
-        const fingerprintStr = JSON.stringify(fingerprint);
-        const encoder = new TextEncoder();
-        const data = encoder.encode(fingerprintStr);
-        
-        // Use SubtleCrypto if available (secure contexts)
-        if (window.crypto && window.crypto.subtle) {
-            try {
-                const hashBuffer = await window.crypto.subtle.digest('SHA-256', data);
-                const hashArray = Array.from(new Uint8Array(hashBuffer));
-                return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
-            } catch (e) {
-                // Fallback to simple string if crypto API fails
-                return btoa(fingerprintStr).replace(/=/g, '');
-            }
-        } else {
-            // Fallback to simple string if crypto API not available
-            return btoa(fingerprintStr).replace(/=/g, '');
-        }
-    },
-    
     // Secure storage methods
     _setSecureItem(key, value) {
         try {
-            // If the browser supports the Web Crypto API, encrypt the data
-            if (window.crypto && window.crypto.subtle && window.crypto.getRandomValues) {
-                // For simplicity, we're using a derived key from the user's browser environment
-                // In production, you'd want a more secure key derivation mechanism
-                const storageKey = `aaai_${key}`;
-                localStorage.setItem(storageKey, value);
-                return true;
-            } else {
-                // Fallback to regular localStorage with a prefix
-                const storageKey = `aaai_${key}`;
-                localStorage.setItem(storageKey, value);
-                return true;
-            }
+            const storageKey = `aaai_${key}`;
+            localStorage.setItem(storageKey, value);
+            return true;
         } catch (error) {
             console.error('Error storing secure item:', error);
             return false;
@@ -257,3 +228,6 @@ const AuthService = {
         }
     }
 };
+
+// Export the service for module usage
+typeof module !== 'undefined' && (module.exports = AuthService);
