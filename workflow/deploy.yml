@@ -1,0 +1,100 @@
+name: Deploy to AAAI Solutions Server
+
+on:
+  push:
+    branches: [ main, master ]  # Deploy when pushing to main or master branch
+  workflow_dispatch:          # Allow manual triggering
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    name: Deploy to Production Server
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      
+    - name: Setup Node.js (if you use Node.js)
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+      # Remove this step if you don't use Node.js
+        
+    - name: Install dependencies (if any)
+      run: |
+        # npm install  # Uncomment if you use npm
+        # yarn install # Uncomment if you use yarn
+        echo "No dependencies to install"
+        
+    - name: Build project (if needed)
+      run: |
+        # npm run build  # Uncomment if you have a build step
+        # yarn build     # Uncomment if you use yarn build
+        echo "No build step required"
+        
+    - name: Deploy to server
+      uses: appleboy/ssh-action@v1.0.0
+      with:
+        host: ${{ secrets.HOST }}
+        username: ${{ secrets.USERNAME }}
+        key: ${{ secrets.SSH_KEY }}
+        port: ${{ secrets.PORT }}
+        script: |
+          # Navigate to website directory
+          cd /var/www/aaai.solutions
+          
+          # Create backup before deployment
+          sudo mkdir -p /var/backups/aaai-solutions
+          sudo tar -czf /var/backups/aaai-solutions/backup-$(date +%Y%m%d-%H%M%S).tar.gz \
+            --exclude='.git' \
+            /var/www/aaai.solutions
+          
+          # Pull latest changes
+          sudo git fetch origin
+          sudo git reset --hard origin/main
+          
+          # Set proper permissions
+          sudo chown -R www-data:www-data /var/www/aaai.solutions
+          sudo find /var/www/aaai.solutions -type d -exec chmod 755 {} \;
+          sudo find /var/www/aaai.solutions -type f -exec chmod 644 {} \;
+          
+          # Test nginx configuration
+          sudo nginx -t
+          
+          # Reload nginx if config is valid
+          sudo systemctl reload nginx
+          
+          # Optional: Clear any caches
+          # sudo systemctl restart your-app-service  # If you have a backend service
+          
+          echo "Deployment completed successfully!"
+          
+    - name: Verify deployment
+      uses: appleboy/ssh-action@v1.0.0
+      with:
+        host: ${{ secrets.HOST }}
+        username: ${{ secrets.USERNAME }}
+        key: ${{ secrets.SSH_KEY }}
+        port: ${{ secrets.PORT }}
+        script: |
+          # Test website accessibility
+          response=$(curl -s -o /dev/null -w "%{http_code}" https://aaai.solutions/)
+          if [ "$response" -eq 200 ]; then
+            echo "✅ Website is accessible (HTTP $response)"
+          else
+            echo "❌ Website returned HTTP $response"
+            exit 1
+          fi
+          
+          # Show latest commit
+          cd /var/www/aaai.solutions
+          echo "Latest commit: $(sudo git log -1 --pretty=format:'%h - %s (%cr)')"
+          
+    - name: Notify deployment status
+      if: always()
+      run: |
+        if [ "${{ job.status }}" == "success" ]; then
+          echo "🎉 Deployment successful!"
+        else
+          echo "❌ Deployment failed!"
+        fi
