@@ -17,11 +17,9 @@ const AuthService = {
             this.API_BASE_URL = 'http://localhost:8080';
             this.WS_BASE_URL = 'ws://localhost:8080';
         } else {
-            // In production/staging, use relative paths that nginx will proxy
-            // Auth requests go to /auth/ (proxied to API Gateway)
-            // API requests go to /api/ (proxied to Cloud Run)
-            this.AUTH_BASE_URL = ''; // Use relative path for auth
-            this.API_BASE_URL = ''; // Use relative path for API
+            // In production/staging, use nginx proxy with relative paths
+            this.AUTH_BASE_URL = ''; // Use relative path for auth (nginx proxy)
+            this.API_BASE_URL = ''; // Use relative path for API (nginx proxy)
             this.WS_BASE_URL = window.location.origin;
         }
         
@@ -76,10 +74,10 @@ const AuthService = {
         try {
             window.AAAI_LOGGER.info(`Requesting OTP for email: ${email}`);
             
-            // Auth requests go directly to /auth/ (proxied to API Gateway)
+            // Use nginx proxy in production, direct localhost in development
             const url = window.AAAI_CONFIG.ENVIRONMENT === 'development' 
                 ? `${this.AUTH_BASE_URL}/auth/request-otp`
-                : '/auth/request-otp'; // Always use absolute path in production
+                : '/auth/request-otp';
             
             window.AAAI_LOGGER.debug(`Request URL: ${url}`);
             
@@ -121,10 +119,10 @@ const AuthService = {
         try {
             window.AAAI_LOGGER.info(`Verifying OTP for email: ${email}`);
             
-            // Auth requests go directly to /auth/ (proxied to API Gateway)
+            // Use nginx proxy in production, direct localhost in development
             const url = window.AAAI_CONFIG.ENVIRONMENT === 'development' 
                 ? `${this.AUTH_BASE_URL}/auth/verify-otp`
-                : '/auth/verify-otp'; // Always use absolute path in production
+                : '/auth/verify-otp';
             
             window.AAAI_LOGGER.debug(`Request URL: ${url}`);
             
