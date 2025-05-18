@@ -340,6 +340,7 @@
       color: rgba(255, 255, 255, 0.6);
     }
     
+    /* Enhanced send button styles with better disabled state */
     .chat-send-btn {
       background: linear-gradient(135deg, var(--orange-soda) 0%, var(--red-orange) 100%);
       color: white;
@@ -353,17 +354,58 @@
       display: flex;
       align-items: center;
       gap: 8px;
+      position: relative;
+      overflow: hidden;
     }
     
-    .chat-send-btn:hover {
+    .chat-send-btn:hover:not(:disabled) {
       transform: translateY(-2px);
       box-shadow: 0 5px 15px rgba(255, 126, 95, 0.4);
     }
     
     .chat-send-btn:disabled {
-      opacity: 0.7;
+      opacity: 0.5;
       cursor: not-allowed;
       transform: none;
+      background: linear-gradient(135deg, #6c7b7f 0%, #95a5a6 100%);
+    }
+    
+    .chat-send-btn:disabled::after {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: -100%;
+      width: 100%;
+      height: 100%;
+      background: linear-gradient(90deg, 
+        transparent, 
+        rgba(255, 255, 255, 0.1), 
+        transparent);
+      animation: loading-shimmer 1.5s infinite;
+    }
+    
+    @keyframes loading-shimmer {
+      to {
+        left: 100%;
+      }
+    }
+    
+    .chat-send-btn:disabled span {
+      opacity: 0.7;
+    }
+    
+    .chat-send-btn:disabled ion-icon {
+      opacity: 0.7;
+      animation: pulse 1.5s ease-in-out infinite;
+    }
+    
+    @keyframes pulse {
+      0%, 100% {
+        opacity: 0.7;
+      }
+      50% {
+        opacity: 0.3;
+      }
     }
     
     /* Loading indicator */
@@ -491,12 +533,6 @@
       height: 100%;
       background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
       animation: loading-shimmer 1.5s infinite;
-    }
-    
-    @keyframes loading-shimmer {
-      to {
-        left: 100%;
-      }
     }
     
     /* UI Components Styling */
@@ -1303,6 +1339,10 @@
                     data.bot_message.components
                   );
                 }
+                
+                // Re-enable send button after bot responds
+                sendMessageBtn.disabled = false;
+                messageInput.focus();
                 break;
                 
               case 'history':
@@ -1322,6 +1362,10 @@
                 if (errorTypingIndicator) {
                   errorTypingIndicator.remove();
                 }
+                
+                // Re-enable send button on error
+                sendMessageBtn.disabled = false;
+                messageInput.focus();
                 break;
             }
           }
@@ -1340,11 +1384,14 @@
             const messageText = messageInput.value.trim();
             if (!messageText) return;
             
+            // Don't allow sending if already waiting for response
+            if (sendMessageBtn.disabled) return;
+            
             // Clear input
             messageInput.value = '';
             messageInput.style.height = 'auto';
             
-            // Disable send button temporarily
+            // Disable send button and keep it disabled until bot responds
             sendMessageBtn.disabled = true;
             
             // Immediately add user message to chat for better UX
@@ -1357,9 +1404,11 @@
                 
                 // Show typing indicator for WebSocket
                 showTypingIndicatorForWebSocket();
+                // Note: Button stays disabled until bot responds via WebSocket
               } else {
                 // Fallback to HTTP API
                 await sendMessageHTTP(messageText, userMessageElement);
+                // Note: Button will be re-enabled in sendMessageHTTP when response arrives
               }
             } catch (error) {
               console.error('Error sending message:', error);
@@ -1372,10 +1421,12 @@
               addMessageToChat('Failed to send message. Please try again.', 'bot');
               showStatus('disconnected');
               messageInput.value = messageText; // Restore message
-            } finally {
+              
+              // Re-enable send button on error
               sendMessageBtn.disabled = false;
               messageInput.focus();
             }
+            // Note: We don't re-enable the button here anymore
           }
           
           // Function: Send message via HTTP (fallback)
@@ -1404,6 +1455,10 @@
                 );
               }
               
+              // Re-enable send button after bot responds
+              sendMessageBtn.disabled = false;
+              messageInput.focus();
+              
             } catch (error) {
               console.error('Error sending message:', error);
               typingIndicator.remove();
@@ -1414,6 +1469,10 @@
               }
               
               addMessageToChat('Sorry, I encountered an error. Please try again.', 'bot');
+              
+              // Re-enable send button on error
+              sendMessageBtn.disabled = false;
+              messageInput.focus();
             }
           }
           
@@ -1613,6 +1672,9 @@
             historyHeader.style.display = 'none';
             showStatus('disconnected');
             hasAddedWelcomeMessage = false;
+            
+            // Reset send button on logout
+            sendMessageBtn.disabled = false;
           }
           
           // Function: Show connection status
