@@ -1,6 +1,5 @@
-
 /**
- * WebSocket-based Chat Service for AAAI Solutions
+ * Enhanced WebSocket-based Chat Service for AAAI Solutions
  * Uses configuration system for environment-aware connection
  */
 const ChatService = {
@@ -88,6 +87,15 @@ const ChatService = {
                     reject(new Error('WebSocket connection error'));
                 });
                 
+                // Connection timeout
+                setTimeout(() => {
+                    if (this.socket.readyState === WebSocket.CONNECTING) {
+                        window.AAAI_LOGGER.error('WebSocket connection timeout');
+                        this.socket.close();
+                        reject(new Error('Connection timeout'));
+                    }
+                }, 10000);
+                
             } catch (error) {
                 window.AAAI_LOGGER.error('Connection error:', error);
                 reject(error);
@@ -125,7 +133,10 @@ const ChatService = {
                 this.messageQueue.push(message);
                 window.AAAI_LOGGER.warn('Not connected, queueing message and attempting reconnect');
                 this.connect()
-                    .then(() => window.AAAI_LOGGER.info('Connected and queued message'))
+                    .then(() => {
+                        window.AAAI_LOGGER.info('Connected and will send queued message');
+                        resolve(true);
+                    })
                     .catch(err => {
                         window.AAAI_LOGGER.error('Failed to connect:', err);
                         reject(new Error('Not connected'));
@@ -135,7 +146,7 @@ const ChatService = {
             
             try {
                 const payload = {
-                    message,
+                    message: message.trim(),
                     timestamp: new Date().toISOString()
                 };
                 
@@ -213,13 +224,17 @@ const ChatService = {
      */
     _onClose(event) {
         this.isConnected = false;
-        window.AAAI_LOGGER.warn('WebSocket disconnected', { code: event.code, reason: event.reason });
+        window.AAAI_LOGGER.warn('WebSocket disconnected', { 
+            code: event.code, 
+            reason: event.reason,
+            wasClean: event.wasClean
+        });
         
         // Notify status listeners
         this._notifyStatusChange('disconnected');
         
-        // Try to reconnect if not a normal closure
-        if (event.code !== 1000 && event.code !== 1001) {
+        // Try to reconnect if not a normal closure and still authenticated
+        if (event.code !== 1000 && event.code !== 1001 && this.authService.isAuthenticated()) {
             this._tryReconnect();
         }
     },
@@ -241,6 +256,7 @@ const ChatService = {
     _tryReconnect() {
         if (this.reconnectAttempts >= this.options.maxReconnectAttempts) {
             window.AAAI_LOGGER.error('Max reconnect attempts reached');
+            this._notifyStatusChange('disconnected');
             return;
         }
         
@@ -251,7 +267,7 @@ const ChatService = {
         this._notifyStatusChange('reconnecting');
         
         setTimeout(() => {
-            if (!this.isConnected) {
+            if (!this.isConnected && this.authService.isAuthenticated()) {
                 this.connect()
                     .then(() => window.AAAI_LOGGER.info('Reconnected successfully'))
                     .catch(err => {
@@ -288,5 +304,62 @@ const ChatService = {
                 window.AAAI_LOGGER.error('Error in status listener:', error);
             }
         });
+    },
+    
+    /**
+     * Get connection status
+     * @returns {Object} - Connection status information
+     */
+    getStatus() {
+        return {
+            connected: this.isConnected,
+            reconnectAttempts: this.reconnectAttempts,
+            queuedMessages: this.messageQueue.length,
+            readyState: this.socket ? this.socket.readyState : null,
+            url: this.socket ? this.socket.url : null
+        };
+    },
+    
+    /**
+     * Test connection with debug endpoint
+     * @returns {Promise<boolean>} - Test result
+     */
+    async testConnection() {
+        try {
+            if (!this.authService.isAuthenticated()) {
+                throw new Error('Authentication required');
+            }
+            
+            const user = this.authService.getCurrentUser();
+            const testWsUrl = this.authService.getWebSocketURL(user.id).replace('/ws/', '/ws/debug/');
+            
+            window.AAAI_LOGGER.info(`Testing WebSocket connection: ${testWsUrl.replace(/token=[^&]*/, 'token=***')}`);
+            
+            return new Promise((resolve, reject) => {
+                const testSocket = new WebSocket(testWsUrl);
+                
+                testSocket.onopen = (event) => {
+                    window.AAAI_LOGGER.info('✅ Test WebSocket connected');
+                    testSocket.close();
+                    resolve(true);
+                };
+                
+                testSocket.onerror = (event) => {
+                    window.AAAI_LOGGER.error('❌ Test WebSocket failed');
+                    reject(new Error('Test connection failed'));
+                };
+                
+                // Timeout for test
+                setTimeout(() => {
+                    if (testSocket.readyState === WebSocket.CONNECTING) {
+                        testSocket.close();
+                        reject(new Error('Test connection timeout'));
+                    }
+                }, 5000);
+            });
+        } catch (error) {
+            window.AAAI_LOGGER.error('Test connection error:', error);
+            throw error;
+        }
     }
 };

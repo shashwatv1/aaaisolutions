@@ -1286,15 +1286,14 @@
                 break;
                 
               case 'message':
-                if (data.user_message) {
-                  addMessageToChat(
-                    data.user_message.text, 
-                    'user', 
-                    data.user_message.timestamp,
-                    null
-                  );
+                // Remove typing indicator when bot responds
+                const typingIndicator = chatBody.querySelector('.typing-indicator');
+                if (typingIndicator) {
+                  typingIndicator.remove();
                 }
                 
+                // For WebSocket, we only need to handle the bot response
+                // since we already showed the user message immediately when sent
                 if (data.bot_message) {
                   addMessageToChat(
                     data.bot_message.text, 
@@ -1316,6 +1315,12 @@
               case 'error':
                 console.error('WebSocket error:', data.message);
                 showStatus('disconnected', data.message);
+                
+                // Remove typing indicator on error
+                const errorTypingIndicator = chatBody.querySelector('.typing-indicator');
+                if (errorTypingIndicator) {
+                  errorTypingIndicator.remove();
+                }
                 break;
             }
           }
@@ -1341,16 +1346,28 @@
             // Disable send button temporarily
             sendMessageBtn.disabled = true;
             
+            // Immediately add user message to chat for better UX
+            const userMessageElement = addMessageToChat(messageText, 'user');
+            
             try {
               if (chatService && chatService.isConnected) {
                 // Send through WebSocket
                 await chatService.sendMessage(messageText);
+                
+                // Show typing indicator for WebSocket
+                showTypingIndicatorForWebSocket();
               } else {
                 // Fallback to HTTP API
-                await sendMessageHTTP(messageText);
+                await sendMessageHTTP(messageText, userMessageElement);
               }
             } catch (error) {
               console.error('Error sending message:', error);
+              
+              // Remove the user message we just added since sending failed
+              if (userMessageElement) {
+                userMessageElement.remove();
+              }
+              
               addMessageToChat('Failed to send message. Please try again.', 'bot');
               showStatus('disconnected');
               messageInput.value = messageText; // Restore message
@@ -1361,9 +1378,11 @@
           }
           
           // Function: Send message via HTTP (fallback)
-          async function sendMessageHTTP(messageText) {
-            // Add user message immediately
-            addMessageToChat(messageText, 'user');
+          async function sendMessageHTTP(messageText, userMessageElement = null) {
+            // If no user message element was passed, add it now
+            if (!userMessageElement) {
+              userMessageElement = addMessageToChat(messageText, 'user');
+            }
             
             // Show typing indicator
             const typingIndicator = showTypingIndicator();
@@ -1387,6 +1406,12 @@
             } catch (error) {
               console.error('Error sending message:', error);
               typingIndicator.remove();
+              
+              // Remove the user message since sending failed
+              if (userMessageElement) {
+                userMessageElement.remove();
+              }
+              
               addMessageToChat('Sorry, I encountered an error. Please try again.', 'bot');
             }
           }
@@ -1463,17 +1488,16 @@
             textDiv.textContent = text;
             messageDiv.appendChild(textDiv);
             
-            // Add timestamp if available
+            // Add timestamp
+            const timestampDiv = document.createElement('div');
+            timestampDiv.className = 'message-timestamp';
             if (timestamp) {
               const date = new Date(timestamp);
-              const timeString = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-              
-              const timestampDiv = document.createElement('div');
-              timestampDiv.className = 'message-timestamp';
-              timestampDiv.textContent = timeString;
-              
-              messageDiv.appendChild(timestampDiv);
+              timestampDiv.textContent = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            } else {
+              timestampDiv.textContent = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
             }
+            messageDiv.appendChild(timestampDiv);
             
             // Add components container if bot message
             if (type === 'bot' && components && components.length > 0) {
@@ -1504,6 +1528,17 @@
             chatBody.scrollTop = chatBody.scrollHeight;
             
             return typingDiv;
+          }
+          
+          // Function: Show typing indicator for WebSocket
+          function showTypingIndicatorForWebSocket() {
+            // Only show typing indicator if there isn't one already
+            const existingIndicator = chatBody.querySelector('.typing-indicator');
+            if (existingIndicator) {
+              return existingIndicator;
+            }
+            
+            return showTypingIndicator();
           }
           
           // Function: Show welcome message
