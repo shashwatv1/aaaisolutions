@@ -11,12 +11,20 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Barlow:wght@600;700&family=Open+Sans:wght@400;500;700&family=Poppins:wght@400;600&display=swap" rel="stylesheet">
   
-  <!-- Load configuration first -->
-  <script src="./assets/js/config.js"></script>
+  <!-- Load configuration first (optional - won't break if missing) -->
+  <script>
+    // Try to load config, but don't break if it doesn't exist
+    try {
+      // This will be replaced by actual config.js if it exists
+      document.head.appendChild(document.createElement('script')).src = './assets/js/config.js';
+    } catch (e) {
+      console.log('Config.js not found, using default configuration');
+    }
+  </script>
   
   <!-- Additional styles specific to the chat page -->
   <style>
-    /* Environment indicator */
+    /* Environment indicator - only shows in non-production */
     .env-indicator {
       position: fixed;
       top: 0;
@@ -45,7 +53,7 @@
     body.with-env-indicator {
       padding-top: 30px;
     }
-    
+
     /* Hero section styles */
     .demo-hero {
       background-color: var(--indigo);
@@ -70,6 +78,66 @@
       position: relative;
     }
     
+    /* Auth section styles */
+    .auth-section {
+      padding: 20px;
+      background-color: var(--space-cadet);
+      border-top-left-radius: var(--radius-15);
+      border-top-right-radius: var(--radius-15);
+      text-align: center;
+      color: var(--white);
+    }
+    
+    .auth-form {
+      display: flex;
+      flex-direction: column;
+      max-width: 400px;
+      margin: 0 auto;
+      gap: 15px;
+    }
+    
+    .auth-input {
+      padding: 12px 15px;
+      border-radius: 5px;
+      border: none;
+      background-color: var(--independence);
+      color: var(--white);
+    }
+    
+    .auth-button {
+      padding: 12px 20px;
+      border: none;
+      border-radius: 5px;
+      background-color: var(--orange-soda);
+      color: var(--white);
+      font-weight: bold;
+      cursor: pointer;
+      transition: all 0.3s ease;
+    }
+    
+    .auth-button:hover {
+      background-color: var(--klein-blue);
+    }
+    
+    /* Chat interface styles */
+    .chat-interface {
+      display: none; /* Hidden initially, shown after auth */
+    }
+    
+    .chat-header {
+      background-color: var(--indigo);
+      padding: 15px 20px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    
+    .chat-title {
+      color: var(--white);
+      font-size: 1.8rem;
+      margin: 0;
+    }
+    
     /* Environment info in chat header */
     .chat-env-info {
       font-size: 0.7rem;
@@ -77,7 +145,129 @@
       margin-left: 10px;
     }
     
-    /* Connection status with different styles per environment */
+    .user-info {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      color: var(--white);
+    }
+    
+    .credits-badge {
+      background-color: var(--orange-soda);
+      padding: 5px 10px;
+      border-radius: 15px;
+      font-size: 0.9rem;
+    }
+    
+    .logout-btn {
+      background: transparent;
+      border: none;
+      color: var(--white);
+      cursor: pointer;
+    }
+    
+    .chat-body {
+      height: 500px;
+      padding: 20px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      background-color: var(--space-cadet);
+    }
+    
+    .message {
+      max-width: 70%;
+      padding: 12px 15px;
+      margin-bottom: 15px;
+      border-radius: 15px;
+      position: relative;
+      line-height: 1.5;
+    }
+    
+    .message-bot {
+      background-color: var(--independence);
+      color: var(--white);
+      align-self: flex-start;
+      border-bottom-left-radius: 5px;
+    }
+    
+    .message-user {
+      background-color: var(--klein-blue);
+      color: var(--white);
+      align-self: flex-end;
+      border-bottom-right-radius: 5px;
+    }
+    
+    .chat-footer {
+      display: flex;
+      padding: 15px;
+      border-top: 1px solid rgba(255, 255, 255, 0.1);
+      background-color: var(--independence);
+    }
+    
+    .chat-input {
+      flex: 1;
+      background-color: var(--space-cadet);
+      color: var(--white);
+      border: none;
+      padding: 12px 15px;
+      border-radius: 20px;
+      margin-right: 10px;
+    }
+    
+    .chat-send-btn {
+      background-color: var(--orange-soda);
+      color: white;
+      border: none;
+      padding: 10px 20px;
+      border-radius: 20px;
+      cursor: pointer;
+      transition: all 0.3s ease;
+    }
+    
+    .chat-send-btn:hover {
+      background-color: var(--klein-blue);
+    }
+    
+    /* Loading indicator */
+    .typing-indicator {
+      display: flex;
+      align-items: center;
+      padding: 10px 15px;
+      background-color: var(--independence);
+      border-radius: 15px;
+      margin-bottom: 15px;
+      width: fit-content;
+      align-self: flex-start;
+    }
+    
+    .typing-dot {
+      width: 8px;
+      height: 8px;
+      background-color: var(--white);
+      border-radius: 50%;
+      margin: 0 2px;
+      animation: typing-animation 1.4s infinite ease-in-out;
+    }
+    
+    .typing-dot:nth-child(2) {
+      animation-delay: 0.2s;
+    }
+    
+    .typing-dot:nth-child(3) {
+      animation-delay: 0.4s;
+    }
+    
+    @keyframes typing-animation {
+      0%, 100% {
+        transform: translateY(0);
+      }
+      50% {
+        transform: translateY(-5px);
+      }
+    }
+    
+    /* Status indicators */
     .status-indicator {
       position: absolute;
       top: 10px;
@@ -92,17 +282,17 @@
     }
     
     .status-connected {
-      background-color: rgba(46, 204, 113, 0.9);
+      background-color: rgba(46, 204, 113, 0.8);
       color: white;
     }
     
     .status-disconnected {
-      background-color: rgba(231, 76, 60, 0.9);
+      background-color: rgba(231, 76, 60, 0.8);
       color: white;
     }
     
     .status-reconnecting {
-      background-color: rgba(243, 156, 18, 0.9);
+      background-color: rgba(243, 156, 18, 0.8);
       color: white;
     }
     
@@ -110,79 +300,289 @@
       opacity: 1;
     }
     
-    /* Debug panel */
-    .debug-panel {
-      position: fixed;
-      bottom: 20px;
-      right: 20px;
-      background-color: rgba(0, 0, 0, 0.8);
-      color: white;
-      padding: 15px;
-      border-radius: 10px;
-      font-family: monospace;
-      font-size: 0.8rem;
-      max-width: 300px;
-      z-index: 9999;
+    /* OTP section */
+    .otp-section {
       display: none;
+      text-align: center;
+      padding: 20px;
     }
     
-    .debug-panel.visible {
-      display: block;
+    .otp-title {
+      color: var(--white);
+      margin-bottom: 10px;
     }
     
-    .debug-panel h4 {
-      margin: 0 0 10px 0;
-      color: #00ff00;
+    .otp-subtitle {
+      color: var(--cadet-blue-crayola);
+      margin-bottom: 20px;
     }
     
-    .debug-panel .debug-item {
-      margin-bottom: 5px;
+    .error-message {
+      color: #e74c3c;
+      margin-top: 10px;
+      font-size: 0.9rem;
+    }
+    
+    /* Message timestamp */
+    .message-timestamp {
+      font-size: 0.7rem;
+      color: rgba(255, 255, 255, 0.5);
+      margin-top: 5px;
+      text-align: right;
+    }
+    
+    /* UI Components Styling */
+    .chat-components-container {
+      margin-top: 10px;
+    }
+    
+    /* Button Component */
+    .chat-component-button {
+      padding: 8px 16px;
+      border-radius: 20px;
+      font-size: 0.9rem;
+      border: none;
+      background-color: var(--klein-blue);
+      color: white;
+      cursor: pointer;
+      margin: 5px;
+      transition: all 0.2s ease;
+    }
+    
+    .chat-component-button:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+    }
+    
+    .chat-button-primary {
+      background-color: var(--klein-blue);
+    }
+    
+    .chat-button-secondary {
+      background-color: var(--independence);
+    }
+    
+    .chat-button-success {
+      background-color: #2ecc71;
+    }
+    
+    .chat-button-danger {
+      background-color: #e74c3c;
+    }
+    
+    /* Card Component */
+    .chat-component-card {
+      width: 100%;
+      max-width: 280px;
+      background-color: var(--independence);
+      border-radius: 10px;
+      overflow: hidden;
+      margin: 10px 0;
+      box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+    }
+    
+    .chat-card-image {
+      width: 100%;
+      height: 140px;
+      overflow: hidden;
+    }
+    
+    .chat-card-image img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+    
+    .chat-card-content {
+      padding: 15px;
+    }
+    
+    .chat-card-title {
+      font-size: 1.1rem;
+      margin: 0 0 5px 0;
+      color: white;
+    }
+    
+    .chat-card-subtitle {
+      font-size: 0.9rem;
+      color: rgba(255, 255, 255, 0.7);
+      margin: 0 0 15px 0;
+    }
+    
+    .chat-card-buttons {
       display: flex;
+      flex-wrap: wrap;
+      margin-top: 10px;
+    }
+    
+    /* Quick Replies */
+    .chat-component-quick-replies {
+      width: 100%;
+      margin: 10px 0;
+    }
+    
+    .chat-quick-replies-title {
+      font-size: 0.9rem;
+      color: rgba(255, 255, 255, 0.7);
+      margin-bottom: 8px;
+    }
+    
+    .chat-quick-replies-options {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 5px;
+    }
+    
+    .chat-quick-reply-button {
+      padding: 6px 12px;
+      border-radius: 15px;
+      font-size: 0.8rem;
+      border: 1px solid rgba(255, 255, 255, 0.3);
+      background-color: transparent;
+      color: white;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+    
+    .chat-quick-reply-button:hover {
+      background-color: rgba(255, 255, 255, 0.1);
+    }
+    
+    /* Contact List */
+    .chat-component-contact-list {
+      width: 100%;
+      margin: 10px 0;
+    }
+    
+    .chat-contact-item {
+      display: flex;
+      align-items: center;
+      padding: 10px;
+      border-radius: 8px;
+      background-color: rgba(255, 255, 255, 0.05);
+      margin-bottom: 5px;
+    }
+    
+    .chat-contact-icon {
+      width: 30px;
+      height: 30px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-right: 10px;
+      color: white;
+    }
+    
+    .chat-contact-content {
+      flex: 1;
+    }
+    
+    .chat-contact-title {
+      font-size: 0.9rem;
+      color: rgba(255, 255, 255, 0.7);
+    }
+    
+    .chat-contact-value {
+      font-size: 1rem;
+      color: white;
+    }
+    
+    .chat-contact-copy {
+      background: transparent;
+      border: none;
+      color: white;
+      cursor: pointer;
+      position: relative;
+    }
+    
+    .chat-contact-copy::after {
+      content: 'Copied!';
+      position: absolute;
+      top: -25px;
+      left: 50%;
+      transform: translateX(-50%);
+      background-color: rgba(46, 204, 113, 0.9);
+      color: white;
+      padding: 3px 8px;
+      border-radius: 3px;
+      font-size: 0.8rem;
+      opacity: 0;
+      transition: opacity 0.2s ease;
+      pointer-events: none;
+    }
+    
+    .chat-contact-copy.copied::after {
+      opacity: 1;
+    }
+    
+    /* Message History Section */
+    .message-history-header {
+      display: flex;
+      align-items: center;
       justify-content: space-between;
+      padding: 10px 15px;
+      background-color: rgba(0, 0, 0, 0.2);
+      border-radius: 5px;
+      margin-bottom: 15px;
     }
     
-    .debug-panel .debug-label {
-      color: #ffff00;
+    .message-history-title {
+      font-size: 0.9rem;
+      color: rgba(255, 255, 255, 0.7);
     }
     
-    .debug-panel .debug-value {
-      color: #00ffff;
+    .message-history-actions {
+      display: flex;
+      gap: 10px;
     }
     
-    /* Rest of your existing styles remain the same */
-    /* ... */
+    .message-history-button {
+      background: transparent;
+      border: none;
+      color: white;
+      cursor: pointer;
+      font-size: 0.8rem;
+    }
+    
+    .message-history-date {
+      text-align: center;
+      margin: 15px 0;
+      position: relative;
+    }
+    
+    .message-history-date::before,
+    .message-history-date::after {
+      content: '';
+      position: absolute;
+      top: 50%;
+      width: 35%;
+      height: 1px;
+      background-color: rgba(255, 255, 255, 0.2);
+    }
+    
+    .message-history-date::before {
+      left: 0;
+    }
+    
+    .message-history-date::after {
+      right: 0;
+    }
+    
+    .message-history-date-text {
+      display: inline-block;
+      padding: 3px 10px;
+      background-color: rgba(0, 0, 0, 0.3);
+      border-radius: 10px;
+      font-size: 0.8rem;
+      color: rgba(255, 255, 255, 0.6);
+    }
   </style>
 </head>
 
 <body id="top">
-  <!-- Environment indicator -->
+  <!-- Environment indicator (hidden by default) -->
   <div class="env-indicator" id="envIndicator">
     <span id="envText"></span>
-  </div>
-
-  <!-- Debug panel (only shown in development/staging) -->
-  <div class="debug-panel" id="debugPanel">
-    <h4>Debug Information</h4>
-    <div class="debug-item">
-      <span class="debug-label">Environment:</span>
-      <span class="debug-value" id="debugEnv"></span>
-    </div>
-    <div class="debug-item">
-      <span class="debug-label">WebSocket Status:</span>
-      <span class="debug-value" id="debugWsStatus">Disconnected</span>
-    </div>
-    <div class="debug-item">
-      <span class="debug-label">Auth Status:</span>
-      <span class="debug-value" id="debugAuthStatus">Not authenticated</span>
-    </div>
-    <div class="debug-item">
-      <span class="debug-label">API URL:</span>
-      <span class="debug-value" id="debugApiUrl"></span>
-    </div>
-    <div class="debug-item">
-      <span class="debug-label">WS URL:</span>
-      <span class="debug-value" id="debugWsUrl"></span>
-    </div>
   </div>
 
   <!-- Header (kept the same as the main site) -->
@@ -268,7 +668,17 @@
               </div>
             </div>
             <div class="chat-body" id="chatBody">
-              <!-- Message history header and messages will be inserted here -->
+              <!-- Message history -->
+              <div class="message-history-header" id="historyHeader" style="display: none;">
+                <div class="message-history-title">Previous Conversations</div>
+                <div class="message-history-actions">
+                  <button class="message-history-button" id="clearHistoryBtn" title="Clear History">
+                    <ion-icon name="trash-outline"></ion-icon>
+                  </button>
+                </div>
+              </div>
+              
+              <!-- Messages will be inserted here -->
             </div>
             <div class="chat-footer">
               <input type="text" class="chat-input" id="messageInput" placeholder="Type your message here...">
@@ -282,7 +692,7 @@
     </section>
   </main>
 
-  <!-- Footer (same as other pages) -->
+  <!-- Footer (copied from other pages) -->
   <footer class="footer">
     <div class="container">
       <p class="copyright">
@@ -304,7 +714,7 @@
 
   <a href="#top" class="back-to-top" data-back-to-top>BACK TOP</a>
 
-  <!-- JS scripts - Load in correct order -->
+  <!-- JS scripts - keeping your existing order -->
   <script src="./assets/js/script.js"></script>
   <script src="./assets/js/auth.js"></script>
   <script src="./assets/js/websocket-chat.js"></script>
@@ -312,74 +722,81 @@
   <script type="module" src="https://unpkg.com/ionicons@5.5.2/dist/ionicons/ionicons.esm.js"></script>
   <script nomodule src="https://unpkg.com/ionicons@5.5.2/dist/ionicons/ionicons.js"></script>
   
-  <!-- Main chat application script -->
+  <!-- Main chat application script - Enhanced with environment awareness but with fallbacks -->
   <script>
     document.addEventListener('DOMContentLoaded', function() {
-      // Initialize environment indicator
-      function initEnvironmentIndicator() {
-        const envIndicator = document.getElementById('envIndicator');
-        const envText = document.getElementById('envText');
-        const environment = window.AAAI_CONFIG.ENVIRONMENT;
+      // Initialize environment features (only if config is available)
+      function initEnvironmentFeatures() {
+        // Check if config is available
+        const hasConfig = window.AAAI_CONFIG && window.AAAI_CONFIG.ENVIRONMENT;
         
-        envIndicator.className = `env-indicator ${environment}`;
-        envText.textContent = `${environment.toUpperCase()} Environment - v${window.AAAI_CONFIG.VERSION}`;
-        
-        if (environment !== 'production') {
-          document.body.classList.add('with-env-indicator');
-        }
-      }
-      
-      // Initialize debug panel
-      function initDebugPanel() {
-        if (window.AAAI_CONFIG.ENABLE_DEBUG) {
-          const debugPanel = document.getElementById('debugPanel');
-          const debugEnv = document.getElementById('debugEnv');
-          const debugApiUrl = document.getElementById('debugApiUrl');
-          const debugWsUrl = document.getElementById('debugWsUrl');
-          const debugAuthStatus = document.getElementById('debugAuthStatus');
-          const debugWsStatus = document.getElementById('debugWsStatus');
+        if (hasConfig) {
+          const environment = window.AAAI_CONFIG.ENVIRONMENT;
           
-          debugPanel.classList.add('visible');
-          debugEnv.textContent = window.AAAI_CONFIG.ENVIRONMENT;
-          debugApiUrl.textContent = window.AAAI_CONFIG.API_BASE_URL;
-          debugWsUrl.textContent = window.AAAI_CONFIG.WS_BASE_URL;
+          // Show environment indicator for non-production
+          if (environment !== 'production') {
+            const envIndicator = document.getElementById('envIndicator');
+            const envText = document.getElementById('envText');
+            
+            envIndicator.className = `env-indicator ${environment}`;
+            envText.textContent = `${environment.toUpperCase()} Environment`;
+            document.body.classList.add('with-env-indicator');
+          }
           
-          // Add click handler to toggle debug panel
-          debugPanel.addEventListener('click', function() {
-            debugPanel.style.display = debugPanel.style.display === 'none' ? 'block' : 'none';
-          });
-        }
-      }
-      
-      // Update debug panel
-      function updateDebugPanel(authStatus, wsStatus) {
-        if (window.AAAI_CONFIG.ENABLE_DEBUG) {
-          const debugAuthStatus = document.getElementById('debugAuthStatus');
-          const debugWsStatus = document.getElementById('debugWsStatus');
+          // Update chat header with environment info
+          const chatEnvInfo = document.getElementById('chatEnvInfo');
+          if (environment !== 'production') {
+            chatEnvInfo.textContent = `(${environment})`;
+          }
           
-          if (debugAuthStatus) debugAuthStatus.textContent = authStatus;
-          if (debugWsStatus) debugWsStatus.textContent = wsStatus;
+          // Set up logger if available
+          if (window.AAAI_LOGGER) {
+            window.AAAI_LOGGER.info('Environment features initialized', {
+              environment: environment,
+              version: window.AAAI_CONFIG.VERSION || 'unknown'
+            });
+          }
         }
       }
       
       // Initialize environment features
-      initEnvironmentIndicator();
-      initDebugPanel();
+      initEnvironmentFeatures();
       
-      // Update chat header with environment info
-      const chatEnvInfo = document.getElementById('chatEnvInfo');
-      if (chatEnvInfo && window.AAAI_CONFIG.ENVIRONMENT !== 'production') {
-        chatEnvInfo.textContent = `(${window.AAAI_CONFIG.ENVIRONMENT})`;
+      // Enhanced AuthService initialization with fallbacks
+      function initializeAuthService() {
+        // Provide fallback configuration if config.js isn't available
+        if (!window.AAAI_CONFIG) {
+          window.AAAI_CONFIG = {
+            API_BASE_URL: 'https://aaai-gateway-754x89jf.uc.gateway.dev',
+            WS_BASE_URL: 'wss://api-server-559730737995.us-central1.run.app',
+            ENVIRONMENT: 'production',
+            ENABLE_WEBSOCKETS: true,
+            ENABLE_DEBUG: false
+          };
+          
+          // Simple logger fallback
+          window.AAAI_LOGGER = {
+            debug: console.log.bind(console, '[DEBUG]'),
+            info: console.info.bind(console, '[INFO]'),
+            warn: console.warn.bind(console, '[WARN]'),
+            error: console.error.bind(console, '[ERROR]')
+          };
+        }
+        
+        // Initialize authentication
+        try {
+          AuthService.init();
+          return true;
+        } catch (error) {
+          console.error('Failed to initialize AuthService:', error);
+          alert('There was an error initializing the authentication system. Please refresh the page.');
+          return false;
+        }
       }
       
-      // Initialize authentication
-      try {
-        AuthService.init();
-        updateDebugPanel(AuthService.isAuthenticated() ? 'Authenticated' : 'Not authenticated', 'Disconnected');
-      } catch (error) {
-        window.AAAI_LOGGER.error('Failed to initialize AuthService:', error);
-        alert('Configuration error. Please refresh the page.');
-        return;
+      // Initialize AuthService with fallbacks
+      if (!initializeAuthService()) {
+        return; // Stop execution if auth init fails
       }
       
       // Initialize UI components renderer
@@ -396,13 +813,17 @@
               .then(() => {
                 showStatus('copied', `Copied: ${value}`);
               })
-              .catch(err => window.AAAI_LOGGER.error('Failed to copy:', err));
+              .catch(err => console.error('Failed to copy:', err));
           }
         }
       });
       
-      // Initialize chat service with WebSocket
-      const chatService = ChatService.init(AuthService);
+      // Initialize chat service with configuration-aware options
+      const chatService = ChatService.init(AuthService, {
+        reconnectInterval: window.AAAI_CONFIG?.WS_RECONNECT_INTERVAL || 3000,
+        maxReconnectAttempts: window.AAAI_CONFIG?.WS_MAX_RECONNECT_ATTEMPTS || 5,
+        debug: window.AAAI_CONFIG?.ENABLE_DEBUG || false
+      });
       
       // Elements
       const authSection = document.getElementById('authSection');
@@ -420,6 +841,8 @@
       const chatBody = document.getElementById('chatBody');
       const messageInput = document.getElementById('messageInput');
       const sendMessageBtn = document.getElementById('sendMessageBtn');
+      const historyHeader = document.getElementById('historyHeader');
+      const clearHistoryBtn = document.getElementById('clearHistoryBtn');
       const connectedStatus = document.querySelector('.status-connected');
       const disconnectedStatus = document.querySelector('.status-disconnected');
       const reconnectingStatus = document.querySelector('.status-reconnecting');
@@ -486,7 +909,6 @@
           verifyOtpBtn.disabled = true;
           
           await AuthService.verifyOTP(userEmail, otp);
-          updateDebugPanel('Authenticated', 'Disconnected');
           
           // Show chat interface
           showChatInterface();
@@ -507,7 +929,6 @@
       logoutBtn.addEventListener('click', function() {
         disconnectWebSocket();
         AuthService.logout();
-        updateDebugPanel('Not authenticated', 'Disconnected');
         showAuthSection();
         chatBody.innerHTML = '';
         messageInput.value = '';
@@ -522,21 +943,21 @@
         }
       });
       
+      // Event: Clear history
+      clearHistoryBtn.addEventListener('click', function() {
+        if (confirm('Are you sure you want to clear your chat history?')) {
+          alert('This feature would clear your chat history from the server.');
+        }
+      });
+      
       // Function: Connect to WebSocket
       async function connectToWebSocket() {
-        if (!window.AAAI_CONFIG.ENABLE_WEBSOCKETS) {
-          window.AAAI_LOGGER.warn('WebSockets are disabled in configuration');
-          return;
-        }
-        
         try {
           await chatService.connect();
           showStatus('connected');
-          updateDebugPanel(null, 'Connected');
         } catch (error) {
-          window.AAAI_LOGGER.error('WebSocket connection error:', error);
+          console.error('WebSocket connection error:', error);
           showStatus('disconnected');
-          updateDebugPanel(null, 'Failed to connect');
         }
       }
       
@@ -544,7 +965,6 @@
       function disconnectWebSocket() {
         chatService.disconnect();
         showStatus('disconnected');
-        updateDebugPanel(null, 'Disconnected');
       }
       
       // Function: Handle chat messages from WebSocket
@@ -573,13 +993,16 @@
           case 'history':
             processMessageHistory(data.messages);
             break;
+            
+          case 'history_loaded':
+            processMessageHistory(data.messages);
+            break;
         }
       }
       
       // Function: Handle connection status changes
       function handleConnectionStatus(status) {
         showStatus(status);
-        updateDebugPanel(null, status.charAt(0).toUpperCase() + status.slice(1));
         
         if (status === 'connected' && !hasAddedWelcomeMessage) {
           hasAddedWelcomeMessage = true;
@@ -612,7 +1035,7 @@
             }
           }
         } catch (error) {
-          window.AAAI_LOGGER.error('Error sending message:', error);
+          console.error('Error sending message:', error);
           addMessageToChat('Failed to send message. Please try again.', 'bot');
           showStatus('disconnected');
         }
@@ -622,10 +1045,16 @@
       function processMessageHistory(messages) {
         if (!messages || !messages.length) return;
         
+        // Show history header
+        historyHeader.style.display = 'flex';
+        
+        // Clear chat before adding history
         chatBody.innerHTML = '';
+        chatBody.appendChild(historyHeader);
         
         // Group messages by date
         const messagesByDate = {};
+        
         messages.forEach(message => {
           const date = new Date(message.timestamp);
           const dateKey = date.toDateString();
@@ -774,14 +1203,6 @@
           if (AuthService.isAuthenticated() && !chatService.isConnected && window.AAAI_CONFIG.ENABLE_WEBSOCKETS) {
             connectToWebSocket();
           }
-        }
-      });
-      
-      // Add keyboard shortcut for debug panel (Ctrl + Shift + D)
-      document.addEventListener('keydown', function(e) {
-        if (e.ctrlKey && e.shiftKey && e.key === 'D' && window.AAAI_CONFIG.ENABLE_DEBUG) {
-          const debugPanel = document.getElementById('debugPanel');
-          debugPanel.style.display = debugPanel.style.display === 'none' ? 'block' : 'none';
         }
       });
     });
