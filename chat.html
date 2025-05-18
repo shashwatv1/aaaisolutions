@@ -4,67 +4,50 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>AAAI Solutions - Chatbot Interface</title>
+  <title>AAAI Solutions - AI Chat Assistant</title>
   <link rel="shortcut icon" href="./robot.svg" type="image/svg+xml">
   <link rel="stylesheet" href="./assets/css/style.css">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Barlow:wght@600;700&family=Open+Sans:wght@400;500;700&family=Poppins:wght@400;600&display=swap" rel="stylesheet">
   
-  <!-- Load configuration first (optional - won't break if missing) -->
-  <script>
-    // Try to load config, but don't break if it doesn't exist
-    try {
-      // This will be replaced by actual config.js if it exists
-      document.head.appendChild(document.createElement('script')).src = './assets/js/config.js';
-    } catch (e) {
-      console.log('Config.js not found, using default configuration');
-    }
-  </script>
-  
-  <!-- Additional styles specific to the chat page -->
+  <!-- Chat-specific styles -->
   <style>
-    /* Environment indicator - only shows in non-production */
-    .env-indicator {
-      position: fixed;
+    /* Hero section styles */
+    .demo-hero {
+      background: linear-gradient(135deg, var(--indigo) 0%, var(--klein-blue) 100%);
+      padding: 80px 0;
+      text-align: center;
+      position: relative;
+      overflow: hidden;
+    }
+    
+    .demo-hero::before {
+      content: '';
+      position: absolute;
       top: 0;
       left: 0;
       right: 0;
-      z-index: 10000;
-      padding: 5px 10px;
-      text-align: center;
-      font-size: 0.8rem;
-      font-weight: bold;
-      color: white;
-      display: none;
-    }
-    
-    .env-indicator.development {
-      background-color: #f39c12;
-      display: block;
-    }
-    
-    .env-indicator.staging {
-      background-color: #9b59b6;
-      display: block;
-    }
-    
-    /* Adjust body padding when env indicator is shown */
-    body.with-env-indicator {
-      padding-top: 30px;
-    }
-
-    /* Hero section styles */
-    .demo-hero {
-      background-color: var(--indigo);
-      padding: 150px 0;
-      text-align: center;
+      bottom: 0;
+      background: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><defs><pattern id="grain" width="100" height="100" patternUnits="userSpaceOnUse"><circle cx="25" cy="25" r="1" fill="white" opacity="0.1"/><circle cx="75" cy="75" r="1" fill="white" opacity="0.1"/></pattern></defs><rect width="100" height="100" fill="url(%23grain)"/></svg>');
+      opacity: 0.3;
     }
     
     .demo-hero h1 {
-      font-size: 4rem;
+      font-size: 3.5rem;
       margin-bottom: 20px;
       color: var(--white);
+      position: relative;
+      z-index: 2;
+    }
+    
+    .demo-hero p {
+      font-size: 1.2rem;
+      color: rgba(255, 255, 255, 0.9);
+      position: relative;
+      z-index: 2;
+      max-width: 600px;
+      margin: 0 auto;
     }
     
     /* Chat container styles */
@@ -74,17 +57,22 @@
       background-color: var(--independence);
       border-radius: var(--radius-15);
       overflow: hidden;
-      box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
+      box-shadow: 0 15px 35px rgba(0, 0, 0, 0.3);
       position: relative;
+      border: 1px solid rgba(255, 255, 255, 0.1);
     }
     
     /* Auth section styles */
     .auth-section {
-      padding: 20px;
-      background-color: var(--space-cadet);
-      border-top-left-radius: var(--radius-15);
-      border-top-right-radius: var(--radius-15);
+      padding: 40px;
+      background: linear-gradient(135deg, var(--space-cadet) 0%, var(--independence) 100%);
       text-align: center;
+      color: var(--white);
+    }
+    
+    .auth-section h3 {
+      margin-bottom: 30px;
+      font-size: 1.8rem;
       color: var(--white);
     }
     
@@ -93,77 +81,112 @@
       flex-direction: column;
       max-width: 400px;
       margin: 0 auto;
-      gap: 15px;
+      gap: 20px;
     }
     
     .auth-input {
-      padding: 12px 15px;
-      border-radius: 5px;
-      border: none;
-      background-color: var(--independence);
+      padding: 15px 20px;
+      border-radius: 8px;
+      border: 2px solid transparent;
+      background-color: rgba(255, 255, 255, 0.1);
       color: var(--white);
+      font-size: 1rem;
+      transition: all 0.3s ease;
+      backdrop-filter: blur(10px);
+    }
+    
+    .auth-input:focus {
+      outline: none;
+      border-color: var(--orange-soda);
+      background-color: rgba(255, 255, 255, 0.15);
+    }
+    
+    .auth-input::placeholder {
+      color: rgba(255, 255, 255, 0.6);
     }
     
     .auth-button {
-      padding: 12px 20px;
+      padding: 15px 25px;
       border: none;
-      border-radius: 5px;
-      background-color: var(--orange-soda);
+      border-radius: 8px;
+      background: linear-gradient(135deg, var(--orange-soda) 0%, var(--klein-blue) 100%);
       color: var(--white);
-      font-weight: bold;
+      font-weight: 600;
+      font-size: 1rem;
       cursor: pointer;
       transition: all 0.3s ease;
+      position: relative;
+      overflow: hidden;
     }
     
     .auth-button:hover {
-      background-color: var(--klein-blue);
+      transform: translateY(-2px);
+      box-shadow: 0 5px 15px rgba(255, 126, 95, 0.4);
+    }
+    
+    .auth-button:disabled {
+      opacity: 0.7;
+      cursor: not-allowed;
+      transform: none;
     }
     
     /* Chat interface styles */
     .chat-interface {
-      display: none; /* Hidden initially, shown after auth */
+      display: none;
     }
     
     .chat-header {
-      background-color: var(--indigo);
-      padding: 15px 20px;
+      background: linear-gradient(135deg, var(--indigo) 0%, var(--klein-blue) 100%);
+      padding: 20px 25px;
       display: flex;
       align-items: center;
       justify-content: space-between;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.1);
     }
     
     .chat-title {
       color: var(--white);
-      font-size: 1.8rem;
+      font-size: 1.5rem;
       margin: 0;
+      display: flex;
+      align-items: center;
+      gap: 10px;
     }
     
-    /* Environment info in chat header */
-    .chat-env-info {
-      font-size: 0.7rem;
-      color: rgba(255, 255, 255, 0.6);
-      margin-left: 10px;
+    .chat-title::before {
+      content: '🤖';
+      font-size: 1.2em;
     }
     
     .user-info {
       display: flex;
       align-items: center;
-      gap: 10px;
+      gap: 15px;
       color: var(--white);
     }
     
     .credits-badge {
-      background-color: var(--orange-soda);
-      padding: 5px 10px;
-      border-radius: 15px;
-      font-size: 0.9rem;
+      background: linear-gradient(135deg, var(--orange-soda) 0%, var(--red-orange) 100%);
+      padding: 6px 12px;
+      border-radius: 20px;
+      font-size: 0.85rem;
+      font-weight: 600;
+      box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
     }
     
     .logout-btn {
       background: transparent;
-      border: none;
+      border: 1px solid rgba(255, 255, 255, 0.3);
       color: var(--white);
+      padding: 8px 12px;
+      border-radius: 6px;
       cursor: pointer;
+      transition: all 0.3s ease;
+    }
+    
+    .logout-btn:hover {
+      background: rgba(255, 255, 255, 0.1);
+      border-color: rgba(255, 255, 255, 0.5);
     }
     
     .chat-body {
@@ -172,73 +195,133 @@
       overflow-y: auto;
       display: flex;
       flex-direction: column;
-      background-color: var(--space-cadet);
+      background: linear-gradient(180deg, var(--space-cadet) 0%, var(--independence) 100%);
+      scrollbar-width: thin;
+      scrollbar-color: var(--orange-soda) transparent;
+    }
+    
+    .chat-body::-webkit-scrollbar {
+      width: 6px;
+    }
+    
+    .chat-body::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    
+    .chat-body::-webkit-scrollbar-thumb {
+      background: var(--orange-soda);
+      border-radius: 3px;
     }
     
     .message {
-      max-width: 70%;
-      padding: 12px 15px;
+      max-width: 75%;
+      padding: 15px 20px;
       margin-bottom: 15px;
-      border-radius: 15px;
+      border-radius: 18px;
       position: relative;
-      line-height: 1.5;
+      line-height: 1.6;
+      word-wrap: break-word;
+      animation: fadeInUp 0.3s ease-out;
+    }
+    
+    @keyframes fadeInUp {
+      from {
+        opacity: 0;
+        transform: translateY(20px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
     }
     
     .message-bot {
-      background-color: var(--independence);
+      background: linear-gradient(135deg, var(--independence) 0%, var(--cadet-blue-crayola) 100%);
       color: var(--white);
       align-self: flex-start;
-      border-bottom-left-radius: 5px;
+      border-bottom-left-radius: 6px;
+      border: 1px solid rgba(255, 255, 255, 0.1);
     }
     
     .message-user {
-      background-color: var(--klein-blue);
+      background: linear-gradient(135deg, var(--klein-blue) 0%, var(--indigo) 100%);
       color: var(--white);
       align-self: flex-end;
-      border-bottom-right-radius: 5px;
+      border-bottom-right-radius: 6px;
+    }
+    
+    .message-timestamp {
+      font-size: 0.75rem;
+      color: rgba(255, 255, 255, 0.6);
+      margin-top: 8px;
+      text-align: right;
     }
     
     .chat-footer {
       display: flex;
-      padding: 15px;
+      padding: 20px;
+      background: linear-gradient(135deg, var(--independence) 0%, var(--space-cadet) 100%);
       border-top: 1px solid rgba(255, 255, 255, 0.1);
-      background-color: var(--independence);
+      gap: 15px;
     }
     
     .chat-input {
       flex: 1;
-      background-color: var(--space-cadet);
+      background: rgba(255, 255, 255, 0.1);
       color: var(--white);
-      border: none;
-      padding: 12px 15px;
-      border-radius: 20px;
-      margin-right: 10px;
+      border: 2px solid transparent;
+      padding: 15px 20px;
+      border-radius: 25px;
+      font-size: 1rem;
+      transition: all 0.3s ease;
+      backdrop-filter: blur(10px);
+    }
+    
+    .chat-input:focus {
+      outline: none;
+      border-color: var(--orange-soda);
+      background: rgba(255, 255, 255, 0.15);
+    }
+    
+    .chat-input::placeholder {
+      color: rgba(255, 255, 255, 0.6);
     }
     
     .chat-send-btn {
-      background-color: var(--orange-soda);
+      background: linear-gradient(135deg, var(--orange-soda) 0%, var(--red-orange) 100%);
       color: white;
       border: none;
-      padding: 10px 20px;
-      border-radius: 20px;
+      padding: 15px 25px;
+      border-radius: 25px;
       cursor: pointer;
       transition: all 0.3s ease;
+      font-weight: 600;
+      white-space: nowrap;
     }
     
     .chat-send-btn:hover {
-      background-color: var(--klein-blue);
+      transform: translateY(-2px);
+      box-shadow: 0 5px 15px rgba(255, 126, 95, 0.4);
+    }
+    
+    .chat-send-btn:disabled {
+      opacity: 0.7;
+      cursor: not-allowed;
+      transform: none;
     }
     
     /* Loading indicator */
     .typing-indicator {
       display: flex;
       align-items: center;
-      padding: 10px 15px;
-      background-color: var(--independence);
-      border-radius: 15px;
+      padding: 15px 20px;
+      background: linear-gradient(135deg, var(--independence) 0%, var(--cadet-blue-crayola) 100%);
+      border-radius: 18px;
+      border-bottom-left-radius: 6px;
       margin-bottom: 15px;
       width: fit-content;
       align-self: flex-start;
+      border: 1px solid rgba(255, 255, 255, 0.1);
     }
     
     .typing-dot {
@@ -246,7 +329,7 @@
       height: 8px;
       background-color: var(--white);
       border-radius: 50%;
-      margin: 0 2px;
+      margin: 0 3px;
       animation: typing-animation 1.4s infinite ease-in-out;
     }
     
@@ -261,129 +344,159 @@
     @keyframes typing-animation {
       0%, 100% {
         transform: translateY(0);
+        opacity: 0.7;
       }
       50% {
-        transform: translateY(-5px);
+        transform: translateY(-8px);
+        opacity: 1;
       }
     }
     
     /* Status indicators */
     .status-indicator {
       position: absolute;
-      top: 10px;
+      top: 15px;
       left: 50%;
       transform: translateX(-50%);
-      padding: 5px 15px;
-      border-radius: 20px;
+      padding: 8px 20px;
+      border-radius: 25px;
       font-size: 0.9rem;
+      font-weight: 600;
       opacity: 0;
-      transition: opacity 0.3s ease;
-      z-index: 10;
+      transition: all 0.3s ease;
+      z-index: 1000;
+      backdrop-filter: blur(10px);
     }
     
     .status-connected {
-      background-color: rgba(46, 204, 113, 0.8);
+      background: linear-gradient(135deg, rgba(46, 204, 113, 0.9) 0%, rgba(39, 174, 96, 0.9) 100%);
       color: white;
     }
     
     .status-disconnected {
-      background-color: rgba(231, 76, 60, 0.8);
+      background: linear-gradient(135deg, rgba(231, 76, 60, 0.9) 0%, rgba(192, 57, 43, 0.9) 100%);
       color: white;
     }
     
     .status-reconnecting {
-      background-color: rgba(243, 156, 18, 0.8);
+      background: linear-gradient(135deg, rgba(243, 156, 18, 0.9) 0%, rgba(230, 126, 34, 0.9) 100%);
       color: white;
     }
     
     .status-indicator.visible {
       opacity: 1;
+      transform: translateX(-50%) translateY(10px);
     }
     
     /* OTP section */
     .otp-section {
       display: none;
       text-align: center;
-      padding: 20px;
+      padding: 40px;
+      background: linear-gradient(135deg, var(--space-cadet) 0%, var(--independence) 100%);
+      color: var(--white);
     }
     
     .otp-title {
       color: var(--white);
-      margin-bottom: 10px;
+      margin-bottom: 15px;
+      font-size: 1.6rem;
     }
     
     .otp-subtitle {
       color: var(--cadet-blue-crayola);
-      margin-bottom: 20px;
+      margin-bottom: 30px;
+      font-size: 1rem;
     }
     
     .error-message {
       color: #e74c3c;
-      margin-top: 10px;
+      margin-top: 15px;
       font-size: 0.9rem;
+      padding: 10px;
+      background: rgba(231, 76, 60, 0.1);
+      border-radius: 6px;
+      border: 1px solid rgba(231, 76, 60, 0.3);
     }
     
-    /* Message timestamp */
-    .message-timestamp {
-      font-size: 0.7rem;
-      color: rgba(255, 255, 255, 0.5);
-      margin-top: 5px;
-      text-align: right;
+    /* Loading states */
+    .loading {
+      position: relative;
+      overflow: hidden;
+    }
+    
+    .loading::after {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: -100%;
+      width: 100%;
+      height: 100%;
+      background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
+      animation: loading-shimmer 1.5s infinite;
+    }
+    
+    @keyframes loading-shimmer {
+      to {
+        left: 100%;
+      }
     }
     
     /* UI Components Styling */
     .chat-components-container {
-      margin-top: 10px;
+      margin-top: 15px;
     }
     
     /* Button Component */
     .chat-component-button {
-      padding: 8px 16px;
+      padding: 10px 18px;
       border-radius: 20px;
       font-size: 0.9rem;
       border: none;
-      background-color: var(--klein-blue);
+      background: linear-gradient(135deg, var(--klein-blue) 0%, var(--indigo) 100%);
       color: white;
       cursor: pointer;
       margin: 5px;
-      transition: all 0.2s ease;
+      transition: all 0.3s ease;
+      font-weight: 500;
     }
     
     .chat-component-button:hover {
       transform: translateY(-2px);
-      box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+      box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
     }
     
     .chat-button-primary {
-      background-color: var(--klein-blue);
+      background: linear-gradient(135deg, var(--klein-blue) 0%, var(--indigo) 100%);
     }
     
     .chat-button-secondary {
-      background-color: var(--independence);
+      background: linear-gradient(135deg, var(--independence) 0%, var(--cadet-blue-crayola) 100%);
     }
     
     .chat-button-success {
-      background-color: #2ecc71;
+      background: linear-gradient(135deg, #2ecc71 0%, #27ae60 100%);
     }
     
     .chat-button-danger {
-      background-color: #e74c3c;
+      background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%);
     }
     
     /* Card Component */
     .chat-component-card {
       width: 100%;
-      max-width: 280px;
-      background-color: var(--independence);
-      border-radius: 10px;
+      max-width: 300px;
+      background: linear-gradient(135deg, var(--independence) 0%, var(--cadet-blue-crayola) 100%);
+      border-radius: 12px;
       overflow: hidden;
-      margin: 10px 0;
-      box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+      margin: 15px 0;
+      box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
+      border: 1px solid rgba(255, 255, 255, 0.1);
     }
     
     .chat-card-image {
       width: 100%;
-      height: 140px;
+      height: 160px;
       overflow: hidden;
     }
     
@@ -391,86 +504,105 @@
       width: 100%;
       height: 100%;
       object-fit: cover;
+      transition: transform 0.3s ease;
+    }
+    
+    .chat-card-image:hover img {
+      transform: scale(1.05);
     }
     
     .chat-card-content {
-      padding: 15px;
+      padding: 20px;
     }
     
     .chat-card-title {
-      font-size: 1.1rem;
-      margin: 0 0 5px 0;
+      font-size: 1.2rem;
+      margin: 0 0 8px 0;
       color: white;
+      font-weight: 600;
     }
     
     .chat-card-subtitle {
       font-size: 0.9rem;
-      color: rgba(255, 255, 255, 0.7);
-      margin: 0 0 15px 0;
+      color: rgba(255, 255, 255, 0.8);
+      margin: 0 0 20px 0;
+      line-height: 1.5;
     }
     
     .chat-card-buttons {
       display: flex;
       flex-wrap: wrap;
-      margin-top: 10px;
+      gap: 10px;
     }
     
     /* Quick Replies */
     .chat-component-quick-replies {
       width: 100%;
-      margin: 10px 0;
+      margin: 15px 0;
     }
     
     .chat-quick-replies-title {
       font-size: 0.9rem;
-      color: rgba(255, 255, 255, 0.7);
-      margin-bottom: 8px;
+      color: rgba(255, 255, 255, 0.8);
+      margin-bottom: 12px;
+      font-weight: 500;
     }
     
     .chat-quick-replies-options {
       display: flex;
       flex-wrap: wrap;
-      gap: 5px;
+      gap: 8px;
     }
     
     .chat-quick-reply-button {
-      padding: 6px 12px;
-      border-radius: 15px;
-      font-size: 0.8rem;
+      padding: 8px 16px;
+      border-radius: 20px;
+      font-size: 0.85rem;
       border: 1px solid rgba(255, 255, 255, 0.3);
       background-color: transparent;
       color: white;
       cursor: pointer;
-      transition: all 0.2s ease;
+      transition: all 0.3s ease;
+      backdrop-filter: blur(5px);
     }
     
     .chat-quick-reply-button:hover {
-      background-color: rgba(255, 255, 255, 0.1);
+      background: rgba(255, 255, 255, 0.1);
+      border-color: var(--orange-soda);
+      transform: translateY(-1px);
     }
     
     /* Contact List */
     .chat-component-contact-list {
       width: 100%;
-      margin: 10px 0;
+      margin: 15px 0;
     }
     
     .chat-contact-item {
       display: flex;
       align-items: center;
-      padding: 10px;
-      border-radius: 8px;
-      background-color: rgba(255, 255, 255, 0.05);
-      margin-bottom: 5px;
+      padding: 15px;
+      border-radius: 10px;
+      background: rgba(255, 255, 255, 0.05);
+      margin-bottom: 8px;
+      transition: all 0.3s ease;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+    }
+    
+    .chat-contact-item:hover {
+      background: rgba(255, 255, 255, 0.1);
+      transform: translateX(5px);
     }
     
     .chat-contact-icon {
-      width: 30px;
-      height: 30px;
+      width: 35px;
+      height: 35px;
       display: flex;
       align-items: center;
       justify-content: center;
-      margin-right: 10px;
-      color: white;
+      margin-right: 15px;
+      color: var(--orange-soda);
+      font-size: 1.2rem;
     }
     
     .chat-contact-content {
@@ -478,114 +610,102 @@
     }
     
     .chat-contact-title {
-      font-size: 0.9rem;
+      font-size: 0.85rem;
       color: rgba(255, 255, 255, 0.7);
+      margin-bottom: 3px;
     }
     
     .chat-contact-value {
       font-size: 1rem;
       color: white;
+      font-weight: 500;
     }
     
     .chat-contact-copy {
       background: transparent;
-      border: none;
+      border: 1px solid rgba(255, 255, 255, 0.3);
       color: white;
+      padding: 8px 12px;
+      border-radius: 6px;
       cursor: pointer;
       position: relative;
+      transition: all 0.3s ease;
+    }
+    
+    .chat-contact-copy:hover {
+      background: rgba(255, 255, 255, 0.1);
+      border-color: var(--orange-soda);
     }
     
     .chat-contact-copy::after {
       content: 'Copied!';
       position: absolute;
-      top: -25px;
+      top: -35px;
       left: 50%;
       transform: translateX(-50%);
-      background-color: rgba(46, 204, 113, 0.9);
+      background: linear-gradient(135deg, #2ecc71 0%, #27ae60 100%);
       color: white;
-      padding: 3px 8px;
-      border-radius: 3px;
+      padding: 5px 10px;
+      border-radius: 5px;
       font-size: 0.8rem;
       opacity: 0;
-      transition: opacity 0.2s ease;
+      transition: opacity 0.3s ease;
       pointer-events: none;
+      white-space: nowrap;
     }
     
     .chat-contact-copy.copied::after {
       opacity: 1;
     }
     
-    /* Message History Section */
-    .message-history-header {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      padding: 10px 15px;
-      background-color: rgba(0, 0, 0, 0.2);
-      border-radius: 5px;
-      margin-bottom: 15px;
-    }
-    
-    .message-history-title {
-      font-size: 0.9rem;
-      color: rgba(255, 255, 255, 0.7);
-    }
-    
-    .message-history-actions {
-      display: flex;
-      gap: 10px;
-    }
-    
-    .message-history-button {
-      background: transparent;
-      border: none;
-      color: white;
-      cursor: pointer;
-      font-size: 0.8rem;
-    }
-    
-    .message-history-date {
-      text-align: center;
-      margin: 15px 0;
-      position: relative;
-    }
-    
-    .message-history-date::before,
-    .message-history-date::after {
-      content: '';
-      position: absolute;
-      top: 50%;
-      width: 35%;
-      height: 1px;
-      background-color: rgba(255, 255, 255, 0.2);
-    }
-    
-    .message-history-date::before {
-      left: 0;
-    }
-    
-    .message-history-date::after {
-      right: 0;
-    }
-    
-    .message-history-date-text {
-      display: inline-block;
-      padding: 3px 10px;
-      background-color: rgba(0, 0, 0, 0.3);
-      border-radius: 10px;
-      font-size: 0.8rem;
-      color: rgba(255, 255, 255, 0.6);
+    /* Responsive design */
+    @media (max-width: 768px) {
+      .demo-hero h1 {
+        font-size: 2.5rem;
+      }
+      
+      .chat-container {
+        margin: 20px 10px;
+        border-radius: var(--radius-10);
+      }
+      
+      .auth-section,
+      .otp-section {
+        padding: 30px 20px;
+      }
+      
+      .chat-header {
+        padding: 15px 20px;
+      }
+      
+      .chat-footer {
+        padding: 15px;
+        flex-direction: column;
+        gap: 10px;
+      }
+      
+      .chat-send-btn {
+        padding: 12px 20px;
+      }
+      
+      .message {
+        max-width: 90%;
+      }
+      
+      .user-info {
+        gap: 10px;
+      }
+      
+      .user-info span {
+        display: none;
+      }
     }
   </style>
 </head>
 
 <body id="top">
-  <!-- Environment indicator (hidden by default) -->
-  <div class="env-indicator" id="envIndicator">
-    <span id="envText"></span>
-  </div>
 
-  <!-- Header (kept the same as the main site) -->
+  <!-- Header -->
   <header class="header" data-header>
     <div class="container">
       <a href="index.html">
@@ -612,78 +732,80 @@
     <!-- Hero Section -->
     <section class="demo-hero">
       <div class="container">
-        <h1>AAAI Solutions Chatbot</h1>
-        <p>Experience our intelligent conversational interface that transforms customer engagement</p>
+        <h1>AI Chat Assistant</h1>
+        <p>Experience our intelligent conversational interface that transforms customer engagement with personalized responses and seamless interactions</p>
       </div>
     </section>
 
     <!-- Chat Interface Section -->
     <section class="section" id="demo">
       <div class="container">
-        <h2 class="h2 section-title">AI Assistant</h2>
+        <h2 class="h2 section-title">Intelligent Assistant</h2>
         <p class="section-text">
-          Chat with our AI to learn more about our services and get personalized assistance
+          Chat with our AI to learn more about our services, get personalized assistance, and explore how we can help your business grow
         </p>
         
         <div class="chat-container">
           <!-- Status Indicators -->
-          <div class="status-indicator status-connected">Connected</div>
-          <div class="status-indicator status-disconnected">Disconnected</div>
-          <div class="status-indicator status-reconnecting">Reconnecting...</div>
+          <div class="status-indicator status-connected">✓ Connected</div>
+          <div class="status-indicator status-disconnected">✗ Disconnected</div>
+          <div class="status-indicator status-reconnecting">⟳ Reconnecting...</div>
           
           <!-- Authentication Section -->
           <div class="auth-section" id="authSection">
-            <h3>Login to Access the Chat</h3>
+            <h3>Welcome Back</h3>
+            <p style="color: rgba(255,255,255,0.8); margin-bottom: 30px;">Sign in to access your personalized AI assistant</p>
             <form class="auth-form" id="authForm">
-              <input type="email" class="auth-input" id="emailInput" placeholder="Your Email Address" required>
-              <button type="submit" class="auth-button" id="requestOtpBtn">Request OTP</button>
+              <input type="email" class="auth-input" id="emailInput" placeholder="Enter your email address" required>
+              <button type="submit" class="auth-button" id="requestOtpBtn">
+                <span>Send Verification Code</span>
+              </button>
               <div class="error-message" id="authError"></div>
             </form>
           </div>
           
           <!-- OTP Verification Section -->
           <div class="otp-section" id="otpSection">
-            <h3 class="otp-title">Enter Verification Code</h3>
-            <p class="otp-subtitle">We've sent a code to your email address</p>
+            <h3 class="otp-title">Verify Your Identity</h3>
+            <p class="otp-subtitle">We've sent a 6-digit verification code to your email</p>
             <form class="auth-form" id="otpForm">
-              <input type="text" class="auth-input" id="otpInput" placeholder="6-digit OTP" maxlength="6" pattern="[0-9]{6}" required>
-              <button type="submit" class="auth-button" id="verifyOtpBtn">Verify OTP</button>
+              <input type="text" class="auth-input" id="otpInput" placeholder="Enter 6-digit code" maxlength="6" pattern="[0-9]{6}" required>
+              <button type="submit" class="auth-button" id="verifyOtpBtn">
+                <span>Verify Code</span>
+              </button>
               <div class="error-message" id="otpError"></div>
+              <p style="color: rgba(255,255,255,0.6); font-size: 0.9rem; margin-top: 20px;">
+                Didn't receive the code? <a href="#" id="resendOtpBtn" style="color: var(--orange-soda);">Resend</a>
+              </p>
             </form>
           </div>
           
           <!-- Chat Interface -->
           <div class="chat-interface" id="chatInterface">
             <div class="chat-header">
-              <h3 class="chat-title">
-                Aaai Assistant
-                <span class="chat-env-info" id="chatEnvInfo"></span>
-              </h3>
+              <h3 class="chat-title">Aaai Assistant</h3>
               <div class="user-info">
                 <span class="credits-badge" id="creditsDisplay">Credits: 0</span>
                 <span id="userEmail">user@example.com</span>
-                <button class="logout-btn" id="logoutBtn" title="Logout">
+                <button class="logout-btn" id="logoutBtn" title="Sign Out">
                   <ion-icon name="log-out-outline"></ion-icon>
+                  <span>Sign Out</span>
                 </button>
               </div>
             </div>
             <div class="chat-body" id="chatBody">
-              <!-- Message history -->
-              <div class="message-history-header" id="historyHeader" style="display: none;">
-                <div class="message-history-title">Previous Conversations</div>
-                <div class="message-history-actions">
-                  <button class="message-history-button" id="clearHistoryBtn" title="Clear History">
-                    <ion-icon name="trash-outline"></ion-icon>
-                  </button>
-                </div>
+              <!-- Welcome message -->
+              <div class="message message-bot" id="welcomeMessage" style="display: none;">
+                <div>👋 Welcome! I'm your AI assistant. How can I help you today?</div>
+                <div class="message-timestamp"></div>
               </div>
-              
               <!-- Messages will be inserted here -->
             </div>
             <div class="chat-footer">
-              <input type="text" class="chat-input" id="messageInput" placeholder="Type your message here...">
+              <input type="text" class="chat-input" id="messageInput" placeholder="Type your message here..." maxlength="1000">
               <button class="chat-send-btn" id="sendMessageBtn">
                 <ion-icon name="send"></ion-icon>
+                <span>Send</span>
               </button>
             </div>
           </div>
@@ -692,519 +814,648 @@
     </section>
   </main>
 
-  <!-- Footer (copied from other pages) -->
+  <!-- Footer -->
   <footer class="footer">
     <div class="container">
       <p class="copyright">
         &copy; 2024 <a href="#" class="copyright-link">Aaai Solutions</a>. All Rights Reserved
       </p>
       <ul class="footer-list">
-        <li>
-          <a href="terms_conditions.html" class="footer-link">Terms & Condition</a>
-        </li>
-        <li>
-          <a href="privacy_policy.html" class="footer-link">Privacy Policy</a>
-        </li>
-        <li>
-          <a href="https://docs.google.com/document/d/1ZH5H3gvn3b9xcXepwS9wx7juUfULOvW5MPSKCX3bYu4/edit?addon_store&pli=1#heading=h.ednect7ygrp2" class="footer-link">ByLaws</a>
-        </li>
+        <li><a href="terms_conditions.html" class="footer-link">Terms & Conditions</a></li>
+        <li><a href="privacy_policy.html" class="footer-link">Privacy Policy</a></li>
+        <li><a href="https://docs.google.com/document/d/1ZH5H3gvn3b9xcXepwS9wx7juUfULOvW5MPSKCX3bYu4/edit?addon_store&pli=1#heading=h.ednect7ygrp2" class="footer-link">Bylaws</a></li>
       </ul>
     </div>
   </footer>
 
   <a href="#top" class="back-to-top" data-back-to-top>BACK TOP</a>
 
-  <!-- JS scripts - keeping your existing order -->
+  <!-- Scripts - Load in correct order -->
   <script src="./assets/js/script.js"></script>
+  <script src="./assets/js/config.js"></script>
   <script src="./assets/js/auth.js"></script>
   <script src="./assets/js/websocket-chat.js"></script>
   <script src="./assets/js/ui-components.js"></script>
   <script type="module" src="https://unpkg.com/ionicons@5.5.2/dist/ionicons/ionicons.esm.js"></script>
   <script nomodule src="https://unpkg.com/ionicons@5.5.2/dist/ionicons/ionicons.js"></script>
   
-  <!-- Main chat application script - Enhanced with environment awareness but with fallbacks -->
+  <!-- Main chat application script -->
   <script>
     document.addEventListener('DOMContentLoaded', function() {
-      // Initialize environment features (only if config is available)
-      function initEnvironmentFeatures() {
-        // Check if config is available
-        const hasConfig = window.AAAI_CONFIG && window.AAAI_CONFIG.ENVIRONMENT;
-        
-        if (hasConfig) {
-          const environment = window.AAAI_CONFIG.ENVIRONMENT;
-          
-          // Show environment indicator for non-production
-          if (environment !== 'production') {
-            const envIndicator = document.getElementById('envIndicator');
-            const envText = document.getElementById('envText');
-            
-            envIndicator.className = `env-indicator ${environment}`;
-            envText.textContent = `${environment.toUpperCase()} Environment`;
-            document.body.classList.add('with-env-indicator');
-          }
-          
-          // Update chat header with environment info
-          const chatEnvInfo = document.getElementById('chatEnvInfo');
-          if (environment !== 'production') {
-            chatEnvInfo.textContent = `(${environment})`;
-          }
-          
-          // Set up logger if available
-          if (window.AAAI_LOGGER) {
-            window.AAAI_LOGGER.info('Environment features initialized', {
-              environment: environment,
-              version: window.AAAI_CONFIG.VERSION || 'unknown'
-            });
-          }
-        }
-      }
-      
-      // Initialize environment features
-      initEnvironmentFeatures();
-      
-      // Enhanced AuthService initialization with fallbacks
-      function initializeAuthService() {
-        // Provide fallback configuration if config.js isn't available
-        if (!window.AAAI_CONFIG) {
-          window.AAAI_CONFIG = {
-            API_BASE_URL: 'https://aaai-gateway-754x89jf.uc.gateway.dev',
-            WS_BASE_URL: 'wss://api-server-559730737995.us-central1.run.app',
-            ENVIRONMENT: 'production',
-            ENABLE_WEBSOCKETS: true,
-            ENABLE_DEBUG: false
-          };
-          
-          // Simple logger fallback
-          window.AAAI_LOGGER = {
-            debug: console.log.bind(console, '[DEBUG]'),
-            info: console.info.bind(console, '[INFO]'),
-            warn: console.warn.bind(console, '[WARN]'),
-            error: console.error.bind(console, '[ERROR]')
-          };
-        }
-        
-        // Initialize authentication
+      // Ensure all scripts are loaded before initialization
+      setTimeout(() => {
         try {
+          // Check if required services are available
+          if (typeof window.AAAI_CONFIG === 'undefined') {
+            console.error('AAAI_CONFIG not loaded. Check config.js');
+            return;
+          }
+          
+          if (typeof AuthService === 'undefined') {
+            console.error('AuthService not loaded. Check auth.js');
+            return;
+          }
+          
+          // Initialize AuthService
           AuthService.init();
-          return true;
-        } catch (error) {
-          console.error('Failed to initialize AuthService:', error);
-          alert('There was an error initializing the authentication system. Please refresh the page.');
-          return false;
-        }
-      }
-      
-      // Initialize AuthService with fallbacks
-      if (!initializeAuthService()) {
-        return; // Stop execution if auth init fails
-      }
-      
-      // Initialize UI components renderer
-      const uiRenderer = UIComponentRenderer.init({
-        linkHandler: (url) => {
-          window.location.href = url;
-        },
-        actionHandler: (action, value) => {
-          if (action === 'reply') {
-            messageInput.value = value;
-            setTimeout(() => sendMessage(), 100);
-          } else if (action === 'copy') {
-            navigator.clipboard.writeText(value)
-              .then(() => {
-                showStatus('copied', `Copied: ${value}`);
-              })
-              .catch(err => console.error('Failed to copy:', err));
-          }
-        }
-      });
-      
-      // Initialize chat service with configuration-aware options
-      const chatService = ChatService.init(AuthService, {
-        reconnectInterval: window.AAAI_CONFIG?.WS_RECONNECT_INTERVAL || 3000,
-        maxReconnectAttempts: window.AAAI_CONFIG?.WS_MAX_RECONNECT_ATTEMPTS || 5,
-        debug: window.AAAI_CONFIG?.ENABLE_DEBUG || false
-      });
-      
-      // Elements
-      const authSection = document.getElementById('authSection');
-      const otpSection = document.getElementById('otpSection');
-      const chatInterface = document.getElementById('chatInterface');
-      const authForm = document.getElementById('authForm');
-      const otpForm = document.getElementById('otpForm');
-      const authError = document.getElementById('authError');
-      const otpError = document.getElementById('otpError');
-      const emailInput = document.getElementById('emailInput');
-      const otpInput = document.getElementById('otpInput');
-      const userEmailDisplay = document.getElementById('userEmail');
-      const creditsDisplay = document.getElementById('creditsDisplay');
-      const logoutBtn = document.getElementById('logoutBtn');
-      const chatBody = document.getElementById('chatBody');
-      const messageInput = document.getElementById('messageInput');
-      const sendMessageBtn = document.getElementById('sendMessageBtn');
-      const historyHeader = document.getElementById('historyHeader');
-      const clearHistoryBtn = document.getElementById('clearHistoryBtn');
-      const connectedStatus = document.querySelector('.status-connected');
-      const disconnectedStatus = document.querySelector('.status-disconnected');
-      const reconnectingStatus = document.querySelector('.status-reconnecting');
-      
-      let userEmail = '';
-      let hasAddedWelcomeMessage = false;
-      
-      // Add message and status listeners
-      chatService.onMessage(handleChatMessage);
-      chatService.onStatusChange(handleConnectionStatus);
-      
-      // Check if already authenticated
-      if (AuthService.isAuthenticated()) {
-        showChatInterface();
-        connectToWebSocket();
-      } else {
-        showAuthSection();
-      }
-      
-      // Event: Request OTP
-      authForm.addEventListener('submit', async function(e) {
-        e.preventDefault();
-        
-        userEmail = emailInput.value.trim();
-        if (!userEmail) {
-          authError.textContent = 'Please enter your email address';
-          return;
-        }
-        
-        try {
-          authError.textContent = '';
-          const requestOtpBtn = document.getElementById('requestOtpBtn');
-          requestOtpBtn.textContent = 'Sending...';
-          requestOtpBtn.disabled = true;
+          console.log('✓ AuthService initialized');
           
-          await AuthService.requestOTP(userEmail);
+          // Initialize UI components renderer
+          const uiRenderer = UIComponentRenderer.init({
+            linkHandler: (url) => {
+              // Handle link actions
+              window.open(url, '_blank');
+            },
+            actionHandler: (action, value) => {
+              // Handle other actions
+              if (action === 'reply') {
+                // Simulate user typing the reply
+                messageInput.value = value;
+                setTimeout(() => sendMessage(), 100);
+              } else if (action === 'copy') {
+                // Copy to clipboard
+                navigator.clipboard.writeText(value)
+                  .then(() => {
+                    showStatus('success', `Copied: ${value}`);
+                  })
+                  .catch(err => console.error('Failed to copy:', err));
+              }
+            }
+          });
+          console.log('✓ UI renderer initialized');
           
-          // Show OTP section
-          authSection.style.display = 'none';
-          otpSection.style.display = 'block';
-          otpInput.focus();
-          
-        } catch (error) {
-          authError.textContent = error.message || 'Failed to send OTP. Please try again.';
-          requestOtpBtn.textContent = 'Request OTP';
-          requestOtpBtn.disabled = false;
-        }
-      });
-      
-      // Event: Verify OTP
-      otpForm.addEventListener('submit', async function(e) {
-        e.preventDefault();
-        
-        const otp = otpInput.value.trim();
-        if (!otp) {
-          otpError.textContent = 'Please enter the verification code';
-          return;
-        }
-        
-        try {
-          otpError.textContent = '';
-          const verifyOtpBtn = document.getElementById('verifyOtpBtn');
-          verifyOtpBtn.textContent = 'Verifying...';
-          verifyOtpBtn.disabled = true;
-          
-          await AuthService.verifyOTP(userEmail, otp);
-          
-          // Show chat interface
-          showChatInterface();
-          
-          // Connect to WebSocket if enabled
-          if (window.AAAI_CONFIG.ENABLE_WEBSOCKETS) {
-            connectToWebSocket();
+          // Initialize chat service with WebSocket
+          let chatService = null;
+          if (typeof ChatService !== 'undefined') {
+            chatService = ChatService.init(AuthService, {
+              reconnectInterval: 3000,
+              maxReconnectAttempts: 5,
+              debug: window.AAAI_CONFIG.ENABLE_DEBUG
+            });
+            console.log('✓ Chat service initialized');
           }
           
-        } catch (error) {
-          otpError.textContent = error.message || 'Invalid OTP. Please try again.';
-          verifyOtpBtn.textContent = 'Verify OTP';
-          verifyOtpBtn.disabled = false;
-        }
-      });
-      
-      // Event: Logout
-      logoutBtn.addEventListener('click', function() {
-        disconnectWebSocket();
-        AuthService.logout();
-        showAuthSection();
-        chatBody.innerHTML = '';
-        messageInput.value = '';
-        hasAddedWelcomeMessage = false;
-      });
-      
-      // Event: Send message
-      sendMessageBtn.addEventListener('click', sendMessage);
-      messageInput.addEventListener('keypress', function(e) {
-        if (e.key === 'Enter') {
-          sendMessage();
-        }
-      });
-      
-      // Event: Clear history
-      clearHistoryBtn.addEventListener('click', function() {
-        if (confirm('Are you sure you want to clear your chat history?')) {
-          alert('This feature would clear your chat history from the server.');
-        }
-      });
-      
-      // Function: Connect to WebSocket
-      async function connectToWebSocket() {
-        try {
-          await chatService.connect();
-          showStatus('connected');
-        } catch (error) {
-          console.error('WebSocket connection error:', error);
-          showStatus('disconnected');
-        }
-      }
-      
-      // Function: Disconnect WebSocket
-      function disconnectWebSocket() {
-        chatService.disconnect();
-        showStatus('disconnected');
-      }
-      
-      // Function: Handle chat messages from WebSocket
-      function handleChatMessage(data) {
-        switch (data.type) {
-          case 'message':
-            if (data.user_message) {
-              addMessageToChat(
-                data.user_message.text, 
-                'user', 
-                data.user_message.timestamp,
-                null
-              );
+          // Get DOM elements
+          const authSection = document.getElementById('authSection');
+          const otpSection = document.getElementById('otpSection');
+          const chatInterface = document.getElementById('chatInterface');
+          const authForm = document.getElementById('authForm');
+          const otpForm = document.getElementById('otpForm');
+          const authError = document.getElementById('authError');
+          const otpError = document.getElementById('otpError');
+          const emailInput = document.getElementById('emailInput');
+          const otpInput = document.getElementById('otpInput');
+          const userEmailDisplay = document.getElementById('userEmail');
+          const creditsDisplay = document.getElementById('creditsDisplay');
+          const logoutBtn = document.getElementById('logoutBtn');
+          const chatBody = document.getElementById('chatBody');
+          const messageInput = document.getElementById('messageInput');
+          const sendMessageBtn = document.getElementById('sendMessageBtn');
+          const resendOtpBtn = document.getElementById('resendOtpBtn');
+          const welcomeMessage = document.getElementById('welcomeMessage');
+          
+          // Status indicators
+          const connectedStatus = document.querySelector('.status-connected');
+          const disconnectedStatus = document.querySelector('.status-disconnected');
+          const reconnectingStatus = document.querySelector('.status-reconnecting');
+          
+          let userEmail = '';
+          let isConnecting = false;
+          
+          // Add message and status listeners if chat service is available
+          if (chatService) {
+            chatService.onMessage(handleChatMessage);
+            chatService.onStatusChange(handleConnectionStatus);
+          }
+          
+          // Check if already authenticated
+          if (AuthService.isAuthenticated()) {
+            showChatInterface();
+            if (chatService) {
+              connectToWebSocket();
             }
-            
-            if (data.bot_message) {
-              addMessageToChat(
-                data.bot_message.text, 
-                'bot', 
-                data.bot_message.timestamp,
-                data.bot_message.components
-              );
-            }
-            break;
-            
-          case 'history':
-            processMessageHistory(data.messages);
-            break;
-            
-          case 'history_loaded':
-            processMessageHistory(data.messages);
-            break;
-        }
-      }
-      
-      // Function: Handle connection status changes
-      function handleConnectionStatus(status) {
-        showStatus(status);
-        
-        if (status === 'connected' && !hasAddedWelcomeMessage) {
-          hasAddedWelcomeMessage = true;
-        }
-      }
-      
-      // Function: Send a message
-      async function sendMessage() {
-        const messageText = messageInput.value.trim();
-        if (!messageText) return;
-        
-        // Clear input
-        messageInput.value = '';
-        
-        try {
-          if (window.AAAI_CONFIG.ENABLE_WEBSOCKETS && chatService.isConnected) {
-            // Send through WebSocket
-            await chatService.sendMessage(messageText);
           } else {
-            // Fallback to HTTP API
-            const response = await AuthService.sendChatMessage(messageText);
+            showAuthSection();
+          }
+          
+          // Event: Request OTP
+          authForm.addEventListener('submit', async function(e) {
+            e.preventDefault();
             
-            // Handle HTTP response
-            if (response.data) {
-              handleChatMessage({
-                type: 'message',
-                user_message: response.data.user_message,
-                bot_message: response.data.bot_message
-              });
+            userEmail = emailInput.value.trim();
+            if (!userEmail) {
+              showError(authError, 'Please enter your email address');
+              return;
+            }
+            
+            const button = requestOtpBtn;
+            const originalText = button.querySelector('span').textContent;
+            
+            try {
+              clearError(authError);
+              setButtonLoading(button, 'Sending...');
+              
+              await AuthService.requestOTP(userEmail);
+              
+              // Show OTP section
+              authSection.style.display = 'none';
+              otpSection.style.display = 'block';
+              otpInput.focus();
+              
+              // Start countdown for resend
+              startResendCountdown();
+              
+            } catch (error) {
+              console.error('OTP request error:', error);
+              showError(authError, error.message || 'Failed to send verification code. Please try again.');
+            } finally {
+              setButtonLoading(button, originalText, false);
+            }
+          });
+          
+          // Event: Verify OTP
+          otpForm.addEventListener('submit', async function(e) {
+            e.preventDefault();
+            
+            const otp = otpInput.value.trim();
+            if (!otp) {
+              showError(otpError, 'Please enter the verification code');
+              return;
+            }
+            
+            if (otp.length !== 6) {
+              showError(otpError, 'Verification code must be 6 digits');
+              return;
+            }
+            
+            const button = verifyOtpBtn;
+            const originalText = button.querySelector('span').textContent;
+            
+            try {
+              clearError(otpError);
+              setButtonLoading(button, 'Verifying...');
+              
+              await AuthService.verifyOTP(userEmail, otp);
+              
+              // Show chat interface
+              showChatInterface();
+              
+              // Connect to WebSocket
+              if (chatService) {
+                connectToWebSocket();
+              }
+              
+            } catch (error) {
+              console.error('OTP verification error:', error);
+              showError(otpError, error.message || 'Invalid verification code. Please try again.');
+            } finally {
+              setButtonLoading(button, originalText, false);
+            }
+          });
+          
+          // Event: Resend OTP
+          resendOtpBtn.addEventListener('click', async function(e) {
+            e.preventDefault();
+            
+            if (this.classList.contains('disabled')) {
+              return;
+            }
+            
+            try {
+              await AuthService.requestOTP(userEmail);
+              showStatus('success', 'Verification code sent!');
+              startResendCountdown();
+            } catch (error) {
+              console.error('Resend OTP error:', error);
+              showError(otpError, 'Failed to resend code. Please try again.');
+            }
+          });
+          
+          // Event: Logout
+          logoutBtn.addEventListener('click', function() {
+            if (confirm('Are you sure you want to sign out?')) {
+              logout();
+            }
+          });
+          
+          // Event: Send message
+          sendMessageBtn.addEventListener('click', sendMessage);
+          messageInput.addEventListener('keypress', function(e) {
+            if (e.key === 'Enter' && !e.shiftKey) {
+              e.preventDefault();
+              sendMessage();
+            }
+          });
+          
+          // Auto-resize textarea
+          messageInput.addEventListener('input', function() {
+            this.style.height = 'auto';
+            this.style.height = Math.min(this.scrollHeight, 100) + 'px';
+          });
+          
+          // Function: Connect to WebSocket
+          async function connectToWebSocket() {
+            if (!chatService || isConnecting) return;
+            
+            isConnecting = true;
+            try {
+              await chatService.connect();
+              showStatus('connected');
+              
+              // Show welcome message if chat is empty
+              if (chatBody.children.length <= 1) {
+                showWelcomeMessage();
+              }
+            } catch (error) {
+              console.error('WebSocket connection error:', error);
+              showStatus('disconnected');
+            } finally {
+              isConnecting = false;
             }
           }
-        } catch (error) {
-          console.error('Error sending message:', error);
-          addMessageToChat('Failed to send message. Please try again.', 'bot');
-          showStatus('disconnected');
-        }
-      }
-      
-      // Function: Process message history
-      function processMessageHistory(messages) {
-        if (!messages || !messages.length) return;
-        
-        // Show history header
-        historyHeader.style.display = 'flex';
-        
-        // Clear chat before adding history
-        chatBody.innerHTML = '';
-        chatBody.appendChild(historyHeader);
-        
-        // Group messages by date
-        const messagesByDate = {};
-        
-        messages.forEach(message => {
-          const date = new Date(message.timestamp);
-          const dateKey = date.toDateString();
           
-          if (!messagesByDate[dateKey]) {
-            messagesByDate[dateKey] = [];
+          // Function: Handle chat messages from WebSocket
+          function handleChatMessage(data) {
+            switch (data.type) {
+              case 'connection_established':
+                console.log('WebSocket connection established:', data.connection_id);
+                break;
+                
+              case 'message':
+                // Add both user and bot messages to chat
+                if (data.user_message) {
+                  addMessageToChat(
+                    data.user_message.text, 
+                    'user', 
+                    data.user_message.timestamp,
+                    null
+                  );
+                }
+                
+                if (data.bot_message) {
+                  addMessageToChat(
+                    data.bot_message.text, 
+                    'bot', 
+                    data.bot_message.timestamp,
+                    data.bot_message.components
+                  );
+                }
+                break;
+                
+              case 'history_loaded':
+                // Process message history
+                if (data.messages && data.messages.length > 0) {
+                  processMessageHistory(data.messages);
+                } else {
+                  showWelcomeMessage();
+                }
+                break;
+                
+              case 'error':
+                console.error('WebSocket error:', data.message);
+                showStatus('error', data.message);
+                break;
+            }
           }
           
-          messagesByDate[dateKey].push(message);
-        });
-        
-        // Add messages by date group
-        Object.keys(messagesByDate).forEach(dateKey => {
-          // Add date separator
-          const dateContainer = document.createElement('div');
-          dateContainer.className = 'message-history-date';
+          // Function: Handle connection status changes
+          function handleConnectionStatus(status) {
+            showStatus(status);
+          }
           
-          const dateText = document.createElement('span');
-          dateText.className = 'message-history-date-text';
-          dateText.textContent = dateKey;
+          // Function: Send a message
+          async function sendMessage() {
+            if (!chatService) {
+              // Fallback to HTTP API if WebSocket not available
+              return sendMessageHTTP();
+            }
+            
+            const messageText = messageInput.value.trim();
+            if (!messageText) return;
+            
+            // Clear input
+            messageInput.value = '';
+            messageInput.style.height = 'auto';
+            
+            // Disable send button temporarily
+            sendMessageBtn.disabled = true;
+            
+            try {
+              // Send message through WebSocket
+              await chatService.sendMessage(messageText);
+              
+              // Note: We don't add the message to the chat here
+              // It will be added when we receive the confirmation from the server
+              
+            } catch (error) {
+              console.error('Error sending message:', error);
+              
+              // Show error message in chat
+              addMessageToChat('Failed to send message. Please try again.', 'bot');
+              
+              // Show disconnected status
+              showStatus('disconnected');
+              
+              // Restore message input
+              messageInput.value = messageText;
+            } finally {
+              sendMessageBtn.disabled = false;
+              messageInput.focus();
+            }
+          }
           
-          dateContainer.appendChild(dateText);
-          chatBody.appendChild(dateContainer);
+          // Function: Send message via HTTP (fallback)
+          async function sendMessageHTTP() {
+            const messageText = messageInput.value.trim();
+            if (!messageText) return;
+            
+            messageInput.value = '';
+            sendMessageBtn.disabled = true;
+            
+            // Add user message immediately
+            addMessageToChat(messageText, 'user');
+            
+            // Show typing indicator
+            const typingIndicator = showTypingIndicator();
+            
+            try {
+              const response = await AuthService.sendChatMessage(messageText);
+              
+              // Remove typing indicator
+              typingIndicator.remove();
+              
+              // Add bot response
+              if (response.data && response.data.bot_message) {
+                addMessageToChat(
+                  response.data.bot_message.text,
+                  'bot',
+                  response.data.bot_message.timestamp,
+                  response.data.bot_message.components
+                );
+              }
+              
+            } catch (error) {
+              console.error('Error sending message:', error);
+              typingIndicator.remove();
+              addMessageToChat('Sorry, I encountered an error. Please try again.', 'bot');
+            } finally {
+              sendMessageBtn.disabled = false;
+              messageInput.focus();
+            }
+          }
           
-          // Add messages for this date
-          messagesByDate[dateKey].forEach(message => {
-            addMessageToChat(
-              message.text,
-              message.sender,
-              message.timestamp,
-              message.components
-            );
-          });
-        });
-        
-        // Scroll to bottom
-        chatBody.scrollTop = chatBody.scrollHeight;
-      }
-      
-      // Function: Add message to chat
-      function addMessageToChat(text, type, timestamp = null, components = null) {
-        const messageDiv = document.createElement('div');
-        messageDiv.className = type === 'user' ? 'message message-user' : 'message message-bot';
-        messageDiv.textContent = text;
-        
-        // Add timestamp if available
-        if (timestamp) {
-          const date = new Date(timestamp);
-          const timeString = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+          // Function: Process message history
+          function processMessageHistory(messages) {
+            // Clear existing messages except welcome
+            const existingMessages = chatBody.querySelectorAll('.message:not(#welcomeMessage)');
+            existingMessages.forEach(msg => msg.remove());
+            
+            // Add messages from history (they're already in reverse chronological order)
+            messages.reverse().forEach(message => {
+              addMessageToChat(
+                message.text,
+                message.sender,
+                message.timestamp,
+                message.components
+              );
+            });
+            
+            // Scroll to bottom
+            chatBody.scrollTop = chatBody.scrollHeight;
+          }
           
-          const timestampDiv = document.createElement('div');
-          timestampDiv.className = 'message-timestamp';
-          timestampDiv.textContent = timeString;
+          // Function: Add message to chat
+          function addMessageToChat(text, type, timestamp = null, components = null) {
+            // Hide welcome message when first real message arrives
+            if (welcomeMessage.style.display !== 'none') {
+              welcomeMessage.style.display = 'none';
+            }
+            
+            // Create message container
+            const messageDiv = document.createElement('div');
+            messageDiv.className = type === 'user' ? 'message message-user' : 'message message-bot';
+            
+            // Add message text
+            const textDiv = document.createElement('div');
+            textDiv.textContent = text;
+            messageDiv.appendChild(textDiv);
+            
+            // Add timestamp if available
+            if (timestamp) {
+              const date = new Date(timestamp);
+              const timeString = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+              
+              const timestampDiv = document.createElement('div');
+              timestampDiv.className = 'message-timestamp';
+              timestampDiv.textContent = timeString;
+              
+              messageDiv.appendChild(timestampDiv);
+            }
+            
+            // Add components container if bot message
+            if (type === 'bot' && components && components.length > 0) {
+              const componentsContainer = document.createElement('div');
+              componentsContainer.className = 'chat-components-container';
+              
+              // Render each component
+              components.forEach(component => {
+                uiRenderer.renderComponent(component, componentsContainer);
+              });
+              
+              messageDiv.appendChild(componentsContainer);
+            }
+            
+            chatBody.appendChild(messageDiv);
+            chatBody.scrollTop = chatBody.scrollHeight;
+            
+            return messageDiv;
+          }
           
-          messageDiv.appendChild(timestampDiv);
-        }
-        
-        // Add components container if bot message
-        if (type === 'bot' && components && components.length > 0) {
-          const componentsContainer = document.createElement('div');
-          componentsContainer.className = 'chat-components-container';
+          // Function: Show typing indicator
+          function showTypingIndicator() {
+            const typingDiv = document.createElement('div');
+            typingDiv.className = 'typing-indicator';
+            typingDiv.innerHTML = '<span class="typing-dot"></span><span class="typing-dot"></span><span class="typing-dot"></span>';
+            
+            chatBody.appendChild(typingDiv);
+            chatBody.scrollTop = chatBody.scrollHeight;
+            
+            return typingDiv;
+          }
           
-          // Render each component
-          components.forEach(component => {
-            uiRenderer.renderComponent(component, componentsContainer);
-          });
+          // Function: Show welcome message
+          function showWelcomeMessage() {
+            welcomeMessage.style.display = 'block';
+            const timestamp = welcomeMessage.querySelector('.message-timestamp');
+            if (timestamp) {
+              timestamp.textContent = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            }
+          }
           
-          messageDiv.appendChild(componentsContainer);
-        }
-        
-        chatBody.appendChild(messageDiv);
-        chatBody.scrollTop = chatBody.scrollHeight;
-        
-        return messageDiv;
-      }
-      
-      // Function: Show chat interface
-      function showChatInterface() {
-        authSection.style.display = 'none';
-        otpSection.style.display = 'none';
-        chatInterface.style.display = 'block';
-        
-        const user = AuthService.getCurrentUser();
-        userEmailDisplay.textContent = user.email || '';
-        
-        // Focus on message input
-        messageInput.focus();
-      }
-      
-      // Function: Show auth section
-      function showAuthSection() {
-        authSection.style.display = 'block';
-        otpSection.style.display = 'none';
-        chatInterface.style.display = 'none';
-        
-        // Reset forms
-        authForm.reset();
-        otpForm.reset();
-        authError.textContent = '';
-        otpError.textContent = '';
-        
-        document.getElementById('requestOtpBtn').disabled = false;
-        document.getElementById('requestOtpBtn').textContent = 'Request OTP';
-        document.getElementById('verifyOtpBtn').disabled = false;
-        document.getElementById('verifyOtpBtn').textContent = 'Verify OTP';
-      }
-      
-      // Function: Show connection status
-      function showStatus(status, message = null) {
-        // Hide all status indicators
-        connectedStatus.classList.remove('visible');
-        disconnectedStatus.classList.remove('visible');
-        reconnectingStatus.classList.remove('visible');
-        
-        // Update text if provided
-        if (message) {
-          if (status === 'connected') connectedStatus.textContent = message;
-          if (status === 'disconnected') disconnectedStatus.textContent = message;
-          if (status === 'reconnecting') reconnectingStatus.textContent = message;
-        } else {
-          // Reset to default text
-          connectedStatus.textContent = 'Connected';
-          disconnectedStatus.textContent = 'Disconnected';
-          reconnectingStatus.textContent = 'Reconnecting...';
-        }
-        
-        // Show appropriate status
-        if (status === 'connected') {
-          connectedStatus.classList.add('visible');
+          // Function: Show chat interface
+          async function showChatInterface() {
+            authSection.style.display = 'none';
+            otpSection.style.display = 'none';
+            chatInterface.style.display = 'block';
+            
+            const user = AuthService.getCurrentUser();
+            userEmailDisplay.textContent = user.email || '';
+            
+            // Load user credits
+            try {
+              const credits = await AuthService.getUserCredits();
+              creditsDisplay.textContent = `Credits: ${credits}`;
+            } catch (error) {
+              console.warn('Could not load user credits:', error);
+              creditsDisplay.textContent = 'Credits: --';
+            }
+            
+            // Focus on message input
+            messageInput.focus();
+          }
           
-          // Hide after 3 seconds
-          setTimeout(() => {
+          // Function: Show auth section
+          function showAuthSection() {
+            authSection.style.display = 'block';
+            otpSection.style.display = 'none';
+            chatInterface.style.display = 'block';
+            
+            // Reset forms
+            authForm.reset();
+            otpForm.reset();
+            clearError(authError);
+            clearError(otpError);
+            
+            // Reset buttons
+            setButtonLoading(requestOtpBtn, 'Send Verification Code', false);
+            setButtonLoading(verifyOtpBtn, 'Verify Code', false);
+            
+            // Focus on email input
+            emailInput.focus();
+          }
+          
+          // Function: Logout
+          function logout() {
+            if (chatService) {
+              chatService.disconnect();
+            }
+            AuthService.logout();
+            showAuthSection();
+            chatBody.innerHTML = '';
+            showWelcomeMessage();
+            showStatus('disconnected');
+          }
+          
+          // Function: Show connection status
+          function showStatus(status, message = null) {
+            // Hide all status indicators
             connectedStatus.classList.remove('visible');
-          }, 3000);
-        } else if (status === 'disconnected') {
-          disconnectedStatus.classList.add('visible');
-        } else if (status === 'reconnecting') {
-          reconnectingStatus.classList.add('visible');
-        }
-      }
-      
-      // Enhance security: Add event listeners for visibility changes
-      document.addEventListener('visibilitychange', function() {
-        if (document.visibilityState === 'visible') {
-          // Reconnect if authenticated and not connected
-          if (AuthService.isAuthenticated() && !chatService.isConnected && window.AAAI_CONFIG.ENABLE_WEBSOCKETS) {
-            connectToWebSocket();
+            disconnectedStatus.classList.remove('visible');
+            reconnectingStatus.classList.remove('visible');
+            
+            // Update text if provided
+            if (message) {
+              if (status === 'connected' || status === 'success') connectedStatus.textContent = message;
+              if (status === 'disconnected' || status === 'error') disconnectedStatus.textContent = message;
+              if (status === 'reconnecting') reconnectingStatus.textContent = message;
+            } else {
+              // Reset to default text
+              connectedStatus.textContent = '✓ Connected';
+              disconnectedStatus.textContent = '✗ Disconnected';
+              reconnectingStatus.textContent = '⟳ Reconnecting...';
+            }
+            
+            // Show appropriate status
+            if (status === 'connected' || status === 'success') {
+              connectedStatus.classList.add('visible');
+              
+              // Hide after 3 seconds
+              setTimeout(() => {
+                connectedStatus.classList.remove('visible');
+              }, 3000);
+            } else if (status === 'disconnected' || status === 'error') {
+              disconnectedStatus.classList.add('visible');
+            } else if (status === 'reconnecting') {
+              reconnectingStatus.classList.add('visible');
+            }
+          }
+          
+          // Helper functions
+          function showError(element, message) {
+            element.textContent = message;
+            element.style.display = 'block';
+          }
+          
+          function clearError(element) {
+            element.textContent = '';
+            element.style.display = 'none';
+          }
+          
+          function setButtonLoading(button, text, loading = true) {
+            const span = button.querySelector('span');
+            span.textContent = text;
+            button.disabled = loading;
+            if (loading) {
+              button.classList.add('loading');
+            } else {
+              button.classList.remove('loading');
+            }
+          }
+          
+          function startResendCountdown() {
+            let countdown = 60;
+            resendOtpBtn.classList.add('disabled');
+            resendOtpBtn.style.color = 'rgba(255, 255, 255, 0.5)';
+            
+            const interval = setInterval(() => {
+              resendOtpBtn.textContent = `Resend (${countdown}s)`;
+              countdown--;
+              
+              if (countdown < 0) {
+                clearInterval(interval);
+                resendOtpBtn.classList.remove('disabled');
+                resendOtpBtn.style.color = 'var(--orange-soda)';
+                resendOtpBtn.textContent = 'Resend';
+              }
+            }, 1000);
+          }
+          
+          // Auto-refresh token check
+          setInterval(() => {
+            if (AuthService.isAuthenticated()) {
+              AuthService.refreshTokenIfNeeded();
+            }
+          }, 300000); // 5 minutes
+          
+          // Handle visibility changes
+          document.addEventListener('visibilitychange', function() {
+            if (document.visibilityState === 'visible') {
+              // Reconnect if authenticated and not connected
+              if (AuthService.isAuthenticated() && chatService && !chatService.isConnected) {
+                connectToWebSocket();
+              }
+            }
+          });
+          
+          console.log('✓ Chat application initialized successfully');
+          
+        } catch (error) {
+          console.error('Chat initialization error:', error);
+          // Show user-friendly error
+          const authSection = document.getElementById('authSection');
+          if (authSection) {
+            authSection.innerHTML = `
+              <div style="text-align: center; padding: 40px; color: white;">
+                <h3>Initialization Error</h3>
+                <p>Failed to load the chat application. Please refresh the page.</p>
+                <button onclick="window.location.reload()" class="auth-button" style="margin-top: 20px;">
+                  Refresh Page
+                </button>
+              </div>
+            `;
           }
         }
-      });
+      }, 200); // Increased delay to ensure all scripts are loaded
     });
   </script>
 </body>
