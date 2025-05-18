@@ -65,7 +65,7 @@ const AuthService = {
         };
     },
     
-    // Request OTP
+    // Request OTP check
     async requestOTP(email) {
         try {
             window.AAAI_LOGGER.debug(`Requesting OTP for email: ${email}`);
