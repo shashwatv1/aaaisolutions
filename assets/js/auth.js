@@ -10,13 +10,18 @@ const AuthService = {
             throw new Error('AAAI_CONFIG not available. Make sure config.js is loaded first.');
         }
         
-        // Use the configuration URLs
-        this.API_BASE_URL = window.AAAI_CONFIG.API_BASE_URL.replace('/api', ''); // Get base URL
-        this.WS_BASE_URL = window.AAAI_CONFIG.WS_BASE_URL.replace('/ws', ''); // Get base URL
-        
-        // For production/staging, use relative URLs that nginx will proxy
-        if (window.AAAI_CONFIG.ENVIRONMENT !== 'development') {
-            this.API_BASE_URL = ''; // Use relative URLs
+        // Set up URLs based on environment
+        if (window.AAAI_CONFIG.ENVIRONMENT === 'development') {
+            // In development, point directly to localhost
+            this.AUTH_BASE_URL = 'http://localhost:8080';
+            this.API_BASE_URL = 'http://localhost:8080';
+            this.WS_BASE_URL = 'ws://localhost:8080';
+        } else {
+            // In production/staging, use relative paths that nginx will proxy
+            // Auth requests go to /auth/ (proxied to API Gateway)
+            // API requests go to /api/ (proxied to Cloud Run)
+            this.AUTH_BASE_URL = ''; // Use relative path for auth
+            this.API_BASE_URL = ''; // Use relative path for API
             this.WS_BASE_URL = window.location.origin;
         }
         
@@ -44,6 +49,7 @@ const AuthService = {
         
         window.AAAI_LOGGER.info('AuthService initialized', {
             environment: window.AAAI_CONFIG.ENVIRONMENT,
+            authBaseUrl: this.AUTH_BASE_URL,
             apiBaseUrl: this.API_BASE_URL,
             wsBaseUrl: this.WS_BASE_URL,
             authenticated: this.isAuthenticated()
@@ -70,7 +76,8 @@ const AuthService = {
         try {
             window.AAAI_LOGGER.info(`Requesting OTP for email: ${email}`);
             
-            const url = `${this.API_BASE_URL}/auth/request-otp`;
+            // Auth requests go directly to /auth/ (proxied to API Gateway)
+            const url = `${this.AUTH_BASE_URL}/auth/request-otp`;
             window.AAAI_LOGGER.debug(`Request URL: ${url}`);
             
             // Add timeout to fetch request
@@ -111,17 +118,24 @@ const AuthService = {
         try {
             window.AAAI_LOGGER.info(`Verifying OTP for email: ${email}`);
             
-            const url = `${this.API_BASE_URL}/auth/verify-otp`;
+            // Auth requests go directly to /auth/ (proxied to API Gateway)
+            const url = `${this.AUTH_BASE_URL}/auth/verify-otp`;
             window.AAAI_LOGGER.debug(`Request URL: ${url}`);
+            
+            // Add timeout to fetch request
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 second timeout
             
             const response = await fetch(url, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
                 },
-                body: JSON.stringify({ email, otp })
+                body: JSON.stringify({ email, otp }),
+                signal: controller.signal
             });
             
+            clearTimeout(timeoutId);
             const data = await response.json();
             
             if (!response.ok) {
@@ -142,6 +156,10 @@ const AuthService = {
             
             return data;
         } catch (error) {
+            if (error.name === 'AbortError') {
+                window.AAAI_LOGGER.error('OTP verification timeout');
+                throw new Error('Request timed out. Please check your connection and try again.');
+            }
             window.AAAI_LOGGER.error('OTP Verification error:', error);
             throw new Error(`OTP verification failed: ${error.message}`);
         }
@@ -156,8 +174,13 @@ const AuthService = {
         try {
             window.AAAI_LOGGER.info(`Executing function: ${functionName}`);
             
+            // API requests go to /api/ path (proxied to Cloud Run)
             const url = `${this.API_BASE_URL}/api/function/${functionName}`;
             window.AAAI_LOGGER.debug(`Request URL: ${url}`);
+            
+            // Add timeout to fetch request
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout for API calls
             
             const response = await fetch(url, {
                 method: 'POST',
@@ -165,9 +188,11 @@ const AuthService = {
                     'Content-Type': 'application/json',
                     'Authorization': `Bearer ${this.token}`
                 },
-                body: JSON.stringify(inputData)
+                body: JSON.stringify(inputData),
+                signal: controller.signal
             });
             
+            clearTimeout(timeoutId);
             const data = await response.json();
             
             if (!response.ok) {
@@ -185,6 +210,10 @@ const AuthService = {
             
             return data;
         } catch (error) {
+            if (error.name === 'AbortError') {
+                window.AAAI_LOGGER.error('Function execution timeout');
+                throw new Error('Request timed out. Please try again.');
+            }
             window.AAAI_LOGGER.error(`Function execution error (${functionName}):`, error);
             throw error;
         }
@@ -197,8 +226,13 @@ const AuthService = {
         }
         
         try {
+            // API requests go to /api/ path (proxied to Cloud Run)
             const url = `${this.API_BASE_URL}/api/chat`;
             window.AAAI_LOGGER.debug(`Chat request URL: ${url}`);
+            
+            // Add timeout to fetch request
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
             
             const response = await fetch(url, {
                 method: 'POST',
@@ -206,9 +240,11 @@ const AuthService = {
                     'Content-Type': 'application/json',
                     'Authorization': `Bearer ${this.token}`
                 },
-                body: JSON.stringify({ message })
+                body: JSON.stringify({ message }),
+                signal: controller.signal
             });
             
+            clearTimeout(timeoutId);
             const data = await response.json();
             
             if (!response.ok) {
@@ -226,6 +262,10 @@ const AuthService = {
             
             return data;
         } catch (error) {
+            if (error.name === 'AbortError') {
+                window.AAAI_LOGGER.error('Chat message timeout');
+                throw new Error('Request timed out. Please try again.');
+            }
             window.AAAI_LOGGER.error('Chat error:', error);
             throw error;
         }
@@ -264,8 +304,68 @@ const AuthService = {
             : window.location.host;
             
         const url = `${wsProtocol}//${wsHost}/ws/${userId}?token=${this.token}`;
-        window.AAAI_LOGGER.debug(`WebSocket URL: ${url}`);
+        window.AAAI_LOGGER.debug(`WebSocket URL: ${url.replace(/token=[^&]*/, 'token=***')}`);
         return url;
+    },
+    
+    // Get user credits (example function call)
+    async getUserCredits() {
+        if (!this.isAuthenticated()) {
+            throw new Error('Authentication required');
+        }
+        
+        try {
+            const result = await this.executeFunction('get_user_creds', {
+                email: this.userEmail
+            });
+            return result.data.credits;
+        } catch (error) {
+            window.AAAI_LOGGER.error('Error getting user credits:', error);
+            return 0;
+        }
+    },
+    
+    // Check drive access (example function call)
+    async checkDriveAccess(driveLink) {
+        if (!this.isAuthenticated()) {
+            throw new Error('Authentication required');
+        }
+        
+        try {
+            const result = await this.executeFunction('check_drive_access', {
+                drive_link: driveLink,
+                email: this.userEmail
+            });
+            return result.data;
+        } catch (error) {
+            window.AAAI_LOGGER.error('Error checking drive access:', error);
+            throw error;
+        }
+    },
+    
+    // Refresh token if needed
+    async refreshTokenIfNeeded() {
+        if (!this.token) return false;
+        
+        try {
+            const tokenParts = this.token.split('.');
+            if (tokenParts.length === 3) {
+                const payload = JSON.parse(atob(tokenParts[1]));
+                const timeUntilExpiry = payload.exp - (Date.now() / 1000);
+                
+                // Refresh if token expires in less than 5 minutes
+                if (timeUntilExpiry < 300) {
+                    window.AAAI_LOGGER.warn('Token expiring soon, logout required');
+                    this.logout();
+                    return false;
+                }
+            }
+            return true;
+        } catch (error) {
+            window.AAAI_LOGGER.error('Error checking token expiration:', error);
+            this.logout();
+            return false;
+        }
     },
     
     // Secure storage methods
@@ -301,6 +401,13 @@ const AuthService = {
         }
     }
 };
+
+// Auto-refresh token check every 5 minutes
+setInterval(() => {
+    if (typeof AuthService !== 'undefined' && AuthService.isAuthenticated()) {
+        AuthService.refreshTokenIfNeeded();
+    }
+}, 300000); // 5 minutes
 
 // Export the service for module usage
 typeof module !== 'undefined' && (module.exports = AuthService);
