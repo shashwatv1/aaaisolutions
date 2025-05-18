@@ -1,27 +1,28 @@
+
 /**
- * WebSocket-based Chat Service for AAAI Solutions - Environment-aware Configuration
- * Provides real-time messaging capabilities with configuration-based URL management
+ * WebSocket-based Chat Service for AAAI Solutions
+ * Uses configuration system for environment-aware connection
  */
 const ChatService = {
     /**
      * Initialize the chat service
      * @param {Object} authService - Authentication service instance
-     * @param {Object} options - Configuration options (will be merged with global config)
+     * @param {Object} options - Configuration options
      */
     init(authService, options = {}) {
-        // Ensure configuration is loaded
+        // Validate dependencies
         if (!window.AAAI_CONFIG) {
-            throw new Error('Configuration not loaded. Please include config.js before websocket-chat.js');
+            throw new Error('AAAI_CONFIG not available. Make sure config.js is loaded first.');
+        }
+        
+        if (!window.AAAI_CONFIG.ENABLE_WEBSOCKETS) {
+            throw new Error('WebSockets are disabled in configuration');
         }
         
         this.authService = authService;
-        
-        // Merge options with global configuration
         this.options = Object.assign({
-            reconnectInterval: window.AAAI_CONFIG.WS_RECONNECT_INTERVAL || 3000,
-            maxReconnectAttempts: window.AAAI_CONFIG.WS_MAX_RECONNECT_ATTEMPTS || 5,
-            heartbeatInterval: window.AAAI_CONFIG.WS_HEARTBEAT_INTERVAL || 30000,
-            timeout: window.AAAI_CONFIG.WS_TIMEOUT || 5000,
+            reconnectInterval: 3000,
+            maxReconnectAttempts: 5,
             debug: window.AAAI_CONFIG.ENABLE_DEBUG || false
         }, options);
         
@@ -31,41 +32,21 @@ const ChatService = {
         this.messageListeners = [];
         this.statusListeners = [];
         this.messageQueue = [];
-        this.heartbeatTimer = null;
-        this.connectionTimeout = null;
         
         // Bind methods
         this._onMessage = this._onMessage.bind(this);
         this._onOpen = this._onOpen.bind(this);
         this._onClose = this._onClose.bind(this);
         this._onError = this._onError.bind(this);
-        this._sendHeartbeat = this._sendHeartbeat.bind(this);
         
-        window.AAAI_LOGGER.info('ChatService initialized with configuration:', {
-            wsUrl: this._getWebSocketURL(),
-            options: this.options
+        window.AAAI_LOGGER.info('ChatService initialized', {
+            environment: window.AAAI_CONFIG.ENVIRONMENT,
+            websocketsEnabled: window.AAAI_CONFIG.ENABLE_WEBSOCKETS,
+            debug: this.options.debug
         });
         
         // Return this for chaining
         return this;
-    },
-    
-    /**
-     * Get WebSocket URL with proper protocol and endpoint
-     * @private
-     */
-    _getWebSocketURL() {
-        const baseUrl = window.AAAI_CONFIG.WS_BASE_URL;
-        
-        // Ensure the URL uses the correct WebSocket protocol
-        let wsUrl = baseUrl;
-        if (baseUrl.startsWith('https://')) {
-            wsUrl = baseUrl.replace('https://', 'wss://');
-        } else if (baseUrl.startsWith('http://')) {
-            wsUrl = baseUrl.replace('http://', 'ws://');
-        }
-        
-        return wsUrl;
     },
     
     /**
@@ -75,9 +56,8 @@ const ChatService = {
     connect() {
         return new Promise((resolve, reject) => {
             if (!this.authService.isAuthenticated()) {
-                const error = new Error('Authentication required');
-                window.AAAI_LOGGER.error('WebSocket connection failed:', error.message);
-                reject(error);
+                window.AAAI_LOGGER.error('Authentication required for WebSocket connection');
+                reject(new Error('Authentication required'));
                 return;
             }
             
@@ -87,40 +67,16 @@ const ChatService = {
                 return;
             }
             
-            // Clear any existing connection timeout
-            if (this.connectionTimeout) {
-                clearTimeout(this.connectionTimeout);
-            }
-            
-            // Set connection timeout
-            this.connectionTimeout = setTimeout(() => {
-                const error = new Error('WebSocket connection timeout');
-                window.AAAI_LOGGER.error(error.message);
-                reject(error);
-                
-                if (this.socket && this.socket.readyState === WebSocket.CONNECTING) {
-                    this.socket.close();
-                }
-            }, this.options.timeout);
-            
             try {
                 const user = this.authService.getCurrentUser();
-                const token = this.authService.token;
+                const wsUrl = this.authService.getWebSocketURL(user.id);
                 
-                // Construct WebSocket URL with authentication
-                const wsBaseUrl = this._getWebSocketURL();
-                const wsUrl = `${wsBaseUrl}/ws/${user.id}?token=${encodeURIComponent(token)}`;
-                
-                window.AAAI_LOGGER.debug('Connecting to WebSocket:', {
-                    url: wsBaseUrl, // Log base URL without token
-                    userId: user.id
-                });
+                window.AAAI_LOGGER.info(`Connecting to WebSocket: ${wsUrl.replace(/token=[^&]*/, 'token=***')}`);
                 
                 this.socket = new WebSocket(wsUrl);
                 
                 // Set up event listeners
                 this.socket.addEventListener('open', (event) => {
-                    clearTimeout(this.connectionTimeout);
                     this._onOpen(event);
                     resolve(true);
                 });
@@ -128,14 +84,12 @@ const ChatService = {
                 this.socket.addEventListener('message', this._onMessage);
                 this.socket.addEventListener('close', this._onClose);
                 this.socket.addEventListener('error', (event) => {
-                    clearTimeout(this.connectionTimeout);
                     this._onError(event);
                     reject(new Error('WebSocket connection error'));
                 });
                 
             } catch (error) {
-                clearTimeout(this.connectionTimeout);
-                window.AAAI_LOGGER.error('Error creating WebSocket connection:', error);
+                window.AAAI_LOGGER.error('Connection error:', error);
                 reject(error);
             }
         });
@@ -145,27 +99,13 @@ const ChatService = {
      * Disconnect from the WebSocket server
      */
     disconnect() {
-        // Clear timers
-        if (this.heartbeatTimer) {
-            clearInterval(this.heartbeatTimer);
-            this.heartbeatTimer = null;
-        }
-        
-        if (this.connectionTimeout) {
-            clearTimeout(this.connectionTimeout);
-            this.connectionTimeout = null;
-        }
-        
         if (this.socket) {
+            window.AAAI_LOGGER.info('Disconnecting from WebSocket');
             this.socket.close(1000, 'Client disconnected');
             this.socket = null;
+            this.isConnected = false;
+            this._notifyStatusChange('disconnected');
         }
-        
-        this.isConnected = false;
-        this.reconnectAttempts = 0;
-        this._notifyStatusChange('disconnected');
-        
-        window.AAAI_LOGGER.info('WebSocket disconnected');
     },
     
     /**
@@ -183,33 +123,28 @@ const ChatService = {
             if (!this.isConnected) {
                 // Queue message and try to reconnect
                 this.messageQueue.push(message);
-                
-                if (window.AAAI_CONFIG.ENABLE_WEBSOCKETS) {
-                    this.connect()
-                        .then(() => window.AAAI_LOGGER.debug('Connected and queued message'))
-                        .catch(err => {
-                            window.AAAI_LOGGER.error('Failed to connect for queued message:', err);
-                            reject(new Error('Not connected and unable to reconnect'));
-                        });
-                } else {
-                    reject(new Error('WebSockets are disabled'));
-                }
+                window.AAAI_LOGGER.warn('Not connected, queueing message and attempting reconnect');
+                this.connect()
+                    .then(() => window.AAAI_LOGGER.info('Connected and queued message'))
+                    .catch(err => {
+                        window.AAAI_LOGGER.error('Failed to connect:', err);
+                        reject(new Error('Not connected'));
+                    });
                 return;
             }
             
             try {
                 const payload = {
                     message,
-                    timestamp: new Date().toISOString(),
-                    client_id: this._generateClientId()
+                    timestamp: new Date().toISOString()
                 };
                 
                 this.socket.send(JSON.stringify(payload));
-                window.AAAI_LOGGER.debug('Message sent:', { messageId: payload.client_id });
+                window.AAAI_LOGGER.debug('Message sent:', message);
                 resolve(true);
                 
             } catch (error) {
-                window.AAAI_LOGGER.error('Error sending message:', error);
+                window.AAAI_LOGGER.error('Send error:', error);
                 reject(error);
             }
         });
@@ -244,9 +179,6 @@ const ChatService = {
         this.isConnected = true;
         this.reconnectAttempts = 0;
         
-        // Start heartbeat
-        this._startHeartbeat();
-        
         // Notify status listeners
         this._notifyStatusChange('connected');
         
@@ -265,20 +197,13 @@ const ChatService = {
     _onMessage(event) {
         try {
             const data = JSON.parse(event.data);
-            
-            // Handle heartbeat pong
-            if (data.type === 'pong') {
-                window.AAAI_LOGGER.debug('Received heartbeat pong');
-                return;
-            }
-            
-            window.AAAI_LOGGER.debug('Received message:', data);
+            window.AAAI_LOGGER.debug('Received WebSocket message:', data);
             
             // Notify listeners
             this._notifyMessageListeners(data);
             
         } catch (error) {
-            window.AAAI_LOGGER.error('Error processing message:', error);
+            window.AAAI_LOGGER.error('Error processing WebSocket message:', error);
         }
     },
     
@@ -288,24 +213,13 @@ const ChatService = {
      */
     _onClose(event) {
         this.isConnected = false;
-        
-        // Stop heartbeat
-        if (this.heartbeatTimer) {
-            clearInterval(this.heartbeatTimer);
-            this.heartbeatTimer = null;
-        }
-        
-        window.AAAI_LOGGER.warn('WebSocket disconnected', {
-            code: event.code,
-            reason: event.reason,
-            wasClean: event.wasClean
-        });
+        window.AAAI_LOGGER.warn('WebSocket disconnected', { code: event.code, reason: event.reason });
         
         // Notify status listeners
         this._notifyStatusChange('disconnected');
         
-        // Try to reconnect if not a normal closure and WebSockets are enabled
-        if (event.code !== 1000 && event.code !== 1001 && window.AAAI_CONFIG.ENABLE_WEBSOCKETS) {
+        // Try to reconnect if not a normal closure
+        if (event.code !== 1000 && event.code !== 1001) {
             this._tryReconnect();
         }
     },
@@ -316,7 +230,6 @@ const ChatService = {
      */
     _onError(event) {
         window.AAAI_LOGGER.error('WebSocket error:', event);
-        
         // Notify status listeners
         this._notifyStatusChange('error');
     },
@@ -328,18 +241,17 @@ const ChatService = {
     _tryReconnect() {
         if (this.reconnectAttempts >= this.options.maxReconnectAttempts) {
             window.AAAI_LOGGER.error('Max reconnect attempts reached');
-            this._notifyStatusChange('failed');
             return;
         }
         
         this.reconnectAttempts++;
-        window.AAAI_LOGGER.info(`Reconnecting (${this.reconnectAttempts}/${this.options.maxReconnectAttempts}) in ${this.options.reconnectInterval}ms`);
+        window.AAAI_LOGGER.info(`Attempting reconnect ${this.reconnectAttempts}/${this.options.maxReconnectAttempts} in ${this.options.reconnectInterval}ms`);
         
         // Notify status listeners
         this._notifyStatusChange('reconnecting');
         
         setTimeout(() => {
-            if (!this.isConnected && this.authService.isAuthenticated()) {
+            if (!this.isConnected) {
                 this.connect()
                     .then(() => window.AAAI_LOGGER.info('Reconnected successfully'))
                     .catch(err => {
@@ -348,45 +260,6 @@ const ChatService = {
                     });
             }
         }, this.options.reconnectInterval);
-    },
-    
-    /**
-     * Start heartbeat to keep connection alive
-     * @private
-     */
-    _startHeartbeat() {
-        if (this.heartbeatTimer || !this.options.heartbeatInterval) {
-            return;
-        }
-        
-        this.heartbeatTimer = setInterval(() => {
-            if (this.isConnected && this.socket.readyState === WebSocket.OPEN) {
-                this._sendHeartbeat();
-            }
-        }, this.options.heartbeatInterval);
-    },
-    
-    /**
-     * Send heartbeat ping
-     * @private
-     */
-    _sendHeartbeat() {
-        if (this.socket && this.socket.readyState === WebSocket.OPEN) {
-            try {
-                this.socket.send(JSON.stringify({ type: 'ping', timestamp: new Date().toISOString() }));
-                window.AAAI_LOGGER.debug('Sent heartbeat ping');
-            } catch (error) {
-                window.AAAI_LOGGER.error('Error sending heartbeat:', error);
-            }
-        }
-    },
-    
-    /**
-     * Generate unique client ID for message tracking
-     * @private
-     */
-    _generateClientId() {
-        return `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
     },
     
     /**
@@ -417,6 +290,3 @@ const ChatService = {
         });
     }
 };
-
-// Export the ChatService
-typeof module !== 'undefined' && (module.exports = ChatService);

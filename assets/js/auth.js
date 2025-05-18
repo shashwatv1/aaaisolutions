@@ -1,28 +1,26 @@
 /**
- * Authentication module for AAAI Solutions - Environment-aware Configuration
- * Handles OTP request/verification and token management with improved security
+ * Authentication module for AAAI Solutions
+ * Handles OTP request/verification and token management with environment-aware configuration
  */
 const AuthService = {
-    // Use configuration from global config
-    get API_BASE_URL() {
-        return window.AAAI_CONFIG?.API_BASE_URL || 'https://aaai-gateway-754x89jf.uc.gateway.dev';
-    },
-    
-    get WS_BASE_URL() {
-        return window.AAAI_CONFIG?.WS_BASE_URL || 'wss://aaai.solutions';
-    },
-    
-    get LOG_LEVEL() {
-        return window.AAAI_CONFIG?.LOG_LEVEL || 'info';
-    },
-    
-    // Initialize the auth service
+    // Initialize the auth service with configuration
     init() {
-        // Ensure configuration is loaded
+        // Wait for config to be available
         if (!window.AAAI_CONFIG) {
-            throw new Error('Configuration not loaded. Please include config.js before auth.js');
+            throw new Error('AAAI_CONFIG not available. Make sure config.js is loaded first.');
         }
         
+        // Use the configuration URLs
+        this.API_BASE_URL = window.AAAI_CONFIG.API_BASE_URL.replace('/api', ''); // Get base URL
+        this.WS_BASE_URL = window.AAAI_CONFIG.WS_BASE_URL.replace('/ws', ''); // Get base URL
+        
+        // For production/staging, use relative URLs that nginx will proxy
+        if (window.AAAI_CONFIG.ENVIRONMENT !== 'development') {
+            this.API_BASE_URL = ''; // Use relative URLs
+            this.WS_BASE_URL = window.location.origin;
+        }
+        
+        // Load stored auth data
         this.token = this._getSecureItem('auth_token');
         this.userEmail = this._getSecureItem('user_email');
         this.userId = this._getSecureItem('user_id');
@@ -35,7 +33,7 @@ const AuthService = {
                     const payload = JSON.parse(atob(tokenParts[1]));
                     if (payload.exp && payload.exp < Date.now() / 1000) {
                         window.AAAI_LOGGER.warn('Token expired, logging out');
-                        this.logout();
+                        this.logout(); // Token expired
                     }
                 }
             } catch (error) {
@@ -45,8 +43,10 @@ const AuthService = {
         }
         
         window.AAAI_LOGGER.info('AuthService initialized', {
-            authenticated: this.isAuthenticated(),
-            environment: window.AAAI_CONFIG.ENVIRONMENT
+            environment: window.AAAI_CONFIG.ENVIRONMENT,
+            apiBaseUrl: this.API_BASE_URL,
+            wsBaseUrl: this.WS_BASE_URL,
+            authenticated: this.isAuthenticated()
         });
         
         return this.isAuthenticated();
@@ -54,7 +54,7 @@ const AuthService = {
     
     // Check if user is authenticated
     isAuthenticated() {
-        return !!(this.token && this.userId);
+        return !!this.token && !!this.userId;
     },
     
     // Get current user information
@@ -65,24 +65,22 @@ const AuthService = {
         };
     },
     
-    // Request OTP check
+    // Request OTP
     async requestOTP(email) {
         try {
-            window.AAAI_LOGGER.debug(`Requesting OTP for email: ${email}`);
+            window.AAAI_LOGGER.info(`Requesting OTP for email: ${email}`);
             
-            const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), window.AAAI_CONFIG.API_TIMEOUT);
+            const url = `${this.API_BASE_URL}/auth/request-otp`;
+            window.AAAI_LOGGER.debug(`Request URL: ${url}`);
             
-            const response = await fetch(`${this.API_BASE_URL}/auth/request-otp`, {
+            const response = await fetch(url, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
                 },
-                body: JSON.stringify({ email }),
-                signal: controller.signal
+                body: JSON.stringify({ email })
             });
-            
-            clearTimeout(timeoutId);
+
             const responseData = await response.json();
             
             if (!response.ok) {
@@ -93,10 +91,6 @@ const AuthService = {
             window.AAAI_LOGGER.info('OTP request successful');
             return responseData;
         } catch (error) {
-            if (error.name === 'AbortError') {
-                window.AAAI_LOGGER.error('OTP request timeout');
-                throw new Error('Request timeout. Please try again.');
-            }
             window.AAAI_LOGGER.error('OTP Request error:', error);
             throw new Error(`OTP request failed: ${error.message}`);
         }
@@ -105,21 +99,19 @@ const AuthService = {
     // Verify OTP
     async verifyOTP(email, otp) {
         try {
-            window.AAAI_LOGGER.debug(`Verifying OTP for email: ${email}`);
+            window.AAAI_LOGGER.info(`Verifying OTP for email: ${email}`);
             
-            const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), window.AAAI_CONFIG.API_TIMEOUT);
+            const url = `${this.API_BASE_URL}/auth/verify-otp`;
+            window.AAAI_LOGGER.debug(`Request URL: ${url}`);
             
-            const response = await fetch(`${this.API_BASE_URL}/auth/verify-otp`, {
+            const response = await fetch(url, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
                 },
-                body: JSON.stringify({ email, otp }),
-                signal: controller.signal
+                body: JSON.stringify({ email, otp })
             });
             
-            clearTimeout(timeoutId);
             const data = await response.json();
             
             if (!response.ok) {
@@ -138,15 +130,8 @@ const AuthService = {
             this._setSecureItem('user_email', email);
             this._setSecureItem('user_id', data.id);
             
-            // Schedule token refresh if needed
-            this._scheduleTokenRefresh(data.access_token);
-            
             return data;
         } catch (error) {
-            if (error.name === 'AbortError') {
-                window.AAAI_LOGGER.error('OTP verification timeout');
-                throw new Error('Request timeout. Please try again.');
-            }
             window.AAAI_LOGGER.error('OTP Verification error:', error);
             throw new Error(`OTP verification failed: ${error.message}`);
         }
@@ -159,86 +144,80 @@ const AuthService = {
         }
         
         try {
-            window.AAAI_LOGGER.debug(`Executing function: ${functionName}`);
+            window.AAAI_LOGGER.info(`Executing function: ${functionName}`);
             
-            const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), window.AAAI_CONFIG.API_TIMEOUT);
+            const url = `${this.API_BASE_URL}/api/function/${functionName}`;
+            window.AAAI_LOGGER.debug(`Request URL: ${url}`);
             
-            const response = await fetch(`${this.API_BASE_URL}/api/function/${functionName}`, {
+            const response = await fetch(url, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
                     'Authorization': `Bearer ${this.token}`
                 },
-                body: JSON.stringify(inputData),
-                signal: controller.signal
+                body: JSON.stringify(inputData)
             });
             
-            clearTimeout(timeoutId);
             const data = await response.json();
             
             if (!response.ok) {
+                window.AAAI_LOGGER.error(`Function execution failed:`, data);
+                
+                // Handle token expiration
                 if (response.status === 401) {
-                    window.AAAI_LOGGER.warn('Function execution failed: Unauthorized');
+                    window.AAAI_LOGGER.warn('Token expired, logging out');
                     this.logout();
                     throw new Error('Session expired. Please log in again.');
                 }
-                window.AAAI_LOGGER.error(`Function execution failed:`, data);
+                
                 throw new Error(data.error || data.detail || `Failed to execute function: ${functionName}`);
             }
             
             return data;
         } catch (error) {
-            if (error.name === 'AbortError') {
-                window.AAAI_LOGGER.error('Function execution timeout');
-                throw new Error('Request timeout. Please try again.');
-            }
             window.AAAI_LOGGER.error(`Function execution error (${functionName}):`, error);
-            throw new Error(`Function execution failed: ${error.message}`);
+            throw error;
         }
     },
     
-    // Send a chat message
+    // Send a chat message (for HTTP API, not WebSocket)
     async sendChatMessage(message) {
         if (!this.isAuthenticated()) {
             throw new Error('Authentication required');
         }
         
         try {
-            const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), window.AAAI_CONFIG.API_TIMEOUT);
+            const url = `${this.API_BASE_URL}/api/chat`;
+            window.AAAI_LOGGER.debug(`Chat request URL: ${url}`);
             
-            const response = await fetch(`${this.API_BASE_URL}/api/chat`, {
+            const response = await fetch(url, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
                     'Authorization': `Bearer ${this.token}`
                 },
-                body: JSON.stringify({ message }),
-                signal: controller.signal
+                body: JSON.stringify({ message })
             });
             
-            clearTimeout(timeoutId);
             const data = await response.json();
             
             if (!response.ok) {
+                window.AAAI_LOGGER.error('Chat message failed:', data);
+                
+                // Handle token expiration
                 if (response.status === 401) {
-                    window.AAAI_LOGGER.warn('Chat message failed: Unauthorized');
+                    window.AAAI_LOGGER.warn('Token expired, logging out');
                     this.logout();
                     throw new Error('Session expired. Please log in again.');
                 }
-                window.AAAI_LOGGER.error('Chat message failed:', data);
+                
                 throw new Error(data.error || 'Failed to send message');
             }
             
             return data;
         } catch (error) {
-            if (error.name === 'AbortError') {
-                window.AAAI_LOGGER.error('Chat message timeout');
-                throw new Error('Request timeout. Please try again.');
-            }
             window.AAAI_LOGGER.error('Chat error:', error);
-            throw new Error(`Chat message failed: ${error.message}`);
+            throw error;
         }
     },
     
@@ -247,12 +226,6 @@ const AuthService = {
         this.token = null;
         this.userEmail = null;
         this.userId = null;
-        
-        // Clear token refresh timer
-        if (this._refreshTimer) {
-            clearTimeout(this._refreshTimer);
-            this._refreshTimer = null;
-        }
         
         // Remove from secure storage
         this._removeSecureItem('auth_token');
@@ -269,31 +242,26 @@ const AuthService = {
         };
     },
     
-    // Schedule token refresh
-    _scheduleTokenRefresh(token) {
-        if (!window.AAAI_CONFIG.TOKEN_REFRESH_THRESHOLD) return;
-        
-        try {
-            const payload = JSON.parse(atob(token.split('.')[1]));
-            const expiresAt = payload.exp * 1000;
-            const refreshAt = expiresAt - (window.AAAI_CONFIG.TOKEN_REFRESH_THRESHOLD * 1000);
-            const now = Date.now();
-            
-            if (refreshAt > now) {
-                this._refreshTimer = setTimeout(() => {
-                    window.AAAI_LOGGER.warn('Token refresh not implemented');
-                    // Implement token refresh logic here
-                }, refreshAt - now);
-            }
-        } catch (error) {
-            window.AAAI_LOGGER.error('Error scheduling token refresh:', error);
+    // Get WebSocket URL with token
+    getWebSocketURL(userId) {
+        if (!this.isAuthenticated()) {
+            throw new Error('Authentication required for WebSocket');
         }
+        
+        const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const wsHost = window.AAAI_CONFIG.ENVIRONMENT === 'development' 
+            ? 'localhost:8080' 
+            : window.location.host;
+            
+        const url = `${wsProtocol}//${wsHost}/ws/${userId}?token=${this.token}`;
+        window.AAAI_LOGGER.debug(`WebSocket URL: ${url}`);
+        return url;
     },
     
     // Secure storage methods
     _setSecureItem(key, value) {
         try {
-            const storageKey = `aaai_${window.AAAI_CONFIG.ENVIRONMENT}_${key}`;
+            const storageKey = `aaai_${key}`;
             localStorage.setItem(storageKey, value);
             return true;
         } catch (error) {
@@ -304,7 +272,7 @@ const AuthService = {
     
     _getSecureItem(key) {
         try {
-            const storageKey = `aaai_${window.AAAI_CONFIG.ENVIRONMENT}_${key}`;
+            const storageKey = `aaai_${key}`;
             return localStorage.getItem(storageKey);
         } catch (error) {
             window.AAAI_LOGGER.error('Error retrieving secure item:', error);
@@ -314,7 +282,7 @@ const AuthService = {
     
     _removeSecureItem(key) {
         try {
-            const storageKey = `aaai_${window.AAAI_CONFIG.ENVIRONMENT}_${key}`;
+            const storageKey = `aaai_${key}`;
             localStorage.removeItem(storageKey);
             return true;
         } catch (error) {
@@ -325,6 +293,4 @@ const AuthService = {
 };
 
 // Export the service for module usage
-if (typeof module !== 'undefined' && module.exports) {
-    module.exports = AuthService;
-}
+typeof module !== 'undefined' && (module.exports = AuthService);
