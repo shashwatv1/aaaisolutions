@@ -73,14 +73,20 @@ const AuthService = {
             const url = `${this.API_BASE_URL}/auth/request-otp`;
             window.AAAI_LOGGER.debug(`Request URL: ${url}`);
             
+            // Add timeout to fetch request
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 second timeout
+            
             const response = await fetch(url, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
                 },
-                body: JSON.stringify({ email })
+                body: JSON.stringify({ email }),
+                signal: controller.signal
             });
-
+            
+            clearTimeout(timeoutId);
             const responseData = await response.json();
             
             if (!response.ok) {
@@ -91,6 +97,10 @@ const AuthService = {
             window.AAAI_LOGGER.info('OTP request successful');
             return responseData;
         } catch (error) {
+            if (error.name === 'AbortError') {
+                window.AAAI_LOGGER.error('OTP request timeout');
+                throw new Error('Request timed out. Please check your connection and try again.');
+            }
             window.AAAI_LOGGER.error('OTP Request error:', error);
             throw new Error(`OTP request failed: ${error.message}`);
         }
