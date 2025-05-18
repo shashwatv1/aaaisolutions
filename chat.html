@@ -11,8 +11,48 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Barlow:wght@600;700&family=Open+Sans:wght@400;500;700&family=Poppins:wght@400;600&display=swap" rel="stylesheet">
   
+  <!-- Load configuration first (optional - won't break if missing) -->
+  <script>
+    // Try to load config, but don't break if it doesn't exist
+    try {
+      document.head.appendChild(document.createElement('script')).src = './assets/js/config.js';
+    } catch (e) {
+      console.log('Config.js not found, using default configuration');
+    }
+  </script>
+  
   <!-- Chat-specific styles -->
   <style>
+    /* Environment indicator - only shows in non-production */
+    .env-indicator {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      z-index: 10000;
+      padding: 5px 10px;
+      text-align: center;
+      font-size: 0.8rem;
+      font-weight: bold;
+      color: white;
+      display: none;
+    }
+    
+    .env-indicator.development {
+      background-color: #f39c12;
+      display: block;
+    }
+    
+    .env-indicator.staging {
+      background-color: #9b59b6;
+      display: block;
+    }
+    
+    /* Adjust body padding when env indicator is shown */
+    body.with-env-indicator {
+      padding-top: 30px;
+    }
+
     /* Hero section styles */
     .demo-hero {
       background: linear-gradient(135deg, var(--indigo) 0%, var(--klein-blue) 100%);
@@ -158,6 +198,13 @@
       font-size: 1.2em;
     }
     
+    /* Environment info in chat header */
+    .chat-env-info {
+      font-size: 0.7rem;
+      color: rgba(255, 255, 255, 0.6);
+      margin-left: 10px;
+    }
+    
     .user-info {
       display: flex;
       align-items: center;
@@ -182,6 +229,9 @@
       border-radius: 6px;
       cursor: pointer;
       transition: all 0.3s ease;
+      display: flex;
+      align-items: center;
+      gap: 5px;
     }
     
     .logout-btn:hover {
@@ -275,6 +325,9 @@
       font-size: 1rem;
       transition: all 0.3s ease;
       backdrop-filter: blur(10px);
+      resize: none;
+      min-height: 54px;
+      max-height: 120px;
     }
     
     .chat-input:focus {
@@ -297,6 +350,9 @@
       transition: all 0.3s ease;
       font-weight: 600;
       white-space: nowrap;
+      display: flex;
+      align-items: center;
+      gap: 8px;
     }
     
     .chat-send-btn:hover {
@@ -417,6 +473,7 @@
       background: rgba(231, 76, 60, 0.1);
       border-radius: 6px;
       border: 1px solid rgba(231, 76, 60, 0.3);
+      display: none;
     }
     
     /* Loading states */
@@ -658,6 +715,75 @@
       opacity: 1;
     }
     
+    /* Message History Section */
+    .message-history-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 15px;
+      background-color: rgba(0, 0, 0, 0.2);
+      border-radius: 5px;
+      margin-bottom: 15px;
+    }
+    
+    .message-history-title {
+      font-size: 0.9rem;
+      color: rgba(255, 255, 255, 0.7);
+    }
+    
+    .message-history-actions {
+      display: flex;
+      gap: 10px;
+    }
+    
+    .message-history-button {
+      background: transparent;
+      border: none;
+      color: white;
+      cursor: pointer;
+      font-size: 0.8rem;
+      padding: 5px;
+      border-radius: 3px;
+      transition: background-color 0.3s ease;
+    }
+    
+    .message-history-button:hover {
+      background: rgba(255, 255, 255, 0.1);
+    }
+    
+    .message-history-date {
+      text-align: center;
+      margin: 15px 0;
+      position: relative;
+    }
+    
+    .message-history-date::before,
+    .message-history-date::after {
+      content: '';
+      position: absolute;
+      top: 50%;
+      width: 35%;
+      height: 1px;
+      background-color: rgba(255, 255, 255, 0.2);
+    }
+    
+    .message-history-date::before {
+      left: 0;
+    }
+    
+    .message-history-date::after {
+      right: 0;
+    }
+    
+    .message-history-date-text {
+      display: inline-block;
+      padding: 3px 10px;
+      background-color: rgba(0, 0, 0, 0.3);
+      border-radius: 10px;
+      font-size: 0.8rem;
+      color: rgba(255, 255, 255, 0.6);
+    }
+    
     /* Responsive design */
     @media (max-width: 768px) {
       .demo-hero h1 {
@@ -699,11 +825,19 @@
       .user-info span {
         display: none;
       }
+      
+      .logout-btn span {
+        display: none;
+      }
     }
   </style>
 </head>
 
 <body id="top">
+  <!-- Environment indicator (hidden by default) -->
+  <div class="env-indicator" id="envIndicator">
+    <span id="envText"></span>
+  </div>
 
   <!-- Header -->
   <header class="header" data-header>
@@ -783,7 +917,10 @@
           <!-- Chat Interface -->
           <div class="chat-interface" id="chatInterface">
             <div class="chat-header">
-              <h3 class="chat-title">Aaai Assistant</h3>
+              <h3 class="chat-title">
+                Aaai Assistant
+                <span class="chat-env-info" id="chatEnvInfo"></span>
+              </h3>
               <div class="user-info">
                 <span class="credits-badge" id="creditsDisplay">Credits: 0</span>
                 <span id="userEmail">user@example.com</span>
@@ -794,6 +931,16 @@
               </div>
             </div>
             <div class="chat-body" id="chatBody">
+              <!-- Message history header -->
+              <div class="message-history-header" id="historyHeader" style="display: none;">
+                <div class="message-history-title">Previous Conversations</div>
+                <div class="message-history-actions">
+                  <button class="message-history-button" id="clearHistoryBtn" title="Clear History">
+                    <ion-icon name="trash-outline"></ion-icon>
+                  </button>
+                </div>
+              </div>
+              
               <!-- Welcome message -->
               <div class="message message-bot" id="welcomeMessage" style="display: none;">
                 <div>👋 Welcome! I'm your AI assistant. How can I help you today?</div>
@@ -802,7 +949,7 @@
               <!-- Messages will be inserted here -->
             </div>
             <div class="chat-footer">
-              <input type="text" class="chat-input" id="messageInput" placeholder="Type your message here..." maxlength="1000">
+              <textarea class="chat-input" id="messageInput" placeholder="Type your message here..." maxlength="1000" rows="1"></textarea>
               <button class="chat-send-btn" id="sendMessageBtn">
                 <ion-icon name="send"></ion-icon>
                 <span>Send</span>
@@ -832,7 +979,6 @@
 
   <!-- Scripts - Load in correct order -->
   <script src="./assets/js/script.js"></script>
-  <script src="./assets/js/config.js"></script>
   <script src="./assets/js/auth.js"></script>
   <script src="./assets/js/websocket-chat.js"></script>
   <script src="./assets/js/ui-components.js"></script>
@@ -842,57 +988,110 @@
   <!-- Main chat application script -->
   <script>
     document.addEventListener('DOMContentLoaded', function() {
+      // Initialize environment features (only if config is available)
+      function initEnvironmentFeatures() {
+        // Check if config is available
+        const hasConfig = window.AAAI_CONFIG && window.AAAI_CONFIG.ENVIRONMENT;
+        
+        if (hasConfig) {
+          const environment = window.AAAI_CONFIG.ENVIRONMENT;
+          
+          // Show environment indicator for non-production
+          if (environment !== 'production') {
+            const envIndicator = document.getElementById('envIndicator');
+            const envText = document.getElementById('envText');
+            
+            envIndicator.className = `env-indicator ${environment}`;
+            envText.textContent = `${environment.toUpperCase()} Environment`;
+            document.body.classList.add('with-env-indicator');
+          }
+          
+          // Update chat header with environment info
+          const chatEnvInfo = document.getElementById('chatEnvInfo');
+          if (environment !== 'production') {
+            chatEnvInfo.textContent = `(${environment})`;
+          }
+          
+          // Set up logger if available
+          if (window.AAAI_LOGGER) {
+            window.AAAI_LOGGER.info('Environment features initialized', {
+              environment: environment,
+              version: window.AAAI_CONFIG.VERSION || 'unknown'
+            });
+          }
+        }
+      }
+      
+      // Enhanced AuthService initialization with fallbacks
+      function initializeAuthService() {
+        // Provide fallback configuration if config.js isn't available
+        if (!window.AAAI_CONFIG) {
+          window.AAAI_CONFIG = {
+            API_BASE_URL: 'https://aaai-gateway-754x89jf.uc.gateway.dev',
+            WS_BASE_URL: 'wss://api-server-559730737995.us-central1.run.app',
+            ENVIRONMENT: 'production',
+            ENABLE_WEBSOCKETS: true,
+            ENABLE_DEBUG: false
+          };
+          
+          // Simple logger fallback
+          window.AAAI_LOGGER = {
+            debug: console.log.bind(console, '[DEBUG]'),
+            info: console.info.bind(console, '[INFO]'),
+            warn: console.warn.bind(console, '[WARN]'),
+            error: console.error.bind(console, '[ERROR]')
+          };
+        }
+        
+        // Initialize authentication
+        try {
+          AuthService.init();
+          return true;
+        } catch (error) {
+          console.error('Failed to initialize AuthService:', error);
+          return false;
+        }
+      }
+      
+      // Initialize environment features first
+      initEnvironmentFeatures();
+      
       // Ensure all scripts are loaded before initialization
       setTimeout(() => {
         try {
-          // Check if required services are available
-          if (typeof window.AAAI_CONFIG === 'undefined') {
-            console.error('AAAI_CONFIG not loaded. Check config.js');
+          // Initialize AuthService with fallbacks
+          if (!initializeAuthService()) {
+            showAuthError('Failed to initialize authentication system. Please refresh the page.');
             return;
           }
-          
-          if (typeof AuthService === 'undefined') {
-            console.error('AuthService not loaded. Check auth.js');
-            return;
-          }
-          
-          // Initialize AuthService
-          AuthService.init();
-          console.log('✓ AuthService initialized');
           
           // Initialize UI components renderer
           const uiRenderer = UIComponentRenderer.init({
             linkHandler: (url) => {
-              // Handle link actions
               window.open(url, '_blank');
             },
             actionHandler: (action, value) => {
-              // Handle other actions
               if (action === 'reply') {
-                // Simulate user typing the reply
                 messageInput.value = value;
                 setTimeout(() => sendMessage(), 100);
               } else if (action === 'copy') {
-                // Copy to clipboard
                 navigator.clipboard.writeText(value)
                   .then(() => {
-                    showStatus('success', `Copied: ${value}`);
+                    showStatus('connected', `Copied: ${value}`);
                   })
                   .catch(err => console.error('Failed to copy:', err));
               }
             }
           });
-          console.log('✓ UI renderer initialized');
           
           // Initialize chat service with WebSocket
           let chatService = null;
-          if (typeof ChatService !== 'undefined') {
+          if (typeof ChatService !== 'undefined' && window.AAAI_CONFIG.ENABLE_WEBSOCKETS) {
             chatService = ChatService.init(AuthService, {
-              reconnectInterval: 3000,
-              maxReconnectAttempts: 5,
-              debug: window.AAAI_CONFIG.ENABLE_DEBUG
+              reconnectInterval: window.AAAI_CONFIG?.WS_RECONNECT_INTERVAL || 3000,
+              maxReconnectAttempts: window.AAAI_CONFIG?.WS_MAX_RECONNECT_ATTEMPTS || 5,
+              debug: window.AAAI_CONFIG?.ENABLE_DEBUG || false
             });
-            console.log('✓ Chat service initialized');
           }
           
           // Get DOM elements
@@ -913,6 +1112,8 @@
           const sendMessageBtn = document.getElementById('sendMessageBtn');
           const resendOtpBtn = document.getElementById('resendOtpBtn');
           const welcomeMessage = document.getElementById('welcomeMessage');
+          const historyHeader = document.getElementById('historyHeader');
+          const clearHistoryBtn = document.getElementById('clearHistoryBtn');
           
           // Status indicators
           const connectedStatus = document.querySelector('.status-connected');
@@ -921,6 +1122,7 @@
           
           let userEmail = '';
           let isConnecting = false;
+          let hasAddedWelcomeMessage = false;
           
           // Add message and status listeners if chat service is available
           if (chatService) {
@@ -1023,7 +1225,7 @@
             
             try {
               await AuthService.requestOTP(userEmail);
-              showStatus('success', 'Verification code sent!');
+              showStatus('connected', 'Verification code sent!');
               startResendCountdown();
             } catch (error) {
               console.error('Resend OTP error:', error);
@@ -1047,10 +1249,17 @@
             }
           });
           
+          // Event: Clear history
+          clearHistoryBtn.addEventListener('click', function() {
+            if (confirm('Are you sure you want to clear your chat history?')) {
+              alert('This feature would clear your chat history from the server.');
+            }
+          });
+          
           // Auto-resize textarea
           messageInput.addEventListener('input', function() {
             this.style.height = 'auto';
-            this.style.height = Math.min(this.scrollHeight, 100) + 'px';
+            this.style.height = Math.min(this.scrollHeight, 120) + 'px';
           });
           
           // Function: Connect to WebSocket
@@ -1061,11 +1270,6 @@
             try {
               await chatService.connect();
               showStatus('connected');
-              
-              // Show welcome message if chat is empty
-              if (chatBody.children.length <= 1) {
-                showWelcomeMessage();
-              }
             } catch (error) {
               console.error('WebSocket connection error:', error);
               showStatus('disconnected');
@@ -1082,7 +1286,6 @@
                 break;
                 
               case 'message':
-                // Add both user and bot messages to chat
                 if (data.user_message) {
                   addMessageToChat(
                     data.user_message.text, 
@@ -1102,18 +1305,17 @@
                 }
                 break;
                 
+              case 'history':
+                processMessageHistory(data.messages);
+                break;
+                
               case 'history_loaded':
-                // Process message history
-                if (data.messages && data.messages.length > 0) {
-                  processMessageHistory(data.messages);
-                } else {
-                  showWelcomeMessage();
-                }
+                processMessageHistory(data.messages);
                 break;
                 
               case 'error':
                 console.error('WebSocket error:', data.message);
-                showStatus('error', data.message);
+                showStatus('disconnected', data.message);
                 break;
             }
           }
@@ -1121,15 +1323,14 @@
           // Function: Handle connection status changes
           function handleConnectionStatus(status) {
             showStatus(status);
+            
+            if (status === 'connected' && !hasAddedWelcomeMessage) {
+              hasAddedWelcomeMessage = true;
+            }
           }
           
           // Function: Send a message
           async function sendMessage() {
-            if (!chatService) {
-              // Fallback to HTTP API if WebSocket not available
-              return sendMessageHTTP();
-            }
-            
             const messageText = messageInput.value.trim();
             if (!messageText) return;
             
@@ -1141,23 +1342,18 @@
             sendMessageBtn.disabled = true;
             
             try {
-              // Send message through WebSocket
-              await chatService.sendMessage(messageText);
-              
-              // Note: We don't add the message to the chat here
-              // It will be added when we receive the confirmation from the server
-              
+              if (chatService && chatService.isConnected) {
+                // Send through WebSocket
+                await chatService.sendMessage(messageText);
+              } else {
+                // Fallback to HTTP API
+                await sendMessageHTTP(messageText);
+              }
             } catch (error) {
               console.error('Error sending message:', error);
-              
-              // Show error message in chat
               addMessageToChat('Failed to send message. Please try again.', 'bot');
-              
-              // Show disconnected status
               showStatus('disconnected');
-              
-              // Restore message input
-              messageInput.value = messageText;
+              messageInput.value = messageText; // Restore message
             } finally {
               sendMessageBtn.disabled = false;
               messageInput.focus();
@@ -1165,13 +1361,7 @@
           }
           
           // Function: Send message via HTTP (fallback)
-          async function sendMessageHTTP() {
-            const messageText = messageInput.value.trim();
-            if (!messageText) return;
-            
-            messageInput.value = '';
-            sendMessageBtn.disabled = true;
-            
+          async function sendMessageHTTP(messageText) {
             // Add user message immediately
             addMessageToChat(messageText, 'user');
             
@@ -1198,26 +1388,59 @@
               console.error('Error sending message:', error);
               typingIndicator.remove();
               addMessageToChat('Sorry, I encountered an error. Please try again.', 'bot');
-            } finally {
-              sendMessageBtn.disabled = false;
-              messageInput.focus();
             }
           }
           
           // Function: Process message history
           function processMessageHistory(messages) {
-            // Clear existing messages except welcome
-            const existingMessages = chatBody.querySelectorAll('.message:not(#welcomeMessage)');
-            existingMessages.forEach(msg => msg.remove());
+            if (!messages || !messages.length) {
+              showWelcomeMessage();
+              return;
+            }
             
-            // Add messages from history (they're already in reverse chronological order)
-            messages.reverse().forEach(message => {
-              addMessageToChat(
-                message.text,
-                message.sender,
-                message.timestamp,
-                message.components
-              );
+            // Show history header
+            historyHeader.style.display = 'flex';
+            
+            // Clear chat before adding history
+            chatBody.innerHTML = '';
+            chatBody.appendChild(historyHeader);
+            
+            // Group messages by date
+            const messagesByDate = {};
+            
+            messages.forEach(message => {
+              const date = new Date(message.timestamp);
+              const dateKey = date.toDateString();
+              
+              if (!messagesByDate[dateKey]) {
+                messagesByDate[dateKey] = [];
+              }
+              
+              messagesByDate[dateKey].push(message);
+            });
+            
+            // Add messages by date group
+            Object.keys(messagesByDate).forEach(dateKey => {
+              // Add date separator
+              const dateContainer = document.createElement('div');
+              dateContainer.className = 'message-history-date';
+              
+              const dateText = document.createElement('span');
+              dateText.className = 'message-history-date-text';
+              dateText.textContent = dateKey;
+              
+              dateContainer.appendChild(dateText);
+              chatBody.appendChild(dateContainer);
+              
+              // Add messages for this date
+              messagesByDate[dateKey].forEach(message => {
+                addMessageToChat(
+                  message.text,
+                  message.sender,
+                  message.timestamp,
+                  message.components
+                );
+              });
             });
             
             // Scroll to bottom
@@ -1290,6 +1513,7 @@
             if (timestamp) {
               timestamp.textContent = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
             }
+            chatBody.scrollTop = chatBody.scrollHeight;
           }
           
           // Function: Show chat interface
@@ -1301,14 +1525,21 @@
             const user = AuthService.getCurrentUser();
             userEmailDisplay.textContent = user.email || '';
             
-            // Load user credits
+            // Load user credits if function exists
             try {
-              const credits = await AuthService.getUserCredits();
-              creditsDisplay.textContent = `Credits: ${credits}`;
+              if (typeof AuthService.getUserCredits === 'function') {
+                const credits = await AuthService.getUserCredits();
+                creditsDisplay.textContent = `Credits: ${credits}`;
+              } else {
+                creditsDisplay.textContent = 'Credits: --';
+              }
             } catch (error) {
               console.warn('Could not load user credits:', error);
               creditsDisplay.textContent = 'Credits: --';
             }
+            
+            // Show welcome message initially
+            showWelcomeMessage();
             
             // Focus on message input
             messageInput.focus();
@@ -1318,7 +1549,7 @@
           function showAuthSection() {
             authSection.style.display = 'block';
             otpSection.style.display = 'none';
-            chatInterface.style.display = 'block';
+            chatInterface.style.display = 'none';
             
             // Reset forms
             authForm.reset();
@@ -1342,8 +1573,10 @@
             AuthService.logout();
             showAuthSection();
             chatBody.innerHTML = '';
-            showWelcomeMessage();
+            welcomeMessage.style.display = 'none';
+            historyHeader.style.display = 'none';
             showStatus('disconnected');
+            hasAddedWelcomeMessage = false;
           }
           
           // Function: Show connection status
@@ -1355,8 +1588,8 @@
             
             // Update text if provided
             if (message) {
-              if (status === 'connected' || status === 'success') connectedStatus.textContent = message;
-              if (status === 'disconnected' || status === 'error') disconnectedStatus.textContent = message;
+              if (status === 'connected') connectedStatus.textContent = message;
+              if (status === 'disconnected') disconnectedStatus.textContent = message;
               if (status === 'reconnecting') reconnectingStatus.textContent = message;
             } else {
               // Reset to default text
@@ -1366,18 +1599,31 @@
             }
             
             // Show appropriate status
-            if (status === 'connected' || status === 'success') {
+            if (status === 'connected') {
               connectedStatus.classList.add('visible');
               
               // Hide after 3 seconds
               setTimeout(() => {
                 connectedStatus.classList.remove('visible');
               }, 3000);
-            } else if (status === 'disconnected' || status === 'error') {
+            } else if (status === 'disconnected') {
               disconnectedStatus.classList.add('visible');
             } else if (status === 'reconnecting') {
               reconnectingStatus.classList.add('visible');
             }
+          }
+          
+          // Function: Show auth error
+          function showAuthError(message) {
+            authSection.innerHTML = `
+              <div style="text-align: center; padding: 40px; color: white;">
+                <h3>Initialization Error</h3>
+                <p>${message}</p>
+                <button onclick="window.location.reload()" class="auth-button" style="margin-top: 20px;">
+                  <span>Refresh Page</span>
+                </button>
+              </div>
+            `;
           }
           
           // Helper functions
@@ -1393,7 +1639,9 @@
           
           function setButtonLoading(button, text, loading = true) {
             const span = button.querySelector('span');
-            span.textContent = text;
+            if (span) {
+              span.textContent = text;
+            }
             button.disabled = loading;
             if (loading) {
               button.classList.add('loading');
@@ -1423,7 +1671,13 @@
           // Auto-refresh token check
           setInterval(() => {
             if (AuthService.isAuthenticated()) {
-              AuthService.refreshTokenIfNeeded();
+              try {
+                if (typeof AuthService.refreshTokenIfNeeded === 'function') {
+                  AuthService.refreshTokenIfNeeded();
+                }
+              } catch (error) {
+                console.warn('Token refresh error:', error);
+              }
             }
           }, 300000); // 5 minutes
           
@@ -1441,21 +1695,9 @@
           
         } catch (error) {
           console.error('Chat initialization error:', error);
-          // Show user-friendly error
-          const authSection = document.getElementById('authSection');
-          if (authSection) {
-            authSection.innerHTML = `
-              <div style="text-align: center; padding: 40px; color: white;">
-                <h3>Initialization Error</h3>
-                <p>Failed to load the chat application. Please refresh the page.</p>
-                <button onclick="window.location.reload()" class="auth-button" style="margin-top: 20px;">
-                  Refresh Page
-                </button>
-              </div>
-            `;
-          }
+          showAuthError('Failed to load the chat application. Please refresh the page.');
         }
-      }, 200); // Increased delay to ensure all scripts are loaded
+      }, 300); // Wait for scripts to load
     });
   </script>
 </body>
