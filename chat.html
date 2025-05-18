@@ -315,6 +315,10 @@
       gap: 15px;
     }
     
+    .chat-footer.disabled {
+      opacity: 0.8;
+    }
+    
     .chat-input {
       flex: 1;
       background: rgba(255, 255, 255, 0.1);
@@ -338,6 +342,18 @@
     
     .chat-input::placeholder {
       color: rgba(255, 255, 255, 0.6);
+    }
+    
+    .chat-input.disabled-state {
+        opacity: 0.7;
+        cursor: not-allowed;
+        background: rgba(255, 255, 255, 0.05);
+        border-color: rgba(255, 255, 255, 0.1);
+    }
+    
+    .chat-input.disabled-state::placeholder {
+        color: rgba(255, 255, 255, 0.4);
+        font-style: italic;
     }
     
     .chat-send-btn {
@@ -365,6 +381,33 @@
       cursor: not-allowed;
       transform: none;
     }
+
+    /* Enhanced loading state for send button */
+    .chat-send-btn.loading {
+        opacity: 0.8;
+        cursor: not-allowed;
+        transform: none;
+        position: relative;
+    }
+
+    .chat-send-btn.loading::before {
+        content: '';
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        width: 16px;
+        height: 16px;
+        border: 2px solid transparent;
+        border-top: 2px solid white;
+        border-radius: 50%;
+        animation: button-spinner 1s linear infinite;
+        transform: translate(-50%, -50%);
+    }
+
+    .chat-send-btn.loading span,
+    .chat-send-btn.loading ion-icon {
+        opacity: 0.3;
+    }
     
     /* Loading indicator */
     .typing-indicator {
@@ -378,8 +421,25 @@
       width: fit-content;
       align-self: flex-start;
       border: 1px solid rgba(255, 255, 255, 0.1);
+      position: relative;
     }
     
+    .typing-indicator {
+        animation: pulse-glow 2s infinite;
+    }
+
+    @keyframes pulse-glow {
+        0% {
+            box-shadow: 0 0 5px rgba(255, 126, 95, 0.3);
+        }
+        50% {
+            box-shadow: 0 0 20px rgba(255, 126, 95, 0.5);
+        }
+        100% {
+            box-shadow: 0 0 5px rgba(255, 126, 95, 0.3);
+        }
+    }
+
     .typing-dot {
       width: 8px;
       height: 8px;
@@ -397,6 +457,20 @@
       animation-delay: 0.4s;
     }
     
+    .typing-indicator::before {
+        content: '🤖';
+        margin-right: 10px;
+        font-size: 1em;
+    }
+    
+    .typing-indicator::after {
+        content: 'typing...';
+        margin-left: 10px;
+        font-size: 0.85rem;
+        color: rgba(255, 255, 255, 0.8);
+        font-style: italic;
+    }
+
     @keyframes typing-animation {
       0%, 100% {
         transform: translateY(0);
@@ -406,6 +480,15 @@
         transform: translateY(-8px);
         opacity: 1;
       }
+    }
+
+    @keyframes button-spinner {
+        0% {
+            transform: translate(-50%, -50%) rotate(0deg);
+        }
+        100% {
+            transform: translate(-50%, -50%) rotate(360deg);
+        }
     }
     
     /* Status indicators */
@@ -422,6 +505,22 @@
       transition: all 0.3s ease;
       z-index: 1000;
       backdrop-filter: blur(10px);
+    }
+
+    .input-status-message {
+        position: absolute;
+        bottom: 100%;
+        left: 50%;
+        transform: translateX(-50%);
+        background: rgba(0, 0, 0, 0.8);
+        color: white;
+        padding: 5px 10px;
+        border-radius: 4px;
+        font-size: 0.8rem;
+        white-space: nowrap;
+        opacity: 0;
+        transition: opacity 0.3s ease;
+        z-index: 1000;
     }
     
     .status-connected {
@@ -783,9 +882,23 @@
       font-size: 0.8rem;
       color: rgba(255, 255, 255, 0.6);
     }
+
+    .chat-footer:has(.chat-input.disabled-state) .input-status-message {
+        opacity: 1;
+    }    
     
     /* Responsive design */
     @media (max-width: 768px) {
+      .typing-indicator::before,
+      .typing-indicator::after {
+        display: none;
+      }
+    
+      .typing-indicator {
+        min-width: 60px;
+        justify-content: center;
+      }
+      
       .demo-hero h1 {
         font-size: 2.5rem;
       }
@@ -987,6 +1100,10 @@
   
   <!-- Main chat application script -->
   <script>
+
+    // Add a global state variable to track if bot is responding
+    let isBotResponding = false;
+
     document.addEventListener('DOMContentLoaded', function() {
       // Initialize environment features (only if config is available)
       function initEnvironmentFeatures() {
@@ -1281,47 +1398,55 @@
           // Function: Handle chat messages from WebSocket
           function handleChatMessage(data) {
             switch (data.type) {
-              case 'connection_established':
-                console.log('WebSocket connection established:', data.connection_id);
-                break;
-                
-              case 'message':
-                // Remove typing indicator when bot responds
-                const typingIndicator = chatBody.querySelector('.typing-indicator');
-                if (typingIndicator) {
-                  typingIndicator.remove();
-                }
-                
-                // For WebSocket, we only need to handle the bot response
-                // since we already showed the user message immediately when sent
-                if (data.bot_message) {
-                  addMessageToChat(
-                    data.bot_message.text, 
-                    'bot', 
-                    data.bot_message.timestamp,
-                    data.bot_message.components
-                  );
-                }
-                break;
-                
-              case 'history':
-                processMessageHistory(data.messages);
-                break;
-                
-              case 'history_loaded':
-                processMessageHistory(data.messages);
-                break;
-                
-              case 'error':
-                console.error('WebSocket error:', data.message);
-                showStatus('disconnected', data.message);
-                
-                // Remove typing indicator on error
-                const errorTypingIndicator = chatBody.querySelector('.typing-indicator');
-                if (errorTypingIndicator) {
-                  errorTypingIndicator.remove();
-                }
-                break;
+                case 'connection_established':
+                    console.log('WebSocket connection established:', data.connection_id);
+                    break;
+                    
+                case 'message':
+                    // Remove typing indicator when bot responds
+                    const typingIndicator = chatBody.querySelector('.typing-indicator');
+                    if (typingIndicator) {
+                        typingIndicator.remove();
+                    }
+                    
+                    // For WebSocket, we only need to handle the bot response
+                    // since we already showed the user message immediately when sent
+                    if (data.bot_message) {
+                        addMessageToChat(
+                            data.bot_message.text, 
+                            'bot', 
+                            data.bot_message.timestamp,
+                            data.bot_message.components
+                        );
+                    }
+                    
+                    // Re-enable input after bot responds
+                    enableMessageInput();
+                    isBotResponding = false;
+                    break;
+                    
+                case 'history':
+                    processMessageHistory(data.messages);
+                    break;
+                    
+                case 'history_loaded':
+                    processMessageHistory(data.messages);
+                    break;
+                    
+                case 'error':
+                    console.error('WebSocket error:', data.message);
+                    showStatus('disconnected', data.message);
+                    
+                    // Remove typing indicator on error
+                    const errorTypingIndicator = chatBody.querySelector('.typing-indicator');
+                    if (errorTypingIndicator) {
+                        errorTypingIndicator.remove();
+                    }
+                    
+                    // Re-enable input on error
+                    enableMessageInput();
+                    isBotResponding = false;
+                    break;
             }
           }
           
@@ -1337,43 +1462,45 @@
           // Function: Send a message
           async function sendMessage() {
             const messageText = messageInput.value.trim();
-            if (!messageText) return;
+            if (!messageText || isBotResponding) return;
             
-            // Clear input
+            // Set bot responding state
+            isBotResponding = true;
+            
+            // Clear input and disable input/button
             messageInput.value = '';
             messageInput.style.height = 'auto';
-            
-            // Disable send button temporarily
-            sendMessageBtn.disabled = true;
+            disableMessageInput();
             
             // Immediately add user message to chat for better UX
             const userMessageElement = addMessageToChat(messageText, 'user');
             
             try {
-              if (chatService && chatService.isConnected) {
-                // Send through WebSocket
-                await chatService.sendMessage(messageText);
-                
-                // Show typing indicator for WebSocket
-                showTypingIndicatorForWebSocket();
-              } else {
-                // Fallback to HTTP API
-                await sendMessageHTTP(messageText, userMessageElement);
-              }
+                if (chatService && chatService.isConnected) {
+                    // Send through WebSocket
+                    await chatService.sendMessage(messageText);
+                    
+                    // Show typing indicator for WebSocket
+                    showTypingIndicatorForWebSocket();
+                } else {
+                    // Fallback to HTTP API
+                    await sendMessageHTTP(messageText, userMessageElement);
+                }
             } catch (error) {
-              console.error('Error sending message:', error);
-              
-              // Remove the user message we just added since sending failed
-              if (userMessageElement) {
-                userMessageElement.remove();
-              }
-              
-              addMessageToChat('Failed to send message. Please try again.', 'bot');
-              showStatus('disconnected');
-              messageInput.value = messageText; // Restore message
-            } finally {
-              sendMessageBtn.disabled = false;
-              messageInput.focus();
+                console.error('Error sending message:', error);
+                
+                // Remove the user message we just added since sending failed
+                if (userMessageElement) {
+                    userMessageElement.remove();
+                }
+                
+                addMessageToChat('Failed to send message. Please try again.', 'bot');
+                showStatus('disconnected');
+                messageInput.value = messageText; // Restore message
+                
+                // Re-enable input since sending failed
+                enableMessageInput();
+                isBotResponding = false;
             }
           }
           
@@ -1381,38 +1508,42 @@
           async function sendMessageHTTP(messageText, userMessageElement = null) {
             // If no user message element was passed, add it now
             if (!userMessageElement) {
-              userMessageElement = addMessageToChat(messageText, 'user');
+                userMessageElement = addMessageToChat(messageText, 'user');
             }
             
             // Show typing indicator
             const typingIndicator = showTypingIndicator();
             
             try {
-              const response = await AuthService.sendChatMessage(messageText);
-              
-              // Remove typing indicator
-              typingIndicator.remove();
-              
-              // Add bot response
-              if (response.data && response.data.bot_message) {
-                addMessageToChat(
-                  response.data.bot_message.text,
-                  'bot',
-                  response.data.bot_message.timestamp,
-                  response.data.bot_message.components
-                );
-              }
-              
+                const response = await AuthService.sendChatMessage(messageText);
+                
+                // Remove typing indicator
+                typingIndicator.remove();
+                
+                // Add bot response
+                if (response.data && response.data.bot_message) {
+                    addMessageToChat(
+                        response.data.bot_message.text,
+                        'bot',
+                        response.data.bot_message.timestamp,
+                        response.data.bot_message.components
+                    );
+                }
+                
             } catch (error) {
-              console.error('Error sending message:', error);
-              typingIndicator.remove();
-              
-              // Remove the user message since sending failed
-              if (userMessageElement) {
-                userMessageElement.remove();
-              }
-              
-              addMessageToChat('Sorry, I encountered an error. Please try again.', 'bot');
+                console.error('Error sending message:', error);
+                typingIndicator.remove();
+                
+                // Remove the user message since sending failed
+                if (userMessageElement) {
+                    userMessageElement.remove();
+                }
+                
+                addMessageToChat('Sorry, I encountered an error. Please try again.', 'bot');
+            } finally {
+                // Re-enable input after bot responds (or error)
+                enableMessageInput();
+                isBotResponding = false;
             }
           }
           
