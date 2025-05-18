@@ -77,7 +77,10 @@ const AuthService = {
             window.AAAI_LOGGER.info(`Requesting OTP for email: ${email}`);
             
             // Auth requests go directly to /auth/ (proxied to API Gateway)
-            const url = `${this.AUTH_BASE_URL}/auth/request-otp`;
+            const url = window.AAAI_CONFIG.ENVIRONMENT === 'development' 
+                ? `${this.AUTH_BASE_URL}/auth/request-otp`
+                : '/auth/request-otp'; // Always use absolute path in production
+            
             window.AAAI_LOGGER.debug(`Request URL: ${url}`);
             
             // Add timeout to fetch request
@@ -119,7 +122,10 @@ const AuthService = {
             window.AAAI_LOGGER.info(`Verifying OTP for email: ${email}`);
             
             // Auth requests go directly to /auth/ (proxied to API Gateway)
-            const url = `${this.AUTH_BASE_URL}/auth/verify-otp`;
+            const url = window.AAAI_CONFIG.ENVIRONMENT === 'development' 
+                ? `${this.AUTH_BASE_URL}/auth/verify-otp`
+                : '/auth/verify-otp'; // Always use absolute path in production
+            
             window.AAAI_LOGGER.debug(`Request URL: ${url}`);
             
             // Add timeout to fetch request
@@ -175,7 +181,10 @@ const AuthService = {
             window.AAAI_LOGGER.info(`Executing function: ${functionName}`);
             
             // API requests go to /api/ path (proxied to Cloud Run)
-            const url = `${this.API_BASE_URL}/api/function/${functionName}`;
+            const url = window.AAAI_CONFIG.ENVIRONMENT === 'development' 
+                ? `${this.API_BASE_URL}/api/function/${functionName}`
+                : `/api/function/${functionName}`; // Always use absolute path in production
+            
             window.AAAI_LOGGER.debug(`Request URL: ${url}`);
             
             // Add timeout to fetch request
@@ -227,7 +236,10 @@ const AuthService = {
         
         try {
             // API requests go to /api/ path (proxied to Cloud Run)
-            const url = `${this.API_BASE_URL}/api/chat`;
+            const url = window.AAAI_CONFIG.ENVIRONMENT === 'development' 
+                ? `${this.API_BASE_URL}/api/chat`
+                : '/api/chat'; // Always use absolute path in production
+            
             window.AAAI_LOGGER.debug(`Chat request URL: ${url}`);
             
             // Add timeout to fetch request
