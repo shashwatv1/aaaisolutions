@@ -434,8 +434,17 @@ const ChatService = {
         }
         
         this._notifyStatusChange('connected');
-        this._startHeartbeat();
-        this._sendQueuedMessages();
+        
+        // Start heartbeat AFTER a short delay
+        setTimeout(() => {
+            this._startHeartbeat();
+        }, 2000); // 2 second delay before starting heartbeat
+        
+        // Process any queued messages, but NOT empty batches
+        if (this.messageQueue.length > 0) {
+            this._sendQueuedMessages();
+        }
+        
         this._savePersistentConnection();
     },
     
@@ -719,13 +728,19 @@ const ChatService = {
      * Handle error messages
      */
     _handleError(data) {
-        // Check if this is a system message that should be ignored
+        // Ignore empty message errors if they come right after connection
+        // or if they're near heartbeat timing
+        const now = Date.now();
+        const timeSinceConnection = now - (this.connectionStartTime || now);
+        const timeSinceLastHeartbeat = now - (this.lastHeartbeatTime || now);
+        
         if (data.message === "Message cannot be empty" && 
-            this.lastMessageSent && 
-            this.lastMessageSent.trim() !== "") {
+            (timeSinceConnection < 5000 || timeSinceLastHeartbeat < 2000)) {
             
-            // This is likely a heartbeat or system message issue - log but don't show to user
-            window.AAAI_LOGGER.debug('Ignoring empty message error - likely system message');
+            window.AAAI_LOGGER.debug('Ignoring empty message error - likely system message', {
+                timeSinceConnection,
+                timeSinceLastHeartbeat
+            });
             return;
         }
         
@@ -816,9 +831,19 @@ const ChatService = {
     _startHeartbeat() {
         this._stopHeartbeat();
         
+        // Initialize heartbeat status
+        this.lastHeartbeatTime = Date.now();
+        this.heartbeatSent = false;
+        
         this.heartbeatTimer = setInterval(() => {
             if (this.isConnected) {
-                this._sendHeartbeat();
+                // Only send heartbeat if we've waited at least the full interval
+                const timeSinceLastHeartbeat = Date.now() - this.lastHeartbeatTime;
+                if (timeSinceLastHeartbeat >= this.options.heartbeatInterval - 1000) {
+                    this._sendHeartbeat();
+                } else {
+                    window.AAAI_LOGGER.debug(`Skipping heartbeat, only ${timeSinceLastHeartbeat}ms since last one`);
+                }
             }
         }, this.options.heartbeatInterval);
         
@@ -868,10 +893,11 @@ const ChatService = {
             this.lastMessageSent = message.trim();
             
             const messageData = {
-                type: 'message',
+                type: 'message',          // Explicitly mark as user message
                 message: this.lastMessageSent,
                 timestamp: new Date().toISOString(),
-                id: this._generateMessageId()
+                id: this._generateMessageId(),
+                is_user_message: true     // Add this flag to distinguish from system messages
             };
             
             if (this.options.enableBatching && this.messageBatch.length < this.options.batchSize) {
@@ -939,7 +965,10 @@ const ChatService = {
      * Process batched messages
      */
     _processBatch() {
-        if (this.messageBatch.length === 0) return;
+        if (!this.messageBatch || this.messageBatch.length === 0) {
+            // Skip empty batches entirely
+            return;
+        }
         
         if (this.batchTimer) {
             clearTimeout(this.batchTimer);
@@ -951,15 +980,20 @@ const ChatService = {
         
         if (this.isConnected) {
             try {
-                // Send as a single batch message
-                this._sendMessage({
-                    type: 'message_batch',
-                    messages: batch,
-                    timestamp: new Date().toISOString()
-                });
-                
-                this.stats.totalMessagesSent += batch.length;
-                window.AAAI_LOGGER.debug(`Sent batch of ${batch.length} messages`);
+                // Only send if we actually have messages
+                if (batch.length > 0) {
+                    // Send as a single batch message with explicit type
+                    this._sendMessage({
+                        type: 'message_batch',
+                        messages: batch,
+                        timestamp: new Date().toISOString(),
+                        batch_count: batch.length,
+                        is_user_batch: true  // Flag to identify user batches
+                    });
+                    
+                    this.stats.totalMessagesSent += batch.length;
+                    window.AAAI_LOGGER.debug(`Sent batch of ${batch.length} messages`);
+                }
             } catch (error) {
                 // Re-queue messages on error
                 batch.forEach(msg => this._queueMessage(msg));
