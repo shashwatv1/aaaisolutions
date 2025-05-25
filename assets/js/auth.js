@@ -640,17 +640,34 @@ const AuthService = {
                 : '/auth/validate-session';
             
             const response = await fetch(url, {
-                method: 'GET',
-                headers: this.getAuthHeader(),
+                method: 'POST',
+                headers: {
+                    ...this.getAuthHeader(),
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({}),
                 credentials: 'include'
             });
             
             if (response.ok) {
                 const data = await response.json();
                 return data.valid === true;
-            } else if (response.status === 401) {
-                // Session invalid, try to refresh
-                return await this._checkAndRefreshToken();
+            } else {
+                // Enhanced error handling
+                let errorMessage = `Session validation failed: ${response.status}`;
+                try {
+                    const errorData = await response.json();
+                    errorMessage += ` - ${errorData.detail || errorData.error || 'Unknown error'}`;
+                } catch (e) {
+                    // Couldn't parse JSON error
+                }
+                
+                window.AAAI_LOGGER.warn(errorMessage);
+                
+                // Still try token refresh on 401
+                if (response.status === 401) {
+                    return await this._checkAndRefreshToken();
+                }
             }
             
             return false;
