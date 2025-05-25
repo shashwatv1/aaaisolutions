@@ -453,11 +453,19 @@ const ChatService = {
      */
     _onMessage(event) {
         try {
+            // Debug logging
             console.log('WebSocket raw message:', event.data);
             
             const data = JSON.parse(event.data);
             this.stats.totalMessagesReceived++;
             this.lastActivityTime = Date.now();
+            
+            // IMPORTANT: Check for and ignore the empty message errors
+            if (data.type === "error" && data.message === "Message cannot be empty") {
+                // Completely ignore these errors - they're caused by system messages
+                console.log('Ignoring "Message cannot be empty" error - this is a known issue');
+                return;
+            }
             
             window.AAAI_LOGGER.debug('Received WebSocket message:', data.type || 'unknown type');
             
@@ -501,14 +509,16 @@ const ChatService = {
                     break;
             }
             
-            // Add to message history
-            this.messageHistory.push({
-                ...data,
-                received_at: Date.now()
-            });
-            
-            if (this.messageHistory.length > 100) {
-                this.messageHistory = this.messageHistory.slice(-50);
+            // Add to message history (only add non-error messages)
+            if (data.type !== "error") {
+                this.messageHistory.push({
+                    ...data,
+                    received_at: Date.now()
+                });
+                
+                if (this.messageHistory.length > 100) {
+                    this.messageHistory = this.messageHistory.slice(-50);
+                }
             }
             
         } catch (error) {
