@@ -93,3 +93,29 @@ paths:
       responses:
         '204':
           description: CORS preflight response
+
+  /auth/validate-session:
+    post:
+      summary: Validate user session
+      operationId: validateSession
+      x-google-backend:
+        address: https://us-central1-aai-solutions-api-021201.cloudfunctions.net/validateSession
+      security:
+        - api_key: []
+      responses:
+        '200':
+          description: Session validation successful
+        '400':
+          description: Bad request
+        '401':
+          description: Unauthorized
+        '500':
+          description: Server error
+    options:
+      summary: CORS support
+      operationId: corsValidateSession
+      x-google-backend:
+        address: https://us-central1-aai-solutions-api-021201.cloudfunctions.net/validateSession
+      responses:
+        '204':
+          description: CORS preflight response
