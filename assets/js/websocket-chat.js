@@ -444,6 +444,8 @@ const ChatService = {
      */
     _onMessage(event) {
         try {
+            console.log('WebSocket raw message:', event.data);
+            
             const data = JSON.parse(event.data);
             this.stats.totalMessagesReceived++;
             this.lastActivityTime = Date.now();
@@ -717,6 +719,17 @@ const ChatService = {
      * Handle error messages
      */
     _handleError(data) {
+        // Check if this is a system message that should be ignored
+        if (data.message === "Message cannot be empty" && 
+            this.lastMessageSent && 
+            this.lastMessageSent.trim() !== "") {
+            
+            // This is likely a heartbeat or system message issue - log but don't show to user
+            window.AAAI_LOGGER.debug('Ignoring empty message error - likely system message');
+            return;
+        }
+        
+        // For real errors, log and notify listeners
         window.AAAI_LOGGER.error('WebSocket error message:', data.message);
         this._notifyErrorListeners(data);
     },
@@ -827,10 +840,12 @@ const ChatService = {
      */
     _sendHeartbeat() {
         try {
+            // Use a specific type that won't be confused with user messages
             this._sendMessage({
                 type: 'heartbeat',
                 timestamp: new Date().toISOString(),
-                client_timestamp: new Date().toISOString()
+                client_timestamp: new Date().toISOString(),
+                is_heartbeat: true  // Add explicit flag
             }, false);
             
             window.AAAI_LOGGER.debug('Sent heartbeat');
@@ -849,9 +864,12 @@ const ChatService = {
                 return;
             }
             
+            // Store the last message sent for error validation
+            this.lastMessageSent = message.trim();
+            
             const messageData = {
                 type: 'message',
-                message: message.trim(),
+                message: this.lastMessageSent,
                 timestamp: new Date().toISOString(),
                 id: this._generateMessageId()
             };
@@ -965,6 +983,9 @@ const ChatService = {
         }
         
         try {
+            // Debug logging to see exactly what's being sent
+            console.log('Sending WebSocket message:', JSON.stringify(messageData));
+            
             this.socket.send(JSON.stringify(messageData));
             this.lastActivityTime = Date.now();
         } catch (error) {
