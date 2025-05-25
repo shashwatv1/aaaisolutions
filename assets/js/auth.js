@@ -56,6 +56,11 @@ const AuthService = {
         return this.isAuthenticated();
     },
     
+    // Add this method explicitly to fix the WebSocket error
+    getToken() {
+        return this.token;
+    },
+    
     // Check if user is authenticated
     isAuthenticated() {
         return !!this.token && !!this.userId;
