@@ -28,7 +28,7 @@ window.AAAI_CONFIG = {
     
     WS_BASE_URL: getEnvironment() === 'development'
         ? 'ws://localhost:8080'
-        : `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}`, // Use same domain in production
+        : `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}`,
     
     // Feature Flags
     ENABLE_WEBSOCKETS: true,

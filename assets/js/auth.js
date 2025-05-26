@@ -169,20 +169,33 @@ const AuthService = {
                 throw new Error('No refresh token available');
             }
             
-            const response = await this._makeRequest('/auth/refresh', {
+            // Build URL based on environment (matching original pattern)
+            const url = window.AAAI_CONFIG.ENVIRONMENT === 'development' 
+                ? `${this.config.API_BASE_URL}/auth/refresh`
+                : '/auth/refresh';
+            
+            const response = await fetch(url, {
                 method: 'POST',
-                body: JSON.stringify({ refresh_token: refreshToken })
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ refresh_token: refreshToken }),
+                credentials: 'include'
             });
             
-            if (response.access_token) {
-                this.token = response.access_token;
+            if (response.ok) {
+                const data = await response.json();
+                
+                // Update token
+                this.token = data.access_token;
                 this._saveSession();
                 window.AAAI_LOGGER?.info('Token refreshed successfully');
                 return true;
+            } else {
+                window.AAAI_LOGGER?.warn('Failed to refresh access token');
+                this.logout();
+                return false;
             }
-            
-            throw new Error('Invalid refresh response');
-            
         } catch (error) {
             window.AAAI_LOGGER?.error('Token refresh failed:', error);
             this.logout();
@@ -213,7 +226,10 @@ const AuthService = {
      * Make authenticated API request
      */
     async _makeRequest(endpoint, options = {}) {
-        const url = `${this.config.API_BASE_URL}${endpoint}`;
+        // Build URL based on environment (matching original working pattern)
+        const url = window.AAAI_CONFIG.ENVIRONMENT === 'development' 
+            ? `${this.config.API_BASE_URL}${endpoint}`
+            : endpoint; // Use relative URL in production
         
         const config = {
             ...options,
@@ -376,12 +392,29 @@ const AuthService = {
         if (!this.authenticated) return false;
         
         try {
-            await this._makeRequest('/auth/validate-session', {
+            // Build URL based on environment (matching original pattern)
+            const url = window.AAAI_CONFIG.ENVIRONMENT === 'development' 
+                ? `${this.config.API_BASE_URL}/auth/validate-session`
+                : '/auth/validate-session';
+            
+            const response = await fetch(url, {
                 method: 'POST',
-                body: JSON.stringify({})
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${this.token}`,
+                    'X-Session-ID': this.userInfo?.session_id || ''
+                },
+                body: JSON.stringify({}),
+                credentials: 'include'
             });
             
-            return true;
+            if (response.ok) {
+                return true;
+            } else {
+                window.AAAI_LOGGER?.warn('Session validation failed');
+                this.logout();
+                return false;
+            }
             
         } catch (error) {
             window.AAAI_LOGGER?.warn('Session validation failed:', error.message);
@@ -445,7 +478,19 @@ const AuthService = {
             // Attempt server-side logout
             if (this.authenticated) {
                 try {
-                    await this._makeRequest('/auth/logout', { method: 'POST' });
+                    // Build URL based on environment (matching original pattern)
+                    const url = window.AAAI_CONFIG.ENVIRONMENT === 'development' 
+                        ? `${this.config.API_BASE_URL}/auth/logout`
+                        : '/auth/logout';
+                    
+                    await fetch(url, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${this.token}`
+                        },
+                        credentials: 'include'
+                    });
                 } catch (error) {
                     window.AAAI_LOGGER?.warn('Server logout failed:', error);
                 }
@@ -472,17 +517,14 @@ const AuthService = {
         }
         
         const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const wsHost = window.AAAI_CONFIG.ENVIRONMENT === 'development' 
+            ? 'localhost:8080' 
+            : window.location.host;
         
-        let wsHost;
-        if (window.AAAI_CONFIG.ENVIRONMENT === 'development') {
-            wsHost = 'localhost:8080';
-        } else {
-            // In production, check if WebSocket is proxied through same domain
-            // or use the direct WebSocket server
-            wsHost = window.location.host; // Try same domain first
-        }
-        
-        return `${wsProtocol}//${wsHost}/ws/${this.userInfo.id}?token=${encodeURIComponent(this.token)}`;
+        // Include token as query parameter for initial authentication
+        const url = `${wsProtocol}//${wsHost}/ws/${this.userInfo.id}?token=${encodeURIComponent(this.token)}`;
+        window.AAAI_LOGGER?.debug(`WebSocket URL: ${url.replace(/token=[^&]*/, 'token=***')}`);
+        return url;
     },
     
     /**
