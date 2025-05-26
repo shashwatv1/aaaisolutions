@@ -1,14 +1,22 @@
 /**
- * Enhanced Authentication module for AAAI Solutions
- * Handles OTP request/verification, token management, and persistent sessions with cookies
+ * DEBUG VERSION - Enhanced Authentication module for AAAI Solutions
+ * This version includes extensive logging to identify the URL construction issue
  */
 const AuthService = {
     // Initialize the auth service with configuration
     init() {
+        // DEBUG: Log initial state
+        console.log('=== AuthService.init() DEBUG START ===');
+        console.log('window.location.hostname:', window.location.hostname);
+        console.log('window.AAAI_CONFIG exists:', !!window.AAAI_CONFIG);
+        console.log('window.AAAI_CONFIG:', window.AAAI_CONFIG);
+        
         // Wait for config to be available
         if (!window.AAAI_CONFIG) {
             throw new Error('AAAI_CONFIG not available. Make sure config.js is loaded first.');
         }
+        
+        console.log('Environment from config:', window.AAAI_CONFIG.ENVIRONMENT);
         
         // Set up URLs based on environment
         if (window.AAAI_CONFIG.ENVIRONMENT === 'development') {
@@ -20,6 +28,12 @@ const AuthService = {
             this.API_BASE_URL = '';
             this.WS_BASE_URL = window.location.origin;
         }
+        
+        // DEBUG: Log constructed URLs
+        console.log('AUTH_BASE_URL:', this.AUTH_BASE_URL);
+        console.log('API_BASE_URL:', this.API_BASE_URL);
+        console.log('WS_BASE_URL:', this.WS_BASE_URL);
+        console.log('=== AuthService.init() DEBUG END ===');
         
         // Initialize authentication state from cookies
         this._initializeFromCookies();
@@ -246,14 +260,24 @@ const AuthService = {
         return this.token;
     },
     
-    // Request OTP with enhanced error handling
+    // Request OTP with enhanced error handling and DEBUG
     async requestOTP(email) {
         try {
+            // DEBUG: Log request details
+            console.log('=== requestOTP() DEBUG START ===');
+            console.log('Email:', email);
+            console.log('Environment:', window.AAAI_CONFIG.ENVIRONMENT);
+            console.log('AUTH_BASE_URL:', this.AUTH_BASE_URL);
+            
             window.AAAI_LOGGER.info(`Requesting OTP for email: ${email}`);
             
             const url = window.AAAI_CONFIG.ENVIRONMENT === 'development' 
                 ? `${this.AUTH_BASE_URL}/auth/request-otp`
                 : '/auth/request-otp';
+            
+            // DEBUG: Log final URL
+            console.log('Final constructed URL:', url);
+            console.log('=== requestOTP() DEBUG END ===');
             
             const controller = new AbortController();
             const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
