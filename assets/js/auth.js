@@ -1,15 +1,13 @@
 /**
- * DEBUG VERSION - Enhanced Authentication module for AAAI Solutions
- * This version includes extensive logging to identify the URL construction issue
+ * FIXED - Enhanced Authentication module for AAAI Solutions
+ * Fixes WebSocket authentication and token management issues
  */
 const AuthService = {
     // Initialize the auth service with configuration
     init() {
-        // DEBUG: Log initial state
         console.log('=== AuthService.init() DEBUG START ===');
         console.log('window.location.hostname:', window.location.hostname);
         console.log('window.AAAI_CONFIG exists:', !!window.AAAI_CONFIG);
-        console.log('window.AAAI_CONFIG:', window.AAAI_CONFIG);
         
         // Wait for config to be available
         if (!window.AAAI_CONFIG) {
@@ -24,12 +22,12 @@ const AuthService = {
             this.API_BASE_URL = 'http://localhost:8080';
             this.WS_BASE_URL = 'ws://localhost:8080';
         } else {
-            this.AUTH_BASE_URL = '';
-            this.API_BASE_URL = '';
-            this.WS_BASE_URL = window.location.origin;
+            // Use the API Gateway URLs for production
+            this.AUTH_BASE_URL = 'https://aaai-gateway-754x89jf.uc.gateway.dev';
+            this.API_BASE_URL = 'https://aaai-gateway-754x89jf.uc.gateway.dev';
+            this.WS_BASE_URL = 'wss://api-server-559730737995.us-central1.run.app';
         }
         
-        // DEBUG: Log constructed URLs
         console.log('AUTH_BASE_URL:', this.AUTH_BASE_URL);
         console.log('API_BASE_URL:', this.API_BASE_URL);
         console.log('WS_BASE_URL:', this.WS_BASE_URL);
@@ -117,15 +115,12 @@ const AuthService = {
     
     // Set up automatic token refresh
     _setupTokenRefresh() {
-        // Check token every 5 minutes
+        // Check token every 2 minutes
         this.refreshInterval = setInterval(() => {
             if (this.isAuthenticated()) {
                 this._checkAndRefreshToken();
             }
-        }, 300000); // 5 minutes
-        
-        // Check token on page visibility change
-        this._setupVisibilityHandler();
+        }, 120000); // 2 minutes
     },
     
     // Set up page visibility change handler
@@ -148,14 +143,15 @@ const AuthService = {
                 const payload = JSON.parse(atob(tokenParts[1]));
                 const timeUntilExpiry = payload.exp - (Date.now() / 1000);
                 
-                // Refresh if token expires in less than 10 minutes
-                if (timeUntilExpiry < 600) {
+                // Refresh if token expires in less than 5 minutes
+                if (timeUntilExpiry < 300) {
+                    window.AAAI_LOGGER.info('Token expiring soon, attempting refresh');
                     const refreshToken = this._getCookie('refresh_token');
                     if (refreshToken) {
                         return await this._refreshAccessToken(refreshToken);
                     } else {
                         window.AAAI_LOGGER.warn('Token expiring soon but no refresh token available');
-                        this.logout();
+                        // Don't logout automatically, let user continue until token actually expires
                         return false;
                     }
                 }
@@ -163,7 +159,6 @@ const AuthService = {
             return true;
         } catch (error) {
             window.AAAI_LOGGER.error('Error checking token expiration:', error);
-            this.logout();
             return false;
         }
     },
@@ -171,9 +166,7 @@ const AuthService = {
     // Refresh access token using refresh token
     async _refreshAccessToken(refreshToken) {
         try {
-            const url = window.AAAI_CONFIG.ENVIRONMENT === 'development' 
-                ? `${this.AUTH_BASE_URL}/auth/refresh`
-                : '/auth/refresh';
+            const url = `${this.AUTH_BASE_URL}/auth/refresh`;
             
             const response = await fetch(url, {
                 method: 'POST',
@@ -195,12 +188,10 @@ const AuthService = {
                 return true;
             } else {
                 window.AAAI_LOGGER.warn('Failed to refresh access token');
-                this.logout();
                 return false;
             }
         } catch (error) {
             window.AAAI_LOGGER.error('Error refreshing access token:', error);
-            this.logout();
             return false;
         }
     },
@@ -214,8 +205,8 @@ const AuthService = {
             const payload = JSON.parse(atob(tokenParts[1]));
             const now = Date.now() / 1000;
             
-            // Check if token is expired (with 5 minute grace period)
-            return payload.exp && (payload.exp + 300) > now;
+            // Check if token is expired (with 1 minute grace period)
+            return payload.exp && (payload.exp + 60) > now;
         } catch (error) {
             return false;
         }
@@ -260,10 +251,9 @@ const AuthService = {
         return this.token;
     },
     
-    // Request OTP with enhanced error handling and DEBUG
+    // Request OTP with enhanced error handling
     async requestOTP(email) {
         try {
-            // DEBUG: Log request details
             console.log('=== requestOTP() DEBUG START ===');
             console.log('Email:', email);
             console.log('Environment:', window.AAAI_CONFIG.ENVIRONMENT);
@@ -271,11 +261,8 @@ const AuthService = {
             
             window.AAAI_LOGGER.info(`Requesting OTP for email: ${email}`);
             
-            const url = window.AAAI_CONFIG.ENVIRONMENT === 'development' 
-                ? `${this.AUTH_BASE_URL}/auth/request-otp`
-                : '/auth/request-otp';
+            const url = `${this.AUTH_BASE_URL}/auth/request-otp`;
             
-            // DEBUG: Log final URL
             console.log('Final constructed URL:', url);
             console.log('=== requestOTP() DEBUG END ===');
             
@@ -318,9 +305,7 @@ const AuthService = {
         try {
             window.AAAI_LOGGER.info(`Verifying OTP for email: ${email}`);
             
-            const url = window.AAAI_CONFIG.ENVIRONMENT === 'development' 
-                ? `${this.AUTH_BASE_URL}/auth/verify-otp`
-                : '/auth/verify-otp';
+            const url = `${this.AUTH_BASE_URL}/auth/verify-otp`;
             
             const controller = new AbortController();
             const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
@@ -384,9 +369,7 @@ const AuthService = {
             
             window.AAAI_LOGGER.info(`Executing function: ${functionName}`);
             
-            const url = window.AAAI_CONFIG.ENVIRONMENT === 'development' 
-                ? `${this.API_BASE_URL}/api/function/${functionName}`
-                : `/api/function/${functionName}`;
+            const url = `${this.API_BASE_URL}/api/function/${functionName}`;
             
             const controller = new AbortController();
             const timeoutId = setTimeout(() => controller.abort(), 60000); // 60 second timeout
@@ -439,9 +422,7 @@ const AuthService = {
         try {
             await this._checkAndRefreshToken();
             
-            const url = window.AAAI_CONFIG.ENVIRONMENT === 'development' 
-                ? `${this.API_BASE_URL}/api/chat`
-                : '/api/chat';
+            const url = `${this.API_BASE_URL}/api/chat`;
             
             const controller = new AbortController();
             const timeoutId = setTimeout(() => controller.abort(), 45000); // 45 second timeout
@@ -487,40 +468,38 @@ const AuthService = {
     // Enhanced logout with server-side session cleanup
     async logout() {
         try {
-          // Clear token refresh timer
-          if (this.tokenRefreshTimer) {
-            clearInterval(this.tokenRefreshTimer);
-            this.tokenRefreshTimer = null;
-          }
-    
-          // Attempt server-side logout
-          try {
-            const url = window.AAAI_CONFIG.ENVIRONMENT === 'development' 
-                ? `${this.API_BASE_URL}/auth/logout`
-                : '/auth/logout';
-            
-            await fetch(url, {
-                method: 'POST',
-                headers: {
-                    'Authorization': `Bearer ${this.getToken()}`
-                },
-                credentials: 'include'
-            });
-          } catch (error) {
-            console.warn('Server-side logout failed:', error);
-          }
-    
-          // Clear local auth data
-          this.clearAuthData();
-    
-          console.log('✓ Logout successful');
+            // Clear token refresh timer
+            if (this.refreshInterval) {
+                clearInterval(this.refreshInterval);
+                this.refreshInterval = null;
+            }
+
+            // Attempt server-side logout
+            try {
+                const url = `${this.API_BASE_URL}/auth/logout`;
+                
+                await fetch(url, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${this.getToken()}`
+                    },
+                    credentials: 'include'
+                });
+            } catch (error) {
+                console.warn('Server-side logout failed:', error);
+            }
+
+            // Clear local auth data
+            this.clearAuthData();
+
+            console.log('✓ Logout successful');
         } catch (error) {
-          console.error('Logout error:', error);
-          // Still clear local data even if server logout fails
-          this.clearAuthData();
+            console.error('Logout error:', error);
+            // Still clear local data even if server logout fails
+            this.clearAuthData();
         }
-      },
-    
+    },
+
     clearAuthData() {
         // Clear cookies
         const cookiesToClear = [
@@ -537,29 +516,46 @@ const AuthService = {
         localStorage.removeItem('ws_reconnect_token');
 
         // Clear instance data
-        this.currentUser = null;
-        this.isRefreshing = false;
-        this.refreshPromise = null;
+        this.token = null;
+        this.userEmail = null;
+        this.userId = null;
+        this.sessionId = null;
+        this.authenticated = false;
 
-        if (this.tokenRefreshTimer) {
-            clearInterval(this.tokenRefreshTimer);
-            this.tokenRefreshTimer = null;
+        // Clear localStorage
+        this._removeSecureItem('auth_token');
+        this._removeSecureItem('user_email');
+        this._removeSecureItem('user_id');
+
+        if (this.refreshInterval) {
+            clearInterval(this.refreshInterval);
+            this.refreshInterval = null;
         }
     },
 
-    // Get WebSocket URL with enhanced authentication
-    getWebSocketURL(userId) {
+    // FIXED: Get WebSocket URL with proper user ID handling
+    getWebSocketURL() {
         if (!this.isAuthenticated()) {
             throw new Error('Authentication required for WebSocket');
         }
         
+        // Use userId from authentication state
+        const userId = this.userId;
+        if (!userId) {
+            throw new Error('User ID not available for WebSocket connection');
+        }
+        
         const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const wsHost = window.AAAI_CONFIG.ENVIRONMENT === 'development' 
-            ? 'localhost:8080' 
-            : window.location.host;
+        let wsHost;
+        
+        if (window.AAAI_CONFIG.ENVIRONMENT === 'development') {
+            wsHost = 'localhost:8080';
+        } else {
+            // Use the API server URL for WebSocket connections
+            wsHost = 'api-server-559730737995.us-central1.run.app';
+        }
         
         // Include token as query parameter for initial authentication
-        // WebSocket will also use cookies for persistent authentication
         const url = `${wsProtocol}//${wsHost}/ws/${userId}?token=${this.token}`;
         window.AAAI_LOGGER.debug(`WebSocket URL: ${url.replace(/token=[^&]*/, 'token=***')}`);
         return url;

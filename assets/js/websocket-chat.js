@@ -1,6 +1,6 @@
 /**
- * Simplified WebSocket Chat Service for AAAI Solutions
- * Clean integration with AuthService, simplified reconnection logic
+ * FIXED - Simplified WebSocket Chat Service for AAAI Solutions
+ * Fixed authentication handling and token refresh for WebSocket connections
  */
 const ChatService = {
     // Core state
@@ -90,7 +90,7 @@ const ChatService = {
     },
     
     /**
-     * Connect to WebSocket
+     * Connect to WebSocket with improved token handling
      */
     async connect() {
         if (!this.authService.isAuthenticated()) {
@@ -118,11 +118,15 @@ const ChatService = {
             });
         }
         
-        return new Promise((resolve, reject) => {
+        return new Promise(async (resolve, reject) => {
             this.isConnecting = true;
             this._notifyStatusChange('connecting');
             
             try {
+                // FIXED: Refresh token before WebSocket connection
+                await this.authService.refreshTokenIfNeeded();
+                
+                // FIXED: Get WebSocket URL without passing userId (handled internally)
                 const wsUrl = this.authService.getWebSocketURL();
                 this._log(`Connecting to: ${this._maskUrl(wsUrl)}`);
                 
@@ -185,7 +189,7 @@ const ChatService = {
     },
     
     /**
-     * Handle WebSocket message
+     * Handle WebSocket message with improved error handling
      */
     _onMessage(event) {
         try {
@@ -202,11 +206,57 @@ const ChatService = {
                 return; // Heartbeat acknowledged
             }
             
+            // FIXED: Handle authentication errors
+            if (data.type === 'error' && data.message && data.message.includes('Authentication')) {
+                this._error('Authentication error received:', data.message);
+                this._handleAuthenticationError(data);
+                return;
+            }
+            
             // Notify listeners
             this._notifyMessageListeners(data);
             
         } catch (error) {
             this._error('Error processing message:', error);
+        }
+    },
+    
+    /**
+     * FIXED: Handle authentication errors from WebSocket
+     */
+    async _handleAuthenticationError(errorData) {
+        this._log('Handling authentication error, attempting token refresh');
+        
+        try {
+            // Try to refresh the token
+            const refreshed = await this.authService.refreshTokenIfNeeded();
+            
+            if (refreshed) {
+                this._log('Token refreshed, attempting to reconnect');
+                // Close current connection and reconnect with new token
+                this.disconnect();
+                setTimeout(() => {
+                    this.connect().catch(err => {
+                        this._error('Failed to reconnect after token refresh:', err);
+                        this._notifyErrorListeners({
+                            error: 'Authentication failed - please log in again',
+                            originalError: errorData
+                        });
+                    });
+                }, 1000);
+            } else {
+                this._error('Token refresh failed');
+                this._notifyErrorListeners({
+                    error: 'Authentication failed - please log in again',
+                    originalError: errorData
+                });
+            }
+        } catch (error) {
+            this._error('Error handling authentication error:', error);
+            this._notifyErrorListeners({
+                error: 'Authentication failed - please log in again',
+                originalError: errorData
+            });
         }
     },
     
@@ -252,7 +302,7 @@ const ChatService = {
     },
     
     /**
-     * Schedule reconnection attempt
+     * Schedule reconnection attempt with token refresh
      */
     _scheduleReconnect() {
         if (this.reconnectAttempts >= this.options.maxReconnectAttempts) {
@@ -275,6 +325,8 @@ const ChatService = {
         this.reconnectTimer = setTimeout(async () => {
             if (!this.isConnected && this.authService.isAuthenticated()) {
                 try {
+                    // FIXED: Refresh token before reconnection attempt
+                    await this.authService.refreshTokenIfNeeded();
                     await this.connect();
                 } catch (error) {
                     this._error('Reconnect failed:', error);

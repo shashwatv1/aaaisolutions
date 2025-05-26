@@ -951,6 +951,7 @@
         let chatService = null;
         let currentProject = null;
         let uiRenderer = null;
+        let authCheckInterval = null;
         
         // DOM elements
         const elements = {
@@ -976,21 +977,29 @@
          */
         async function initializeApp() {
             try {
+                console.log('🚀 Initializing chat application...');
+                
                 // Initialize environment
                 initEnvironment();
                 
                 // Initialize authentication
                 if (!AuthService.init()) {
+                    console.log('❌ Authentication failed, redirecting to login');
                     redirectToLogin();
                     return;
                 }
                 
+                console.log('✅ Authentication successful');
+                
                 // Get project ID from URL
                 const projectId = getProjectId();
                 if (!projectId) {
+                    console.log('❌ No project ID found, redirecting to projects');
                     redirectToProjects();
                     return;
                 }
+                
+                console.log('📁 Project ID:', projectId);
                 
                 // Initialize UI
                 await initializeUI();
@@ -1004,10 +1013,15 @@
                 // Setup event listeners
                 setupEventListeners();
                 
+                // Start authentication monitoring
+                startAuthMonitoring();
+                
                 window.AAAI_LOGGER?.info('Chat application initialized successfully');
+                console.log('✅ Chat application initialized successfully');
                 
             } catch (error) {
                 window.AAAI_LOGGER?.error('Failed to initialize chat application:', error);
+                console.error('❌ Failed to initialize chat application:', error);
                 showError('Failed to initialize chat. Please refresh the page.');
             }
         }
@@ -1046,16 +1060,21 @@
                     document.body.classList.add('with-env-indicator');
                 }
             }
+            
+            console.log('🌍 Environment:', environment);
         }
         
         /**
          * Initialize UI components
          */
         async function initializeUI() {
+            console.log('🎨 Initializing UI...');
+            
             // Display user info
             const user = AuthService.getCurrentUser();
             if (user && elements.userEmail) {
                 elements.userEmail.textContent = user.email;
+                console.log('👤 User:', user.email);
             }
             
             // Load user credits
@@ -1063,6 +1082,7 @@
                 const credits = await AuthService.getUserCredits();
                 if (elements.creditsDisplay) {
                     elements.creditsDisplay.textContent = `Credits: ${credits}`;
+                    console.log('💰 Credits:', credits);
                 }
             } catch (error) {
                 window.AAAI_LOGGER?.warn('Failed to load credits:', error);
@@ -1082,15 +1102,20 @@
                         }
                     }
                 });
+                console.log('✅ UI renderer initialized');
             }
+            
+            console.log('✅ UI initialized');
         }
         
         /**
          * Initialize chat service
          */
         async function initializeChatService() {
+            console.log('💬 Initializing chat service...');
+            
             if (!window.AAAI_CONFIG.ENABLE_WEBSOCKETS || typeof ChatService === 'undefined') {
-                window.AAAI_LOGGER?.warn('WebSocket chat disabled or unavailable');
+                console.log('⚠️ WebSocket chat disabled or unavailable');
                 updateConnectionStatus('disconnected');
                 return;
             }
@@ -1100,7 +1125,7 @@
                     reconnectInterval: 5000,
                     maxReconnectAttempts: 5,
                     heartbeatInterval: 30000,
-                    connectionTimeout: 10000,
+                    connectionTimeout: 15000, // Increased timeout
                     debug: window.AAAI_CONFIG.ENABLE_DEBUG || false
                 });
                 
@@ -1109,11 +1134,20 @@
                 chatService.onStatusChange(handleConnectionStatus);
                 chatService.onError(handleChatError);
                 
+                console.log('✅ ChatService initialized');
+                
                 // Attempt to connect
-                await chatService.connect();
+                try {
+                    await chatService.connect();
+                    console.log('✅ WebSocket connected');
+                } catch (error) {
+                    console.log('⚠️ WebSocket connection failed, will use HTTP fallback:', error.message);
+                    updateConnectionStatus('disconnected');
+                }
                 
             } catch (error) {
                 window.AAAI_LOGGER?.error('Failed to initialize ChatService:', error);
+                console.error('❌ Failed to initialize ChatService:', error);
                 updateConnectionStatus('disconnected');
             }
         }
@@ -1122,6 +1156,8 @@
          * Load project data
          */
         async function loadProjectData(projectId) {
+            console.log('📋 Loading project data for:', projectId);
+            
             try {
                 // Mock project data - replace with actual API call
                 const mockProjects = {
@@ -1154,8 +1190,11 @@
                 
                 document.title = `${currentProject.name} - AAAI Solutions`;
                 
+                console.log('✅ Project loaded:', currentProject.name);
+                
             } catch (error) {
                 window.AAAI_LOGGER?.error('Failed to load project:', error);
+                console.error('❌ Failed to load project:', error);
                 if (elements.projectTitle) {
                     elements.projectTitle.textContent = 'Project Error';
                 }
@@ -1169,6 +1208,8 @@
          * Setup event listeners
          */
         function setupEventListeners() {
+            console.log('🎯 Setting up event listeners...');
+            
             // Back button
             if (elements.backBtn) {
                 elements.backBtn.addEventListener('click', () => {
@@ -1196,15 +1237,34 @@
                     this.style.height = Math.min(this.scrollHeight, 120) + 'px';
                 });
             }
+            
+            console.log('✅ Event listeners setup complete');
         }
         
         /**
-         * Handle chat messages
+         * Start authentication monitoring
+         */
+        function startAuthMonitoring() {
+            // Check authentication every 30 seconds
+            authCheckInterval = setInterval(() => {
+                if (!AuthService.isAuthenticated()) {
+                    console.log('⚠️ Authentication lost, redirecting to login');
+                    clearInterval(authCheckInterval);
+                    redirectToLogin();
+                }
+            }, 30000);
+        }
+        
+        /**
+         * Handle chat messages with improved error handling
          */
         function handleChatMessage(data) {
+            console.log('📨 Received message:', data.type);
+            
             switch (data.type) {
                 case 'connection_established':
                     window.AAAI_LOGGER?.info('WebSocket connection established');
+                    console.log('✅ WebSocket connection established');
                     break;
                     
                 case 'message':
@@ -1227,20 +1287,29 @@
                     break;
                     
                 case 'error':
-                    window.AAAI_LOGGER?.error('Chat error:', data.message);
+                    console.error('💬 Chat error:', data.message);
                     
                     const errorTypingIndicator = elements.chatBody.querySelector('.typing-indicator');
                     if (errorTypingIndicator) {
                         errorTypingIndicator.remove();
                     }
                     
-                    addMessageToChat(
-                        data.message || 'An error occurred. Please try again.',
-                        'bot'
-                    );
+                    // Show more user-friendly error messages
+                    let errorMessage = 'An error occurred. Please try again.';
+                    if (data.message && data.message.includes('Authentication')) {
+                        errorMessage = 'Authentication error. Please refresh the page and try again.';
+                    } else if (data.message && data.message.includes('expired')) {
+                        errorMessage = 'Your session has expired. Please refresh the page.';
+                    }
+                    
+                    addMessageToChat(errorMessage, 'bot');
                     
                     elements.sendMessageBtn.disabled = false;
                     elements.messageInput.focus();
+                    break;
+                    
+                default:
+                    console.log('🔍 Unknown message type:', data.type);
                     break;
             }
         }
@@ -1249,24 +1318,41 @@
          * Handle connection status changes
          */
         function handleConnectionStatus(status) {
+            console.log('🔄 Connection status changed:', status);
             updateConnectionStatus(status);
             showStatusIndicator(status);
         }
         
         /**
-         * Handle chat errors
+         * Handle chat errors with better user feedback
          */
         function handleChatError(data) {
-            window.AAAI_LOGGER?.error('Chat service error:', data);
+            console.error('💥 Chat service error:', data);
+            
+            if (data.error && data.error.includes && data.error.includes('Authentication')) {
+                console.log('🔑 Authentication error detected, checking token...');
+                
+                // Try to refresh token
+                AuthService.refreshTokenIfNeeded().then(refreshed => {
+                    if (!refreshed) {
+                        console.log('❌ Token refresh failed, redirecting to login');
+                        showError('Your session has expired. Please log in again.');
+                        setTimeout(() => redirectToLogin(), 2000);
+                    }
+                });
+            }
+            
             showStatusIndicator('disconnected', 'Connection error');
         }
         
         /**
-         * Send message
+         * Send message with improved error handling
          */
         async function sendMessage() {
             const messageText = elements.messageInput.value.trim();
             if (!messageText || elements.sendMessageBtn.disabled) return;
+            
+            console.log('📤 Sending message:', messageText.substring(0, 50) + (messageText.length > 50 ? '...' : ''));
             
             // Clear input and disable button
             elements.messageInput.value = '';
@@ -1276,25 +1362,34 @@
             // Hide welcome message
             hideWelcomeMessage();
             
+            // Add user message to chat
+            const userMessage = addMessageToChat(messageText, 'user');
+            
             try {
                 if (chatService && chatService.isConnected) {
                     // Send via WebSocket
+                    console.log('🌐 Sending via WebSocket');
                     await chatService.sendMessage(messageText);
                     showTypingIndicator();
                 } else {
                     // Fallback to HTTP
-                    const userMessage = addMessageToChat(messageText, 'user');
+                    console.log('🔄 Sending via HTTP (WebSocket not available)');
                     await sendMessageHTTP(messageText, userMessage);
                 }
             } catch (error) {
-                window.AAAI_LOGGER?.error('Failed to send message:', error);
+                console.error('❌ Failed to send message:', error);
+                
+                // Remove user message if send failed
+                if (userMessage) {
+                    userMessage.remove();
+                }
                 
                 // Re-enable input
                 elements.messageInput.value = messageText;
                 elements.sendMessageBtn.disabled = false;
                 elements.messageInput.focus();
                 
-                showError('Failed to send message. Please try again.');
+                showError('Failed to send message: ' + error.message);
             }
         }
         
@@ -1305,6 +1400,7 @@
             const typingIndicator = showTypingIndicator();
             
             try {
+                console.log('📡 Sending HTTP request...');
                 const response = await AuthService.sendChatMessage(messageText);
                 
                 typingIndicator.remove();
@@ -1321,14 +1417,25 @@
                 elements.sendMessageBtn.disabled = false;
                 elements.messageInput.focus();
                 
+                console.log('✅ HTTP message sent successfully');
+                
             } catch (error) {
+                console.error('❌ HTTP message failed:', error);
+                
                 typingIndicator.remove();
                 
                 if (userMessageElement) {
                     userMessageElement.remove();
                 }
                 
-                addMessageToChat('Sorry, I encountered an error. Please try again.', 'bot');
+                let errorMessage = 'Sorry, I encountered an error. Please try again.';
+                if (error.message.includes('expired')) {
+                    errorMessage = 'Your session has expired. Please refresh the page.';
+                } else if (error.message.includes('Authentication')) {
+                    errorMessage = 'Authentication error. Please refresh the page.';
+                }
+                
+                addMessageToChat(errorMessage, 'bot');
                 
                 elements.sendMessageBtn.disabled = false;
                 elements.messageInput.focus();
@@ -1483,19 +1590,52 @@
         }
         
         function showError(message) {
-            // Simple error display - could be enhanced with toast notifications
-            alert(`Error: ${message}`);
+            console.error('🚨 Error:', message);
+            // Enhanced error display - could be replaced with toast notifications
+            const errorDiv = document.createElement('div');
+            errorDiv.style.cssText = `
+                position: fixed;
+                top: 100px;
+                left: 50%;
+                transform: translateX(-50%);
+                background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%);
+                color: white;
+                padding: 15px 25px;
+                border-radius: 10px;
+                z-index: 10000;
+                font-weight: 500;
+                box-shadow: 0 5px 15px rgba(231, 76, 60, 0.3);
+                max-width: 400px;
+                text-align: center;
+            `;
+            errorDiv.textContent = message;
+            document.body.appendChild(errorDiv);
+            
+            setTimeout(() => {
+                errorDiv.remove();
+            }, 5000);
         }
         
         /**
          * Global function for suggestion buttons
          */
         window.sendSuggestion = function(suggestion) {
+            console.log('💡 Sending suggestion:', suggestion);
             if (elements.messageInput) {
                 elements.messageInput.value = suggestion;
                 sendMessage();
             }
         };
+        
+        // Cleanup on page unload
+        window.addEventListener('beforeunload', () => {
+            if (authCheckInterval) {
+                clearInterval(authCheckInterval);
+            }
+            if (chatService) {
+                chatService.disconnect();
+            }
+        });
         
         // Initialize the application
         initializeApp();
