@@ -1,6 +1,6 @@
 /**
- * FIXED WebSocket Chat Service - Resolves binding and authentication issues
- * This addresses the method binding errors and connection issues
+ * Complete WebSocket Chat Service for AAAI Solutions
+ * Fixed version with proper refresh token support - no HTTP fallback
  */
 const ChatService = {
     // Core state
@@ -16,6 +16,7 @@ const ChatService = {
     heartbeatTimer: null,
     authTimeout: null,
     connectionPromise: null,
+    authRetryAttempted: false,
     
     // Message handling
     messageQueue: [],
@@ -30,15 +31,15 @@ const ChatService = {
         reconnectInterval: 5000,
         maxReconnectAttempts: 5,
         heartbeatInterval: 30000,
-        connectionTimeout: 15000,
-        authTimeout: 10000,
+        connectionTimeout: 20000,
+        authTimeout: 15000,
         messageQueueLimit: 20,
-        socketReadyTimeout: 3000,
+        socketReadyTimeout: 5000,
         debug: false
     },
     
     /**
-     * Initialize chat service - FIXED binding issues
+     * Initialize chat service
      */
     init(authService, options = {}) {
         if (!authService) {
@@ -48,10 +49,10 @@ const ChatService = {
         this.authService = authService;
         this.options = { ...this.options, ...options };
         
-        // Setup event handlers without binding issues
+        // Setup event handlers
         this._setupEventHandlers();
         
-        this._log('ChatService initialized successfully');
+        this._log('Complete ChatService initialized');
         return this;
     },
     
@@ -90,7 +91,7 @@ const ChatService = {
     },
     
     /**
-     * FIXED: Enhanced connect method with better token handling
+     * Connect with mandatory token refresh
      */
     async connect() {
         if (!this.authService.isAuthenticated()) {
@@ -108,33 +109,27 @@ const ChatService = {
             return this.connectionPromise;
         }
         
-        // FIXED: Pre-validate token before attempting connection
-        const currentToken = this.authService.getToken();
-        if (!currentToken || !this._isTokenValid(currentToken)) {
-            this._log('🔄 Token invalid/expired, refreshing before connection...');
+        // MANDATORY: Always refresh token before WebSocket connection
+        this._log('🔄 Refreshing token before WebSocket connection (mandatory)...');
+        try {
+            let refreshed = await this.authService.refreshTokenIfNeeded();
             
-            try {
-                const refreshed = await this.authService.refreshTokenIfNeeded();
-                if (!refreshed) {
-                    // Try alternative refresh if available
-                    if (typeof this.authService.forceTokenRefresh === 'function') {
-                        await this.authService.forceTokenRefresh();
-                    } else {
-                        throw new Error('Unable to refresh expired token');
-                    }
-                }
-                
-                const newToken = this.authService.getToken();
-                if (!newToken || !this._isTokenValid(newToken)) {
-                    throw new Error('Token refresh failed to provide valid token');
-                }
-                
-                this._log('✅ Token refreshed successfully before connection');
-                
-            } catch (error) {
-                this._error('Pre-connection token refresh failed:', error);
-                throw new Error('Authentication token expired and could not be refreshed');
+            if (!refreshed) {
+                // Force refresh if standard refresh didn't work
+                this._log('🔄 Standard refresh didn\'t work, forcing refresh...');
+                refreshed = await this.authService.forceTokenRefresh();
             }
+            
+            const token = this.authService.getToken();
+            if (!token || !this._isTokenValid(token)) {
+                throw new Error('Unable to obtain valid token after refresh attempts');
+            }
+            
+            this._log('✅ Token successfully refreshed/validated before WebSocket connection');
+            
+        } catch (error) {
+            this._error('❌ Mandatory token refresh failed:', error);
+            throw new Error('Authentication token refresh failed - cannot connect to WebSocket');
         }
         
         // Create new connection promise
@@ -151,7 +146,7 @@ const ChatService = {
     },
     
     /**
-     * FIXED: Perform the actual connection with enhanced error handling
+     * Perform the actual WebSocket connection
      */
     async _performConnection() {
         return new Promise(async (resolve, reject) => {
@@ -162,63 +157,61 @@ const ChatService = {
             // Set overall timeout
             const overallTimeout = setTimeout(() => {
                 if (this.isConnecting && !this.isAuthenticated) {
-                    this._error('Overall connection timeout');
+                    this._error('❌ Overall connection timeout');
                     this._cleanupConnection();
-                    reject(new Error('Connection timeout'));
+                    reject(new Error('WebSocket connection timeout'));
                 }
             }, this.options.connectionTimeout + this.options.authTimeout);
             
             try {
-                // FIXED: Ensure fresh token before connection
-                await this.authService.refreshTokenIfNeeded();
-                
-                // Create WebSocket with proper URL
+                // Create WebSocket
                 const wsUrl = this._getWebSocketURL();
-                this._log(`Connecting to: ${this._maskUrl(wsUrl)}`);
+                this._log(`🔌 Connecting to: ${this._maskUrl(wsUrl)}`);
                 
                 this.socket = new WebSocket(wsUrl);
                 
-                // FIXED: Use arrow functions to maintain 'this' context
+                // WebSocket event handlers
                 this.socket.addEventListener('open', async (event) => {
                     clearTimeout(overallTimeout);
                     
                     try {
-                        this._log('✅ WebSocket opened, checking for immediate errors...');
+                        this._log('✅ WebSocket opened, starting authentication process...');
                         this.isConnected = true;
                         
-                        // FIXED: Wait longer for socket stability and check for errors
+                        // Wait for socket stability
                         await this._waitForSocketStabilization();
                         
                         if (this.socket.readyState !== WebSocket.OPEN) {
                             throw new Error('Socket closed during stabilization');
                         }
                         
-                        // Send authentication
+                        // Perform authentication
                         await this._performAuthentication();
                         
-                        this._log('✅ Authentication completed successfully');
-                        this._handleAuthenticationSuccess({});
-                        resolve(true);
+                        this._log('✅ WebSocket authentication process completed');
+                        
+                        // Wait for authentication response
+                        // The actual success will be handled in _onMessage
                         
                     } catch (error) {
-                        this._error('❌ Connection/Authentication failed:', error);
-                        this._handleAuthenticationError({ message: error.message });
+                        this._error('❌ WebSocket connection/authentication failed:', error);
                         reject(error);
                     }
                 });
                 
                 this.socket.addEventListener('message', (event) => {
-                    this._onMessage(event);
+                    this._onMessage(event, resolve, reject);
                 });
                 
                 this.socket.addEventListener('close', (event) => {
+                    clearTimeout(overallTimeout);
                     this._onClose(event);
                 });
                 
                 this.socket.addEventListener('error', (event) => {
+                    clearTimeout(overallTimeout);
                     this._onError(event);
                     if (this.isConnecting) {
-                        clearTimeout(overallTimeout);
                         this.isConnecting = false;
                         reject(new Error('WebSocket connection failed'));
                     }
@@ -227,14 +220,14 @@ const ChatService = {
             } catch (error) {
                 clearTimeout(overallTimeout);
                 this.isConnecting = false;
-                this._error('Connection setup error:', error);
+                this._error('❌ Connection setup error:', error);
                 reject(error);
             }
         });
     },
     
     /**
-     * FIXED: Enhanced socket stabilization with error detection
+     * Wait for socket stabilization with error detection
      */
     async _waitForSocketStabilization() {
         return new Promise((resolve, reject) => {
@@ -248,7 +241,7 @@ const ChatService = {
                     const data = JSON.parse(event.data);
                     if (data.type === 'error') {
                         errorReceived = true;
-                        this._error('Immediate server error received:', data);
+                        this._error('❌ Immediate server error received:', data);
                         reject(new Error(`Server error: ${data.message || 'Unknown error'}`));
                         return;
                     }
@@ -273,32 +266,29 @@ const ChatService = {
                     return;
                 }
                 
-                // Check if socket is truly ready
                 const isReady = this._testSocketSend();
                 
-                this._log(`🔍 Socket stabilization check: readyState=${this.socket.readyState}, canSend=${isReady}, elapsed=${elapsed}ms`);
+                this._log(`🔍 Socket stabilization: readyState=${this.socket.readyState}, canSend=${isReady}, elapsed=${elapsed}ms`);
                 
-                if (isReady && elapsed >= 200) { // Wait at least 200ms for stability
+                if (isReady && elapsed >= 300) { // Wait at least 300ms for stability
                     this.socket.removeEventListener('message', errorListener);
-                    this._log('✅ WebSocket is stable and ready');
+                    this._log('✅ WebSocket is stable and ready for authentication');
                     resolve();
                 } else if (elapsed > maxWaitTime) {
                     this.socket.removeEventListener('message', errorListener);
-                    this._error('⏰ Socket stabilization timeout exceeded');
+                    this._error('⏰ Socket stabilization timeout');
                     reject(new Error('Socket stabilization timeout'));
                 } else {
-                    // Continue checking
-                    setTimeout(checkReady, 50);
+                    setTimeout(checkReady, 100);
                 }
             };
             
-            // Start checking after a small delay
-            setTimeout(checkReady, 100);
+            setTimeout(checkReady, 200); // Initial delay
         });
     },
     
     /**
-     * Test if socket can actually send data
+     * Test if socket can send data
      */
     _testSocketSend() {
         if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
@@ -313,83 +303,48 @@ const ChatService = {
     },
     
     /**
-     * FIXED: Enhanced authentication with proper token refresh handling
+     * Perform WebSocket authentication
      */
     async _performAuthentication() {
-        // FIXED: Force token refresh when server indicates token issues
-        this._log('🔐 Preparing authentication - checking token validity...');
+        // Get fresh token (should already be refreshed in connect())
+        const token = this.authService.getToken();
+        const user = this.authService.getCurrentUser();
         
-        try {
-            // Always refresh token before WebSocket auth to ensure it's valid
-            const refreshed = await this.authService.refreshTokenIfNeeded();
-            if (refreshed) {
-                this._log('✅ Token refreshed before authentication');
-            }
-            
-            const token = this.authService.getToken();
-            const user = this.authService.getCurrentUser();
-            
-            if (!token || !user.id) {
-                throw new Error('Missing authentication credentials after refresh');
-            }
-            
-            // Validate token is not expired
-            if (!this._isTokenValid(token)) {
-                this._error('Token appears expired, attempting forced refresh...');
-                // Force a new login if token is definitively expired
-                throw new Error('Token expired - authentication required');
-            }
-            
-            const authMessage = {
-                type: 'authenticate',
-                token: token,
-                userId: user.id,
-                email: user.email,
-                timestamp: new Date().toISOString()
-            };
-            
-            this._log('🔐 Sending authentication message with fresh token...');
-            
-            // Send authentication with retry
-            await this._sendMessageWithRetry(authMessage, 2);
-            
-            // Set authentication timeout
-            this.authTimeout = setTimeout(() => {
-                if (!this.isAuthenticated) {
-                    this._error('❌ Authentication timeout - no response from server');
-                    if (this.socket) {
-                        this.socket.close(4001, 'Authentication timeout');
-                    }
+        if (!token || !user.id) {
+            throw new Error('Missing authentication credentials');
+        }
+        
+        // Validate token one more time
+        if (!this._isTokenValid(token)) {
+            throw new Error('Token appears expired during authentication');
+        }
+        
+        const authMessage = {
+            type: 'authenticate',
+            token: token,
+            userId: user.id,
+            email: user.email,
+            timestamp: new Date().toISOString()
+        };
+        
+        this._log('🔐 Sending authentication message...');
+        
+        // Send authentication
+        await this._sendMessageWithRetry(authMessage, 3);
+        
+        // Set authentication timeout
+        this.authTimeout = setTimeout(() => {
+            if (!this.isAuthenticated) {
+                this._error('❌ Authentication timeout - no response from server');
+                if (this.socket) {
+                    this.socket.close(4001, 'Authentication timeout');
                 }
-            }, this.options.authTimeout);
-            
-        } catch (error) {
-            this._error('Authentication preparation failed:', error);
-            throw error;
-        }
+            }
+        }, this.options.authTimeout);
     },
     
     /**
-     * FIXED: Add token validation helper
-     */
-    _isTokenValid(token) {
-        try {
-            const tokenParts = token.split('.');
-            if (tokenParts.length !== 3) return false;
-            
-            const payload = JSON.parse(atob(tokenParts[1]));
-            const now = Math.floor(Date.now() / 1000);
-            
-            // Check if token expires within next 5 minutes (300 seconds)
-            return payload.exp && payload.exp > (now + 300);
-        } catch (error) {
-            this._error('Token validation error:', error);
-            return false;
-        }
-    },
-    
-    /**
-     * Get WebSocket URL - FIXED to handle environment properly
+     * Get WebSocket URL
      */
     _getWebSocketURL() {
         const user = this.authService.getCurrentUser();
@@ -406,42 +361,53 @@ const ChatService = {
             wsHost = 'api-server-559730737995.us-central1.run.app';
         }
         
-        // Use user ID from auth service
         return `${wsProtocol}//${wsHost}/ws/${user.id}`;
     },
     
     /**
-     * FIXED: Enhanced message handling with authentication awareness
+     * Handle WebSocket messages
      */
-    _onMessage(event) {
+    _onMessage(event, connectResolve = null, connectReject = null) {
         try {
             const data = JSON.parse(event.data);
             this._log('📨 Received message:', data.type);
             
-            // Handle authentication response
+            // Handle authentication success
             if (data.type === 'auth_success' || data.type === 'authenticated') {
                 this._handleAuthenticationSuccess(data);
+                if (connectResolve) {
+                    connectResolve(true);
+                }
                 return;
             }
             
+            // Handle authentication failure
             if (data.type === 'auth_error' || data.type === 'authentication_failed') {
                 this._handleAuthenticationError(data);
+                if (connectReject) {
+                    connectReject(new Error(data.message || 'Authentication failed'));
+                }
                 return;
             }
             
-            // Handle immediate errors (like the one you're seeing)
+            // Handle server errors
             if (data.type === 'error') {
-                this._error('Server error received:', data);
+                this._error('❌ Server error received:', data);
                 
-                // If this is during connection, it might be an auth issue
+                // If during connection, treat as auth error
                 if (this.isConnecting && !this.isAuthenticated) {
                     this._handleAuthenticationError({
                         message: data.message || 'Server error during authentication',
-                        code: data.code
+                        code: data.code,
+                        requires_refresh: data.requires_refresh
                     });
+                    if (connectReject) {
+                        connectReject(new Error(`Server error: ${data.message}`));
+                    }
                     return;
                 }
                 
+                // Regular error handling
                 this._notifyErrorListeners({
                     error: data.message || 'Server error',
                     code: data.code
@@ -469,7 +435,7 @@ const ChatService = {
             }
             
         } catch (error) {
-            this._error('Error processing message:', error);
+            this._error('❌ Error processing message:', error);
         }
     },
     
@@ -477,7 +443,7 @@ const ChatService = {
      * Handle successful authentication
      */
     _handleAuthenticationSuccess(data) {
-        this._log('✅ Authentication successful');
+        this._log('✅ WebSocket authentication successful');
         
         // Clear auth timeout
         if (this.authTimeout) {
@@ -488,6 +454,7 @@ const ChatService = {
         this.isAuthenticated = true;
         this.isConnecting = false;
         this.reconnectAttempts = 0;
+        this.authRetryAttempted = false;
         
         // Clear reconnect timer
         if (this.reconnectTimer) {
@@ -506,10 +473,10 @@ const ChatService = {
     },
     
     /**
-     * FIXED: Enhanced authentication failure handling with token refresh
+     * Handle authentication failure
      */
     _handleAuthenticationError(data) {
-        this._error('❌ Authentication failed:', data.message || data.error);
+        this._error('❌ WebSocket authentication failed:', data.message || data.error);
         
         // Clear auth timeout
         if (this.authTimeout) {
@@ -523,17 +490,16 @@ const ChatService = {
         this._notifyStatusChange('disconnected');
         this._notifyAuthError(data);
         
-        // Close the socket if it's still open
+        // Close socket if still open
         if (this.socket && this.socket.readyState === WebSocket.OPEN) {
             this.socket.close(4001, 'Authentication failed');
         }
         
-        // FIXED: Handle token refresh requirement from server
+        // Handle token refresh requirement
         if (data.requires_refresh || data.code === 'AUTH_FAILED') {
-            this._log('🔄 Server requires token refresh, attempting immediate refresh...');
+            this._log('🔄 Server requires token refresh, attempting...');
             this._handleTokenRefreshAndReconnect(data);
         } else {
-            // Try to refresh token and reconnect after a delay for other auth errors
             setTimeout(() => {
                 this._handleTokenRefreshAndReconnect(data);
             }, 2000);
@@ -541,138 +507,102 @@ const ChatService = {
     },
     
     /**
-     * FIXED: Enhanced token refresh handling for systems without refresh tokens
+     * Handle token refresh and reconnection
      */
     async _handleTokenRefreshAndReconnect(errorData) {
         this._log('🔄 Attempting token refresh and reconnection');
         
         try {
-            // FIXED: Check if refresh tokens are available
-            const hasRefreshCapability = this.authService.hasPersistentSession && this.authService.hasPersistentSession();
+            this._log('🔄 Forcing token refresh due to WebSocket authentication failure...');
             
-            if (!hasRefreshCapability) {
-                this._log('⚠️ No refresh token available - checking token validity...');
-                
-                // Check if current token is actually valid
-                const currentToken = this.authService.getToken();
-                if (currentToken && this._isTokenValid(currentToken)) {
-                    this._log('🔍 Current token appears valid but server rejected it');
-                    
-                    // Maybe it's a server-side issue, try once more with current token
-                    if (!this.authRetryAttempted) {
-                        this.authRetryAttempted = true;
-                        this._log('🔄 Attempting one more connection with current token...');
-                        
-                        setTimeout(() => {
-                            this.connect().catch(err => {
-                                this._error('Retry connection failed:', err);
-                                this._handleAuthenticationFailure(errorData);
-                            });
-                        }, 2000);
-                        return;
-                    }
-                }
-                
-                // No refresh capability and retry failed
-                this._handleAuthenticationFailure(errorData);
-                return;
-            }
-            
-            // Has refresh capability - proceed with refresh
-            this._log('🔄 Forcing token refresh due to authentication failure...');
-            
-            const refreshed = await this.authService.refreshTokenIfNeeded();
+            // Try standard refresh first
+            let refreshed = await this.authService.refreshTokenIfNeeded();
             
             if (!refreshed) {
-                // Try alternative refresh method if available
+                // Try force refresh
                 if (typeof this.authService.forceTokenRefresh === 'function') {
                     this._log('🔄 Attempting forced token refresh...');
-                    await this.authService.forceTokenRefresh();
+                    refreshed = await this.authService.forceTokenRefresh();
                 } else {
-                    throw new Error('Token refresh failed');
+                    throw new Error('Token refresh methods not available');
                 }
             }
             
-            // Verify we now have a valid token
+            if (!refreshed) {
+                throw new Error('All token refresh attempts failed');
+            }
+            
+            // Verify new token
             const newToken = this.authService.getToken();
             if (!newToken || !this._isTokenValid(newToken)) {
                 throw new Error('Token refresh resulted in invalid token');
             }
             
-            this._log('✅ Token refresh successful, reconnecting in 1 second...');
+            this._log('✅ Token refresh successful, reconnecting...');
             
-            // Reset retry flag
+            // Reset flags
             this.authRetryAttempted = false;
             
-            // Close current connection and reconnect
+            // Reconnect
             this.disconnect();
             setTimeout(() => {
                 this.connect().catch(err => {
-                    this._error('Failed to reconnect after token refresh:', err);
+                    this._error('❌ Failed to reconnect after token refresh:', err);
                     this._handleAuthenticationFailure(errorData);
                 });
             }, 1000);
             
         } catch (error) {
-            this._error('Error during token refresh:', error);
+            this._error('❌ Token refresh failed:', error);
             this._handleAuthenticationFailure(errorData);
         }
     },
     
     /**
-     * FIXED: Handle authentication failure with appropriate user guidance
+     * Handle final authentication failure
      */
     _handleAuthenticationFailure(errorData) {
-        this._log('🚫 Handling authentication failure...');
+        this._log('🚫 Authentication failure - user needs to re-authenticate');
         
-        // Check if user should try HTTP fallback instead
-        const currentToken = this.authService.getToken();
-        if (currentToken && this._isTokenValid(currentToken)) {
-            // Token is valid but WebSocket auth failed - suggest HTTP fallback
-            this._notifyErrorListeners({
-                error: 'WebSocket authentication failed - using HTTP fallback',
-                useHttpFallback: true,
-                originalError: errorData
-            });
-        } else {
-            // Token is actually invalid - user needs to re-authenticate
-            this._notifyErrorListeners({
-                error: 'Session expired - please log in again',
-                requiresLogin: true,
-                originalError: errorData
-            });
-        }
+        // Clean up everything
+        this._cleanup();
+        
+        // Notify that user needs to log in again
+        this._notifyErrorListeners({
+            error: 'Session expired - please refresh the page and log in again',
+            requiresLogin: true,
+            requiresPageRefresh: true,
+            originalError: errorData
+        });
     },
     
     /**
-     * FIXED: Send message with enhanced retry logic
+     * Send message with retry logic
      */
-    async _sendMessageWithRetry(messageData, maxRetries = 1) {
+    async _sendMessageWithRetry(messageData, maxRetries = 2) {
         let lastError;
         
         for (let attempt = 1; attempt <= maxRetries; attempt++) {
             try {
                 this._log(`📤 Sending message (attempt ${attempt}/${maxRetries}):`, messageData.type);
                 
-                // Verify socket is ready before each attempt
                 if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
                     throw new Error('WebSocket not open');
                 }
                 
-                // Send the message
                 const messageStr = JSON.stringify(messageData);
                 this.socket.send(messageStr);
                 
                 this._log('✅ Message sent successfully:', messageData.type);
-                return; // Success!
+                return;
                 
             } catch (error) {
                 lastError = error;
                 this._error(`❌ Send attempt ${attempt} failed:`, error);
                 
                 if (attempt < maxRetries) {
-                    this._log(`⏳ Retrying in 200ms...`);
-                    await new Promise(resolve => setTimeout(resolve, 200));
+                    this._log(`⏳ Retrying in 300ms...`);
+                    await new Promise(resolve => setTimeout(resolve, 300));
                 } else {
                     this._error(`❌ All ${maxRetries} send attempts failed`);
                     throw lastError;
@@ -682,7 +612,7 @@ const ChatService = {
     },
     
     /**
-     * Handle WebSocket close with enhanced logging
+     * Handle WebSocket close
      */
     _onClose(event) {
         this._log('🔌 WebSocket closed', { 
@@ -734,21 +664,20 @@ const ChatService = {
     },
     
     /**
-     * Determine if we should attempt reconnection
+     * Determine if should reconnect
      */
     _shouldReconnect(code) {
-        // Don't reconnect on normal closure, authentication failures, or forbidden
         const noReconnectCodes = [1000, 1001, 1005, 4001, 4003, 4403];
         return !noReconnectCodes.includes(code) && 
                this.reconnectAttempts < this.options.maxReconnectAttempts;
     },
     
     /**
-     * Schedule reconnection attempt with exponential backoff
+     * Schedule reconnection
      */
     _scheduleReconnect() {
         if (this.reconnectAttempts >= this.options.maxReconnectAttempts) {
-            this._error('Max reconnect attempts reached');
+            this._error('❌ Max reconnect attempts reached');
             this._notifyStatusChange('failed');
             return;
         }
@@ -760,7 +689,7 @@ const ChatService = {
             30000
         );
         
-        this._log(`⏰ Scheduling reconnect attempt ${this.reconnectAttempts}/${this.options.maxReconnectAttempts} in ${delay}ms`);
+        this._log(`⏰ Scheduling reconnect ${this.reconnectAttempts}/${this.options.maxReconnectAttempts} in ${delay}ms`);
         this._notifyStatusChange('reconnecting');
         
         this.reconnectTimer = setTimeout(async () => {
@@ -768,7 +697,7 @@ const ChatService = {
                 try {
                     await this.connect();
                 } catch (error) {
-                    this._error('Reconnect failed:', error);
+                    this._error('❌ Reconnect failed:', error);
                     this._scheduleReconnect();
                 }
             }
@@ -776,7 +705,7 @@ const ChatService = {
     },
     
     /**
-     * Start heartbeat mechanism
+     * Start heartbeat
      */
     _startHeartbeat() {
         this._stopHeartbeat();
@@ -793,7 +722,7 @@ const ChatService = {
     },
     
     /**
-     * Stop heartbeat mechanism
+     * Stop heartbeat
      */
     _stopHeartbeat() {
         if (this.heartbeatTimer) {
@@ -803,7 +732,7 @@ const ChatService = {
     },
     
     /**
-     * Send heartbeat message
+     * Send heartbeat
      */
     _sendHeartbeat() {
         try {
@@ -822,7 +751,7 @@ const ChatService = {
     },
     
     /**
-     * Send message through WebSocket (only if authenticated)
+     * Send message through WebSocket
      */
     async sendMessage(message) {
         if (!message || typeof message !== 'string' || !message.trim()) {
@@ -845,11 +774,11 @@ const ChatService = {
                 throw error;
             }
         } else if (this.isConnected && !this.isAuthenticated) {
-            // Connected but not authenticated yet - queue message
+            // Queue message during authentication
             this._queueMessage(messageData);
             return messageData.id;
         } else {
-            // Not connected - queue message and try to connect
+            // Queue and try to connect
             this._queueMessage(messageData);
             
             if (!this.isConnecting) {
@@ -866,7 +795,7 @@ const ChatService = {
     },
     
     /**
-     * Queue message for later sending
+     * Queue message
      */
     _queueMessage(messageData) {
         if (this.messageQueue.length >= this.options.messageQueueLimit) {
@@ -882,7 +811,7 @@ const ChatService = {
     },
     
     /**
-     * Process all queued messages
+     * Process queued messages
      */
     async _processQueuedMessages() {
         if (this.messageQueue.length === 0) return;
@@ -905,17 +834,17 @@ const ChatService = {
     },
     
     /**
-     * Generate unique message ID
+     * Generate message ID
      */
     _generateMessageId() {
         return `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     },
     
     /**
-     * Disconnect from WebSocket
+     * Disconnect
      */
     disconnect() {
-        this._log('🔌 Disconnecting');
+        this._log('🔌 Disconnecting WebSocket');
         
         this._cleanup();
         
@@ -1066,6 +995,25 @@ const ChatService = {
     },
     
     /**
+     * Validate token
+     */
+    _isTokenValid(token) {
+        try {
+            const parts = token.split('.');
+            if (parts.length !== 3) return false;
+            
+            const payload = JSON.parse(atob(parts[1]));
+            const now = Math.floor(Date.now() / 1000);
+            
+            // Token valid if expires more than 5 minutes from now
+            return payload.exp && payload.exp > (now + 300);
+        } catch (error) {
+            this._error('Token validation error:', error);
+            return false;
+        }
+    },
+    
+    /**
      * Utility methods
      */
     _maskUrl(url) {
@@ -1092,10 +1040,13 @@ if (typeof window !== 'undefined') {
     window.ChatService = ChatService;
 }
 
-// FIXED: Enhanced debug function that works with the new structure
+// Enhanced debugging utilities
 if (typeof window !== 'undefined') {
+    /**
+     * Test WebSocket connection with complete flow
+     */
     window.testWebSocketConnection = async function() {
-        console.log('🧪 === Testing WebSocket Connection (FIXED) ===');
+        console.log('🧪 === Complete WebSocket Connection Test ===');
         
         if (!window.ChatService || !window.AuthService) {
             console.error('❌ ChatService or AuthService not available');
@@ -1110,36 +1061,46 @@ if (typeof window !== 'undefined') {
         try {
             console.log('🔧 Initializing test ChatService...');
             
-            // Create a new instance for testing
+            // Create test instance
             const testChatService = Object.create(ChatService);
             testChatService.init(AuthService, { 
                 debug: true, 
                 socketReadyTimeout: 5000,
-                authTimeout: 8000,
-                connectionTimeout: 12000
+                authTimeout: 10000,
+                connectionTimeout: 15000
             });
             
-            console.log('🚀 Attempting connection...');
+            console.log('🚀 Attempting complete connection flow...');
             await testChatService.connect();
             
             console.log('✅ Connection test successful!');
+            console.log('📊 Final status:', testChatService.getStatus());
             
-            // Clean up after test
+            // Test sending a message
+            console.log('📤 Testing message send...');
+            await testChatService.sendMessage('Test message from connection test');
+            console.log('✅ Message send test completed');
+            
+            // Clean up
             setTimeout(() => {
                 testChatService.disconnect();
                 console.log('🧹 Test cleanup completed');
-            }, 2000);
+            }, 3000);
             
         } catch (error) {
             console.error('❌ Connection test failed:', error);
+            console.log('🔍 Debug info:');
+            if (typeof debugChatService === 'function') {
+                debugChatService();
+            }
         }
     };
-}
-
-// FIXED: Enhanced debug utilities with token analysis
-if (typeof window !== 'undefined') {
+    
+    /**
+     * Debug ChatService status
+     */
     window.debugChatService = function() {
-        console.log('🔍 === ChatService Debug Information ===');
+        console.log('🔍 === Complete ChatService Debug Information ===');
         
         if (!window.ChatService) {
             console.error('❌ ChatService not available');
@@ -1147,13 +1108,13 @@ if (typeof window !== 'undefined') {
         }
         
         const status = ChatService.getStatus();
-        console.log('📊 Status:', status);
+        console.log('📊 Connection Status:', status);
         
         if (typeof AuthService !== 'undefined') {
             const authStatus = AuthService.getSessionInfo();
             console.log('🔑 Auth Status:', authStatus);
             
-            // FIXED: Add token analysis
+            // Token analysis
             const token = AuthService.getToken();
             if (token) {
                 try {
@@ -1177,14 +1138,22 @@ if (typeof window !== 'undefined') {
             }
         }
         
-        console.log('⚙️ Options:', ChatService.options);
-        console.log('📮 Message Queue Length:', ChatService.messageQueue.length);
+        console.log('⚙️ Configuration:', ChatService.options);
+        console.log('📮 Message Queue:', ChatService.messageQueue.length);
         console.log('🔄 Reconnect Attempts:', ChatService.reconnectAttempts);
+        console.log('🏴 Flags:', {
+            authRetryAttempted: ChatService.authRetryAttempted,
+            isConnecting: ChatService.isConnecting,
+            isConnected: ChatService.isConnected,
+            isAuthenticated: ChatService.isAuthenticated
+        });
         
         if (ChatService.socket) {
-            console.log('🔌 WebSocket ReadyState:', ChatService.socket.readyState);
-            const states = ['CONNECTING', 'OPEN', 'CLOSING', 'CLOSED'];
-            console.log('🔌 WebSocket State:', states[ChatService.socket.readyState] || 'UNKNOWN');
+            console.log('🔌 WebSocket Info:', {
+                readyState: ChatService.socket.readyState,
+                state: ['CONNECTING', 'OPEN', 'CLOSING', 'CLOSED'][ChatService.socket.readyState] || 'UNKNOWN',
+                url: ChatService.socket.url ? ChatService.socket.url.replace(/\/ws\/[^?]*/, '/ws/***') : 'N/A'
+            });
         } else {
             console.log('🔌 WebSocket: null');
         }
@@ -1192,9 +1161,11 @@ if (typeof window !== 'undefined') {
         console.log('🔍 === End Debug Information ===');
     };
     
-    // Enhanced connection test with token validation
+    /**
+     * Quick connection test
+     */
     window.quickConnectionTest = async function() {
-        console.log('⚡ === Quick Connection Test with Token Validation ===');
+        console.log('⚡ === Quick Connection Test ===');
         
         if (!AuthService.isAuthenticated()) {
             console.error('❌ Not authenticated');
@@ -1215,10 +1186,10 @@ if (typeof window !== 'undefined') {
                     needsRefresh: payload.exp <= (now + 300)
                 });
                 
-                if (payload.exp <= now) {
-                    console.warn('⚠️ Token is expired!');
-                    console.log('🔄 Attempting token refresh...');
+                if (payload.exp <= (now + 300)) {
+                    console.log('🔄 Token needs refresh, attempting...');
                     await AuthService.refreshTokenIfNeeded();
+                    console.log('✅ Token refreshed');
                 }
                 
             } catch (e) {
@@ -1238,12 +1209,12 @@ if (typeof window !== 'undefined') {
                 const timeout = setTimeout(() => {
                     testWs.close();
                     reject(new Error('Connection timeout'));
-                }, 10000); // Longer timeout for debugging
+                }, 15000);
                 
                 testWs.onopen = () => {
                     console.log('✅ WebSocket opened successfully');
                     
-                    // Try to authenticate
+                    // Send authentication
                     const authMsg = {
                         type: 'authenticate',
                         token: AuthService.getToken(),
@@ -1276,7 +1247,7 @@ if (typeof window !== 'undefined') {
                             console.log('✅ Authentication successful!');
                             clearTimeout(timeout);
                             testWs.close();
-                            resolve('Connection and authentication successful');
+                            resolve('Complete connection and authentication successful');
                         }
                     } catch (e) {
                         console.log('📨 Received non-JSON message:', event.data);
@@ -1300,4 +1271,49 @@ if (typeof window !== 'undefined') {
             throw error;
         }
     };
+    
+    /**
+     * Force token refresh test
+     */
+    window.testTokenRefresh = async function() {
+        console.log('🔄 === Token Refresh Test ===');
+        
+        if (!AuthService.isAuthenticated()) {
+            console.error('❌ Not authenticated');
+            return;
+        }
+        
+        try {
+            console.log('🔄 Testing refreshTokenIfNeeded...');
+            const result1 = await AuthService.refreshTokenIfNeeded();
+            console.log('Result:', result1);
+            
+            if (typeof AuthService.forceTokenRefresh === 'function') {
+                console.log('🔄 Testing forceTokenRefresh...');
+                const result2 = await AuthService.forceTokenRefresh();
+                console.log('Result:', result2);
+            } else {
+                console.log('⚠️ forceTokenRefresh method not available');
+            }
+            
+            console.log('✅ Token refresh test completed');
+            
+        } catch (error) {
+            console.error('❌ Token refresh test failed:', error);
+        }
+    };
+    
+    // Auto-run debug on load
+    setTimeout(() => {
+        if (typeof window.debugChatService === 'function') {
+            console.log('🔍 Auto-running ChatService debug...');
+            window.debugChatService();
+        }
+    }, 2000);
+    
+    console.log('🔧 Complete WebSocket Chat Service loaded with debug utilities:');
+    console.log('  debugChatService() - Show detailed status');
+    console.log('  quickConnectionTest() - Test basic connection');
+    console.log('  testWebSocketConnection() - Full connection test');
+    console.log('  testTokenRefresh() - Test token refresh methods');
 }
