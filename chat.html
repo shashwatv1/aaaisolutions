@@ -1117,17 +1117,18 @@
           if (!window.AAAI_CONFIG.ENABLE_WEBSOCKETS || typeof ChatService === 'undefined') {
               console.log('⚠️ WebSocket chat disabled or unavailable');
               updateConnectionStatus('disconnected');
+              showStatusIndicator('disconnected', '📡 Using HTTP mode');
               return;
           }
           
           try {
               chatService = ChatService.init(AuthService, {
                   reconnectInterval: 5000,
-                  maxReconnectAttempts: 5,
+                  maxReconnectAttempts: 3, // Reduced attempts
                   heartbeatInterval: 30000,
-                  connectionTimeout: 20000,        // Increased from 15000
-                  authTimeout: 15000,              // Increased from 10000  
-                  socketReadyTimeout: 5000,        // NEW: Socket ready timeout
+                  connectionTimeout: 15000,
+                  authTimeout: 10000,
+                  socketReadyTimeout: 3000,
                   messageQueueLimit: 20,
                   debug: window.AAAI_CONFIG.ENABLE_DEBUG || false
               });
@@ -1137,33 +1138,41 @@
               chatService.onStatusChange(handleConnectionStatus);
               chatService.onError(handleChatError);
               
-              // NEW: Add authentication-specific listeners
+              // Enhanced authentication-specific listeners
               chatService.onAuthSuccess((data) => {
                   console.log('🔐 WebSocket authentication successful');
-                  showStatusIndicator('connected', '✓ Connected & Authenticated');
+                  showStatusIndicator('connected', '✅ Connected');
               });
               
               chatService.onAuthError((data) => {
                   console.error('🔐 WebSocket authentication failed:', data);
-                  showError('Authentication failed. Please refresh the page.');
+                  // Don't show error here - let the error handler decide
               });
               
               console.log('✅ ChatService initialized');
               
-              // Attempt to connect with better error handling
+              // Attempt to connect with enhanced error handling
               try {
                   console.log('🚀 Attempting WebSocket connection...');
                   await chatService.connect();
                   console.log('✅ WebSocket connected and authenticated');
               } catch (error) {
-                  console.log('⚠️ WebSocket connection failed, will use HTTP fallback:', error.message);
+                  console.log('⚠️ WebSocket connection failed:', error.message);
                   updateConnectionStatus('disconnected');
                   
-                  // Show user-friendly message for specific errors
-                  if (error.message.includes('Authentication')) {
-                      showError('Authentication failed. Please refresh the page to reconnect.');
+                  // Check if it's an authentication issue with valid token
+                  const token = AuthService.getToken();
+                  const isTokenValid = token && !isTokenExpired(token);
+                  
+                  if (isTokenValid && error.message.includes('Authentication')) {
+                      console.log('📡 Token valid but WebSocket auth failed - using HTTP mode');
+                      showStatusIndicator('disconnected', '📡 Using HTTP mode');
+                  } else if (error.message.includes('Authentication') || error.message.includes('expired')) {
+                      showError('Session expired. Please refresh the page to reconnect.');
                   } else if (error.message.includes('timeout')) {
-                      showError('Connection timeout. Please check your internet connection.');
+                      showStatusIndicator('disconnected', '⏰ Connection timeout - using HTTP mode');
+                  } else {
+                      showStatusIndicator('disconnected', '📡 Using HTTP mode');
                   }
               }
               
@@ -1171,10 +1180,21 @@
               window.AAAI_LOGGER?.error('Failed to initialize ChatService:', error);
               console.error('❌ Failed to initialize ChatService:', error);
               updateConnectionStatus('disconnected');
-              showError('Failed to initialize chat service. Please refresh the page.');
+              showStatusIndicator('disconnected', '📡 Using HTTP mode');
+          }
+        }        
+        function isTokenExpired(token) {
+          try {
+              const parts = token.split('.');
+              if (parts.length !== 3) return true;
+              
+              const payload = JSON.parse(atob(parts[1]));
+              const now = Math.floor(Date.now() / 1000);
+              return payload.exp <= now;
+          } catch (error) {
+              return true;
           }
         }
-                
         /**
           * Load project data
           */
@@ -1375,12 +1395,19 @@
         
         /**
           * Handle chat errors with enhanced feedback
-          */
-        function handleChatError(data) {
+        */
+          function handleChatError(data) {
             console.error('💥 Chat service error:', data);
             
             if (data.error && typeof data.error === 'string') {
-                if (data.error.includes('Authentication') || data.error.includes('expired')) {
+                if (data.useHttpFallback) {
+                    // WebSocket failed but token is valid - use HTTP fallback
+                    console.log('📡 Switching to HTTP fallback mode');
+                    showStatusIndicator('disconnected', '📡 HTTP mode active');
+                    return; // Don't show error to user
+                }
+                
+                if (data.requiresLogin || data.error.includes('Session expired')) {
                     console.log('🔑 Authentication error detected');
                     showError('Your session has expired. Please refresh the page to reconnect.');
                     
@@ -1392,15 +1419,22 @@
                     }, 3000);
                     return;
                 }
+                
+                if (data.error.includes('WebSocket authentication failed')) {
+                    // WebSocket auth failed but continue with HTTP
+                    showStatusIndicator('disconnected', '📡 HTTP mode');
+                    return;
+                }
             }
             
-            showStatusIndicator('disconnected', 'Connection error');
-        }
+            // Default error handling
+            showStatusIndicator('disconnected', '⚠️ Connection error');
+          }        
         
         /**
           * Send message with authentication check
           */
-        async function sendMessage() {
+          async function sendMessage() {
             const messageText = elements.messageInput.value.trim();
             if (!messageText || elements.sendMessageBtn.disabled) return;
             
@@ -1418,33 +1452,22 @@
             const userMessage = addMessageToChat(messageText, 'user');
             
             try {
-                // Check if WebSocket is authenticated
-                if (chatService && chatService.getStatus().authenticated) {
-                    // Send via WebSocket
-                    console.log('🌐 Sending via authenticated WebSocket');
-                    await chatService.sendMessage(messageText);
-                    showTypingIndicator();
-                } else if (chatService && chatService.getStatus().connected) {
-                    // Connected but not authenticated - wait a moment and retry
-                    console.log('⏳ Waiting for authentication...');
-                    showTypingIndicator();
-                    
-                    setTimeout(async () => {
-                        try {
-                            if (chatService.getStatus().authenticated) {
-                                await chatService.sendMessage(messageText);
-                            } else {
-                                throw new Error('Authentication timeout');
-                            }
-                        } catch (error) {
-                            console.log('🔄 Falling back to HTTP');
-                            await sendMessageHTTP(messageText, userMessage);
-                        }
-                    }, 2000);
-                } else {
-                    // Fallback to HTTP
-                    console.log('🔄 Sending via HTTP (WebSocket not available)');
+                // Always try HTTP first if WebSocket isn't authenticated
+                const useHttp = !chatService || !chatService.getStatus().authenticated;
+                
+                if (useHttp) {
+                    console.log('📡 Sending via HTTP (WebSocket not authenticated)');
                     await sendMessageHTTP(messageText, userMessage);
+                } else {
+                    // Try WebSocket first
+                    console.log('🌐 Sending via WebSocket');
+                    try {
+                        await chatService.sendMessage(messageText);
+                        showTypingIndicator();
+                    } catch (wsError) {
+                        console.log('🔄 WebSocket send failed, falling back to HTTP:', wsError.message);
+                        await sendMessageHTTP(messageText, userMessage);
+                    }
                 }
             } catch (error) {
                 console.error('❌ Failed to send message:', error);
@@ -1461,7 +1484,7 @@
                 
                 showError('Failed to send message: ' + error.message);
             }
-        }
+          }
         
         /**
           * Send message via HTTP (fallback)
@@ -1581,17 +1604,16 @@
         /**
           * Update connection status display with authentication info
           */
-        function updateConnectionStatus(status) {
+          function updateConnectionStatus(status) {
             if (!elements.connectionDot || !elements.connectionText) return;
             
             elements.connectionDot.className = 'connection-dot';
             
             switch (status) {
                 case 'connected':
-                    // Check authentication status
                     if (chatService && chatService.getStatus().authenticated) {
                         elements.connectionDot.classList.add('connected');
-                        elements.connectionText.textContent = 'Connected';
+                        elements.connectionText.textContent = 'WebSocket';
                     } else {
                         elements.connectionDot.classList.add('connecting');
                         elements.connectionText.textContent = 'Authenticating...';
@@ -1606,49 +1628,54 @@
                     elements.connectionText.textContent = 'Offline';
                     break;
                 default:
-                    elements.connectionText.textContent = 'Disconnected';
+                    // Default to HTTP mode instead of showing as disconnected
+                    elements.connectionText.textContent = 'HTTP Mode';
+                    elements.connectionDot.classList.add('connecting'); // Show as active but different
                     break;
             }
-        }
+          }
         
         /**
           * Show status indicator with custom messages
           */
+        
         function showStatusIndicator(status, message = null) {
-            // Hide all indicators
-            [elements.connectedStatus, elements.disconnectedStatus, elements.reconnectingStatus].forEach(el => {
-                if (el) el.classList.remove('visible');
-            });
-            
-            let indicator = null;
-            
-            switch (status) {
-                case 'connected':
-                    indicator = elements.connectedStatus;
-                    if (message) indicator.textContent = message;
-                    break;
-                case 'disconnected':
-                case 'error':
-                    indicator = elements.disconnectedStatus;
-                    if (message) indicator.textContent = message;
-                    break;
-                case 'connecting':
-                case 'reconnecting':
-                    indicator = elements.reconnectingStatus;
-                    if (message) indicator.textContent = message;
-                    break;
-            }
-            
-            if (indicator) {
-                indicator.classList.add('visible');
-                
-                // Auto-hide connected status
-                if (status === 'connected') {
-                    setTimeout(() => {
-                        indicator.classList.remove('visible');
-                    }, 3000);
-                }
-            }
+          // Hide all indicators
+          [elements.connectedStatus, elements.disconnectedStatus, elements.reconnectingStatus].forEach(el => {
+              if (el) el.classList.remove('visible');
+          });
+          
+          let indicator = null;
+          let defaultMessage = '';
+          
+          switch (status) {
+              case 'connected':
+                  indicator = elements.connectedStatus;
+                  defaultMessage = '✅ Connected';
+                  break;
+              case 'disconnected':
+              case 'error':
+                  indicator = elements.disconnectedStatus;
+                  defaultMessage = '📡 HTTP Mode';
+                  break;
+              case 'connecting':
+              case 'reconnecting':
+                  indicator = elements.reconnectingStatus;
+                  defaultMessage = '🔄 Connecting...';
+                  break;
+          }
+          
+          if (indicator) {
+              indicator.textContent = message || defaultMessage;
+              indicator.classList.add('visible');
+              
+              // Auto-hide connected status after 3 seconds
+              if (status === 'connected') {
+                  setTimeout(() => {
+                      indicator.classList.remove('visible');
+                  }, 3000);
+              }
+          }
         }
         
         /**

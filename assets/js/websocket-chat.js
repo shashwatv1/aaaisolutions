@@ -541,29 +541,46 @@ const ChatService = {
     },
     
     /**
-     * FIXED: Enhanced token refresh and reconnection with better error handling
+     * FIXED: Enhanced token refresh handling for systems without refresh tokens
      */
     async _handleTokenRefreshAndReconnect(errorData) {
         this._log('🔄 Attempting token refresh and reconnection');
         
         try {
-            // FIXED: More aggressive token refresh approach
-            this._log('🔄 Forcing token refresh due to authentication failure...');
-            
-            // Check if we can refresh the token
+            // FIXED: Check if refresh tokens are available
             const hasRefreshCapability = this.authService.hasPersistentSession && this.authService.hasPersistentSession();
             
             if (!hasRefreshCapability) {
-                this._error('❌ No refresh token available - user needs to re-authenticate');
-                this._notifyErrorListeners({
-                    error: 'Session expired - please log in again',
-                    requiresLogin: true,
-                    originalError: errorData
-                });
+                this._log('⚠️ No refresh token available - checking token validity...');
+                
+                // Check if current token is actually valid
+                const currentToken = this.authService.getToken();
+                if (currentToken && this._isTokenValid(currentToken)) {
+                    this._log('🔍 Current token appears valid but server rejected it');
+                    
+                    // Maybe it's a server-side issue, try once more with current token
+                    if (!this.authRetryAttempted) {
+                        this.authRetryAttempted = true;
+                        this._log('🔄 Attempting one more connection with current token...');
+                        
+                        setTimeout(() => {
+                            this.connect().catch(err => {
+                                this._error('Retry connection failed:', err);
+                                this._handleAuthenticationFailure(errorData);
+                            });
+                        }, 2000);
+                        return;
+                    }
+                }
+                
+                // No refresh capability and retry failed
+                this._handleAuthenticationFailure(errorData);
                 return;
             }
             
-            // Attempt to refresh token
+            // Has refresh capability - proceed with refresh
+            this._log('🔄 Forcing token refresh due to authentication failure...');
+            
             const refreshed = await this.authService.refreshTokenIfNeeded();
             
             if (!refreshed) {
@@ -584,37 +601,44 @@ const ChatService = {
             
             this._log('✅ Token refresh successful, reconnecting in 1 second...');
             
+            // Reset retry flag
+            this.authRetryAttempted = false;
+            
             // Close current connection and reconnect
             this.disconnect();
             setTimeout(() => {
                 this.connect().catch(err => {
                     this._error('Failed to reconnect after token refresh:', err);
-                    this._notifyErrorListeners({
-                        error: 'Failed to reconnect after token refresh - please refresh page',
-                        requiresPageRefresh: true,
-                        originalError: errorData
-                    });
+                    this._handleAuthenticationFailure(errorData);
                 });
             }, 1000);
             
         } catch (error) {
             this._error('Error during token refresh:', error);
-            
-            // Determine the appropriate user action
-            let userAction = 'please log in again';
-            let requiresLogin = true;
-            
-            if (error.message.includes('expired') || error.message.includes('invalid token')) {
-                userAction = 'please refresh the page and log in again';
-                requiresLogin = true;
-            } else if (error.message.includes('network') || error.message.includes('connection')) {
-                userAction = 'please check your connection and try again';
-                requiresLogin = false;
-            }
-            
+            this._handleAuthenticationFailure(errorData);
+        }
+    },
+    
+    /**
+     * FIXED: Handle authentication failure with appropriate user guidance
+     */
+    _handleAuthenticationFailure(errorData) {
+        this._log('🚫 Handling authentication failure...');
+        
+        // Check if user should try HTTP fallback instead
+        const currentToken = this.authService.getToken();
+        if (currentToken && this._isTokenValid(currentToken)) {
+            // Token is valid but WebSocket auth failed - suggest HTTP fallback
             this._notifyErrorListeners({
-                error: `Authentication failed - ${userAction}`,
-                requiresLogin: requiresLogin,
+                error: 'WebSocket authentication failed - using HTTP fallback',
+                useHttpFallback: true,
+                originalError: errorData
+            });
+        } else {
+            // Token is actually invalid - user needs to re-authenticate
+            this._notifyErrorListeners({
+                error: 'Session expired - please log in again',
+                requiresLogin: true,
                 originalError: errorData
             });
         }
