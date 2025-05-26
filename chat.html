@@ -856,7 +856,7 @@
       <!-- Chat Header -->
       <div class="chat-header">
         <div class="chat-header-left">
-          <button class="back-btn" id="backBtn" title="Back to Projects">
+          <button class="back-btn" id="backBtn" title="Back to Project">
             <ion-icon name="arrow-back-outline"></ion-icon>
             <span>Projects</span>
           </button>
@@ -1015,7 +1015,7 @@
       // Get project ID
       const projectId = getProjectId();
       if (!projectId) {
-        window.location.href = 'projects.html';
+        window.location.href = 'project.html';
         return;
       }
       
@@ -1091,7 +1091,7 @@
       
       // Event listeners
       backBtn.addEventListener('click', () => {
-        window.location.href = 'projects.html';
+        window.location.href = 'project.html';
       });
       
       sendMessageBtn.addEventListener('click', sendMessage);

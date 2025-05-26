@@ -33,12 +33,12 @@ const NavigationManager = {
                 component: 'LoginPage',
                 preload: []
             },
-            projects: {
-                path: 'projects.html',
-                title: 'My Projects - AAAI Solutions',
+            project: {
+                path: 'project.html',
+                title: 'My Project - AAAI Solutions',
                 requiresAuth: true,
-                component: 'ProjectsPage',
-                preload: ['projects']
+                component: 'ProjectPage',
+                preload: ['project_details']
             },
             chat: {
                 path: 'chat.html',
@@ -214,8 +214,8 @@ const NavigationManager = {
     /**
      * Navigate to projects page
      */
-    async goToProjects(options = {}) {
-        return this.navigateTo('projects', options);
+    async goToProject(options = {}) {
+        return this.navigateTo('project', options);
     },
     
     /**
@@ -243,7 +243,7 @@ const NavigationManager = {
         if (this.navigationHistory.length === 0) {
             // No history, go to default page
             if (this.authService.isAuthenticated()) {
-                return this.goToProjects();
+                return this.goToProject();
             } else {
                 return this.goToLogin();
             }
@@ -494,7 +494,7 @@ const NavigationManager = {
         
         // Validate current page
         if (!this.currentPage) {
-            this.currentPage = this.authService.isAuthenticated() ? 'projects' : 'login';
+            this.currentPage = this.authService.isAuthenticated() ? 'project' : 'login';
         }
         
         // Store initial state
@@ -621,7 +621,7 @@ const NavigationManager = {
                     replace: true 
                 });
             } else {
-                this.goToProjects({ replace: true });
+                this.goToProject({ replace: true });
             }
         }
     },
@@ -638,7 +638,7 @@ const NavigationManager = {
             
             for (const preloadType of page.preload) {
                 switch (preloadType) {
-                    case 'projects':
+                    case 'project':
                         if (this.projectService) {
                             preloadPromises.push(
                                 this.projectService.getProjects({ limit: 20 })
@@ -712,10 +712,10 @@ const NavigationManager = {
     _updateBreadcrumbs(pageName, params) {
         this.breadcrumbs = [];
         
-        if (pageName === 'projects') {
-            this.breadcrumbs.push({ name: 'Projects', page: 'projects' });
+        if (pageName === 'project') {
+            this.breadcrumbs.push({ name: 'Project', page: 'project' });
         } else if (pageName === 'chat') {
-            this.breadcrumbs.push({ name: 'Projects', page: 'projects' });
+            this.breadcrumbs.push({ name: 'Project', page: 'project' });
             
             if (params.project) {
                 // Try to get project name
@@ -845,7 +845,7 @@ const NavigationManager = {
         
         // Try to recover to a safe page
         if (this.authService.isAuthenticated()) {
-            this.goToProjects({ replace: true });
+            this.goToProject({ replace: true });
         } else {
             this.goToLogin('Navigation error', this.currentPage);
         }
