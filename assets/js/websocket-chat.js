@@ -1,6 +1,6 @@
 /**
- * FINAL FIX - WebSocket Chat Service with Post-Connection Authentication
- * This implements the industry standard of authenticating AFTER connection establishment
+ * COMPLETE FIX - WebSocket Chat Service with Race Condition Resolution
+ * This replaces your entire websocket-chat.js file
  */
 const ChatService = {
     // Core state
@@ -21,6 +21,8 @@ const ChatService = {
     messageListeners: [],
     statusListeners: [],
     errorListeners: [],
+    authSuccessListeners: [],
+    authErrorListeners: [],
     
     // Configuration
     options: {
@@ -100,8 +102,8 @@ const ChatService = {
             throw new Error('Authentication required');
         }
         
-        if (this.isConnected) {
-            this._log('Already connected');
+        if (this.isConnected && this.isAuthenticated) {
+            this._log('Already connected and authenticated');
             return true;
         }
         
@@ -130,7 +132,7 @@ const ChatService = {
                 // Refresh token before connection attempt
                 await this.authService.refreshTokenIfNeeded();
                 
-                // FIXED: Connect without token in URL - authentication happens after connection
+                // Connect without token in URL - authentication happens after connection
                 const wsUrl = this._getWebSocketURL();
                 this._log(`Connecting to: ${this._maskUrl(wsUrl)}`);
                 
@@ -138,8 +140,7 @@ const ChatService = {
                 
                 // Set up connection handlers
                 this.socket.addEventListener('open', (event) => {
-                    this._onOpen(event);
-                    // Don't resolve yet - wait for authentication
+                    this._onOpen(event, resolve, reject);
                 });
                 
                 this.socket.addEventListener('message', this._onMessage);
@@ -152,31 +153,15 @@ const ChatService = {
                     }
                 });
                 
-                // Wait for authentication completion
-                const authSuccessHandler = () => {
-                    this.removeListener('authSuccess', authSuccessHandler);
-                    this.removeListener('authError', authErrorHandler);
-                    resolve(true);
-                };
-                
-                const authErrorHandler = (error) => {
-                    this.removeListener('authSuccess', authSuccessHandler);
-                    this.removeListener('authError', authErrorHandler);
-                    reject(new Error(error.message || 'Authentication failed'));
-                };
-                
-                this.onAuthSuccess(authSuccessHandler);
-                this.onAuthError(authErrorHandler);
-                
                 // Connection timeout
                 setTimeout(() => {
-                    if (this.isConnecting) {
-                        this._error('Connection timeout');
+                    if (this.isConnecting && !this.isAuthenticated) {
+                        this._error('Connection/authentication timeout');
                         this.socket?.close();
                         this.isConnecting = false;
                         reject(new Error('Connection timeout'));
                     }
-                }, this.options.connectionTimeout);
+                }, this.options.connectionTimeout + this.options.authTimeout);
                 
             } catch (error) {
                 this.isConnecting = false;
@@ -187,7 +172,7 @@ const ChatService = {
     },
     
     /**
-     * FIXED: Get WebSocket URL without token parameter
+     * Get WebSocket URL without token parameter
      */
     _getWebSocketURL() {
         const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -199,31 +184,83 @@ const ChatService = {
             wsHost = 'api-server-559730737995.us-central1.run.app';
         }
         
-        // FIXED: No token in URL - authentication happens after connection
+        // No token in URL - authentication happens after connection
         const userId = this.authService.userId || 'user';
         return `${wsProtocol}//${wsHost}/ws/${userId}`;
     },
     
     /**
-     * Handle WebSocket open - immediately authenticate
+     * FIXED: Handle WebSocket open - wait for ready state then authenticate
      */
-    async _onOpen(event) {
-        this._log('WebSocket connected, sending authentication...');
+    async _onOpen(event, resolve, reject) {
+        this._log('WebSocket opened, waiting for ready state...');
         
         this.isConnected = true;
-        // Note: isAuthenticated is still false until auth succeeds
         
         try {
-            // FIXED: Send authentication message immediately after connection
+            // FIXED: Wait for WebSocket to be truly ready
+            await this._waitForSocketReady();
+            
+            // Send authentication message
             await this._sendAuthenticationMessage();
+            
+            // Set up authentication success/error handlers for this connection attempt
+            const authSuccessHandler = (data) => {
+                this._handleAuthenticationSuccess(data);
+                resolve(true);
+            };
+            
+            const authErrorHandler = (data) => {
+                this._handleAuthenticationError(data);
+                reject(new Error(data.message || 'Authentication failed'));
+            };
+            
+            // Add temporary listeners
+            this._tempAuthSuccessHandler = authSuccessHandler;
+            this._tempAuthErrorHandler = authErrorHandler;
+            
         } catch (error) {
-            this._error('Failed to send authentication:', error);
+            this._error('Failed during WebSocket open handling:', error);
             this.socket?.close();
+            reject(error);
         }
     },
     
     /**
-     * FIXED: Send authentication message after connection
+     * FIXED: Wait for WebSocket to be truly ready
+     */
+    async _waitForSocketReady() {
+        return new Promise((resolve) => {
+            const maxWaitTime = 1000; // Maximum 1 second wait
+            const startTime = Date.now();
+            
+            const checkReady = () => {
+                if (this.socket && this.socket.readyState === WebSocket.OPEN) {
+                    this._log('✅ WebSocket is ready (readyState === OPEN)');
+                    resolve();
+                } else if (Date.now() - startTime > maxWaitTime) {
+                    this._log('⚠️ WebSocket ready timeout, proceeding anyway');
+                    resolve();
+                } else {
+                    this._log('⏳ WebSocket not ready yet...', { 
+                        readyState: this.socket?.readyState,
+                        states: {
+                            CONNECTING: WebSocket.CONNECTING,
+                            OPEN: WebSocket.OPEN,
+                            CLOSING: WebSocket.CLOSING,
+                            CLOSED: WebSocket.CLOSED
+                        }
+                    });
+                    setTimeout(checkReady, 10); // Check every 10ms
+                }
+            };
+            
+            checkReady();
+        });
+    },
+    
+    /**
+     * Send authentication message after connection
      */
     async _sendAuthenticationMessage() {
         // Ensure we have a fresh token
@@ -236,14 +273,16 @@ const ChatService = {
             timestamp: new Date().toISOString()
         };
         
-        this._log('Sending authentication message');
-        this._sendRawMessage(authMessage);
+        this._log('🔐 Sending authentication message');
+        await this._sendRawMessageSafely(authMessage);
         
         // Set authentication timeout
         this.authTimeout = setTimeout(() => {
             if (!this.isAuthenticated) {
-                this._error('Authentication timeout');
-                this._notifyAuthError({ message: 'Authentication timeout' });
+                this._error('Authentication timeout - no response from server');
+                if (this._tempAuthErrorHandler) {
+                    this._tempAuthErrorHandler({ message: 'Authentication timeout' });
+                }
                 this.socket?.close();
             }
         }, this.options.authTimeout);
@@ -255,22 +294,30 @@ const ChatService = {
     _onMessage(event) {
         try {
             const data = JSON.parse(event.data);
-            this._log('Received message:', data.type);
+            this._log('📨 Received message:', data.type);
             
             // Handle authentication response
             if (data.type === 'auth_success' || data.type === 'authenticated') {
-                this._handleAuthenticationSuccess(data);
+                if (this._tempAuthSuccessHandler) {
+                    this._tempAuthSuccessHandler(data);
+                } else {
+                    this._handleAuthenticationSuccess(data);
+                }
                 return;
             }
             
             if (data.type === 'auth_error' || data.type === 'authentication_failed') {
-                this._handleAuthenticationError(data);
+                if (this._tempAuthErrorHandler) {
+                    this._tempAuthErrorHandler(data);
+                } else {
+                    this._handleAuthenticationError(data);
+                }
                 return;
             }
             
             // Handle heartbeat
             if (data.type === 'ping') {
-                this._sendRawMessage({ type: 'pong' });
+                this._sendRawMessageSafely({ type: 'pong' });
                 return;
             }
             
@@ -282,7 +329,7 @@ const ChatService = {
             if (this.isAuthenticated) {
                 this._notifyMessageListeners(data);
             } else {
-                this._log('Received message before authentication, ignoring:', data.type);
+                this._log('⚠️ Received message before authentication, ignoring:', data.type);
             }
             
         } catch (error) {
@@ -291,16 +338,20 @@ const ChatService = {
     },
     
     /**
-     * FIXED: Handle successful authentication
+     * Handle successful authentication
      */
     _handleAuthenticationSuccess(data) {
-        this._log('Authentication successful');
+        this._log('✅ Authentication successful');
         
         // Clear auth timeout
         if (this.authTimeout) {
             clearTimeout(this.authTimeout);
             this.authTimeout = null;
         }
+        
+        // Clear temporary handlers
+        this._tempAuthSuccessHandler = null;
+        this._tempAuthErrorHandler = null;
         
         this.isAuthenticated = true;
         this.isConnecting = false;
@@ -323,16 +374,20 @@ const ChatService = {
     },
     
     /**
-     * FIXED: Handle authentication failure
+     * Handle authentication failure
      */
     _handleAuthenticationError(data) {
-        this._error('Authentication failed:', data.message || data.error);
+        this._error('❌ Authentication failed:', data.message || data.error);
         
         // Clear auth timeout
         if (this.authTimeout) {
             clearTimeout(this.authTimeout);
             this.authTimeout = null;
         }
+        
+        // Clear temporary handlers
+        this._tempAuthSuccessHandler = null;
+        this._tempAuthErrorHandler = null;
         
         this.isAuthenticated = false;
         this.isConnecting = false;
@@ -345,16 +400,16 @@ const ChatService = {
     },
     
     /**
-     * FIXED: Handle token refresh and reconnection
+     * Handle token refresh and reconnection
      */
     async _handleTokenRefreshAndReconnect(errorData) {
-        this._log('Attempting token refresh and reconnection');
+        this._log('🔄 Attempting token refresh and reconnection');
         
         try {
             const refreshed = await this.authService.refreshTokenIfNeeded();
             
             if (refreshed) {
-                this._log('Token refreshed, reconnecting...');
+                this._log('✅ Token refreshed, reconnecting...');
                 // Close current connection and reconnect
                 this.disconnect();
                 setTimeout(() => {
@@ -367,7 +422,7 @@ const ChatService = {
                     });
                 }, 1000);
             } else {
-                this._error('Token refresh failed');
+                this._error('❌ Token refresh failed');
                 this._notifyErrorListeners({
                     error: 'Authentication failed - please log in again',
                     originalError: errorData
@@ -386,7 +441,7 @@ const ChatService = {
      * Handle WebSocket close
      */
     _onClose(event) {
-        this._log('WebSocket closed', { code: event.code, reason: event.reason });
+        this._log('🔌 WebSocket closed', { code: event.code, reason: event.reason });
         
         this.isConnected = false;
         this.isConnecting = false;
@@ -395,11 +450,13 @@ const ChatService = {
         this._stopHeartbeat();
         this._notifyStatusChange('disconnected');
         
-        // Clear auth timeout
+        // Clear auth timeout and temp handlers
         if (this.authTimeout) {
             clearTimeout(this.authTimeout);
             this.authTimeout = null;
         }
+        this._tempAuthSuccessHandler = null;
+        this._tempAuthErrorHandler = null;
         
         // Determine if we should reconnect
         const shouldReconnect = this._shouldReconnect(event.code);
@@ -415,7 +472,7 @@ const ChatService = {
      * Handle WebSocket error
      */
     _onError(event) {
-        this._error('WebSocket error:', event);
+        this._error('💥 WebSocket error:', event);
         this._notifyStatusChange('error');
         this._notifyErrorListeners({ error: 'WebSocket error', event });
     },
@@ -446,7 +503,7 @@ const ChatService = {
             30000
         );
         
-        this._log(`Scheduling reconnect attempt ${this.reconnectAttempts}/${this.options.maxReconnectAttempts} in ${delay}ms`);
+        this._log(`⏰ Scheduling reconnect attempt ${this.reconnectAttempts}/${this.options.maxReconnectAttempts} in ${delay}ms`);
         this._notifyStatusChange('reconnecting');
         
         this.reconnectTimer = setTimeout(async () => {
@@ -474,7 +531,7 @@ const ChatService = {
                 }
             }, this.options.heartbeatInterval);
             
-            this._log('Heartbeat started');
+            this._log('💓 Heartbeat started');
         }
     },
     
@@ -493,12 +550,12 @@ const ChatService = {
      */
     _sendHeartbeat() {
         try {
-            this._sendRawMessage({ 
+            this._sendRawMessageSafely({ 
                 type: 'ping', 
                 timestamp: new Date().toISOString() 
             });
             
-            this._log('Heartbeat sent');
+            this._log('💓 Heartbeat sent');
             
         } catch (error) {
             this._error('Heartbeat failed:', error);
@@ -522,7 +579,7 @@ const ChatService = {
         
         if (this.isAuthenticated) {
             try {
-                this._sendRawMessage(messageData);
+                await this._sendRawMessageSafely(messageData);
                 return messageData.id;
             } catch (error) {
                 this._error('Send error:', error);
@@ -550,16 +607,27 @@ const ChatService = {
     },
     
     /**
-     * FIXED: Send raw message (internal method)
+     * FIXED: Send raw message safely with proper state checking
      */
-    _sendRawMessage(messageData) {
-        if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
-            throw new Error('WebSocket not connected');
+    async _sendRawMessageSafely(messageData) {
+        if (!this.socket) {
+            throw new Error('WebSocket is null');
+        }
+        
+        // Wait for socket to be ready if it's still connecting
+        if (this.socket.readyState === WebSocket.CONNECTING) {
+            this._log('⏳ WebSocket still connecting, waiting for OPEN state...');
+            await this._waitForSocketReady();
+        }
+        
+        if (this.socket.readyState !== WebSocket.OPEN) {
+            throw new Error(`WebSocket not ready. ReadyState: ${this.socket.readyState} (expected ${WebSocket.OPEN})`);
         }
         
         try {
-            this.socket.send(JSON.stringify(messageData));
-            this._log('Raw message sent:', messageData.type);
+            const messageStr = JSON.stringify(messageData);
+            this.socket.send(messageStr);
+            this._log('📤 Raw message sent:', messageData.type);
         } catch (error) {
             this._error('Failed to send raw message:', error);
             throw error;
@@ -579,30 +647,30 @@ const ChatService = {
             queued_at: Date.now()
         });
         
-        this._log(`Message queued (${this.messageQueue.length}/${this.options.messageQueueLimit})`);
+        this._log(`📥 Message queued (${this.messageQueue.length}/${this.options.messageQueueLimit})`);
     },
     
     /**
      * Process all queued messages
      */
-    _processQueuedMessages() {
+    async _processQueuedMessages() {
         if (this.messageQueue.length === 0) return;
         
         const messages = [...this.messageQueue];
         this.messageQueue = [];
         
         let sent = 0;
-        messages.forEach(messageData => {
+        for (const messageData of messages) {
             try {
-                this._sendRawMessage(messageData);
+                await this._sendRawMessageSafely(messageData);
                 sent++;
             } catch (error) {
                 this._error('Failed to send queued message:', error);
                 this._queueMessage(messageData);
             }
-        });
+        }
         
-        this._log(`Processed queued messages: ${sent} sent`);
+        this._log(`📤 Processed queued messages: ${sent} sent`);
     },
     
     /**
@@ -616,7 +684,7 @@ const ChatService = {
      * Disconnect from WebSocket
      */
     disconnect() {
-        this._log('Disconnecting');
+        this._log('🔌 Disconnecting');
         
         this._cleanup();
         
@@ -647,6 +715,9 @@ const ChatService = {
             this.authTimeout = null;
         }
         
+        this._tempAuthSuccessHandler = null;
+        this._tempAuthErrorHandler = null;
+        
         this._stopHeartbeat();
     },
     
@@ -671,17 +742,14 @@ const ChatService = {
         }
     },
     
-    // FIXED: New authentication event listeners
     onAuthSuccess(callback) {
         if (typeof callback === 'function') {
-            this.authSuccessListeners = this.authSuccessListeners || [];
             this.authSuccessListeners.push(callback);
         }
     },
     
     onAuthError(callback) {
         if (typeof callback === 'function') {
-            this.authErrorListeners = this.authErrorListeners || [];
             this.authErrorListeners.push(callback);
         }
     },
@@ -691,8 +759,8 @@ const ChatService = {
             'message': this.messageListeners,
             'status': this.statusListeners,
             'error': this.errorListeners,
-            'authSuccess': this.authSuccessListeners || [],
-            'authError': this.authErrorListeners || []
+            'authSuccess': this.authSuccessListeners,
+            'authError': this.authErrorListeners
         };
         
         const array = listeners[type];
@@ -735,29 +803,24 @@ const ChatService = {
         });
     },
     
-    // FIXED: New authentication notification methods
     _notifyAuthSuccess(data) {
-        if (this.authSuccessListeners) {
-            this.authSuccessListeners.forEach(callback => {
-                try {
-                    callback(data);
-                } catch (error) {
-                    this._error('Error in auth success listener:', error);
-                }
-            });
-        }
+        this.authSuccessListeners.forEach(callback => {
+            try {
+                callback(data);
+            } catch (error) {
+                this._error('Error in auth success listener:', error);
+            }
+        });
     },
     
     _notifyAuthError(data) {
-        if (this.authErrorListeners) {
-            this.authErrorListeners.forEach(callback => {
-                try {
-                    callback(data);
-                } catch (error) {
-                    this._error('Error in auth error listener:', error);
-                }
-            });
-        }
+        this.authErrorListeners.forEach(callback => {
+            try {
+                callback(data);
+            } catch (error) {
+                this._error('Error in auth error listener:', error);
+            }
+        });
     },
     
     /**
