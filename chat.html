@@ -947,6 +947,215 @@
   <!-- Chat application script -->
   <script>
     document.addEventListener('DOMContentLoaded', function() {
+        'use strict';
+        
+        console.log('🔍 WebSocket Authentication Debug Script Loaded');
+        
+        // Override console methods to add timestamps and better formatting
+        const originalLog = console.log;
+        const originalError = console.error;
+        const originalWarn = console.warn;
+        
+        console.log = function(...args) {
+            originalLog.apply(console, [`[${new Date().toISOString()}] 📝`, ...args]);
+        };
+        
+        console.error = function(...args) {
+            originalError.apply(console, [`[${new Date().toISOString()}] ❌`, ...args]);
+        };
+        
+        console.warn = function(...args) {
+            originalWarn.apply(console, [`[${new Date().toISOString()}] ⚠️`, ...args]);
+        };
+        
+        // Debug WebSocket creation
+        const originalWebSocket = window.WebSocket;
+        window.WebSocket = function(url, protocols) {
+            console.log('🔌 Creating WebSocket:', url);
+            console.log('🔌 Protocols:', protocols);
+            
+            const ws = new originalWebSocket(url, protocols);
+            
+            // Override addEventListener to log all events
+            const originalAddEventListener = ws.addEventListener;
+            ws.addEventListener = function(type, listener, options) {
+                console.log(`📡 Adding WebSocket event listener: ${type}`);
+                
+                const wrappedListener = function(event) {
+                    console.log(`📡 WebSocket event fired: ${type}`, {
+                        type: event.type,
+                        code: event.code,
+                        reason: event.reason,
+                        data: event.data ? event.data.substring(0, 200) + '...' : undefined
+                    });
+                    return listener.call(this, event);
+                };
+                
+                return originalAddEventListener.call(this, type, wrappedListener, options);
+            };
+            
+            // Override send method to log messages
+            const originalSend = ws.send;
+            ws.send = function(data) {
+                try {
+                    const parsed = JSON.parse(data);
+                    console.log('📤 Sending WebSocket message:', {
+                        type: parsed.type,
+                        hasToken: !!(parsed.token),
+                        tokenLength: parsed.token ? parsed.token.length : 0,
+                        userId: parsed.userId,
+                        timestamp: parsed.timestamp
+                    });
+                } catch (e) {
+                    console.log('📤 Sending WebSocket message (raw):', data.substring(0, 100) + '...');
+                }
+                return originalSend.call(this, data);
+            };
+            
+            return ws;
+        };
+        
+        // Debug AuthService method calls
+        if (typeof AuthService !== 'undefined') {
+            console.log('🔑 AuthService available, adding debug hooks');
+            
+            // Override getToken to log token info
+            const originalGetToken = AuthService.getToken;
+            AuthService.getToken = function() {
+                const token = originalGetToken.call(this);
+                if (token) {
+                    try {
+                        const parts = token.split('.');
+                        if (parts.length === 3) {
+                            const payload = JSON.parse(atob(parts[1]));
+                            const now = Math.floor(Date.now() / 1000);
+                            console.log('🎫 Token info:', {
+                                length: token.length,
+                                expires: new Date(payload.exp * 1000).toISOString(),
+                                expiresIn: payload.exp - now,
+                                userId: payload.sub || payload.user_id,
+                                isValid: payload.exp > now
+                            });
+                        }
+                    } catch (e) {
+                        console.warn('🎫 Could not parse token');
+                    }
+                } else {
+                    console.warn('🎫 No token available');
+                }
+                return token;
+            };
+            
+            // Override refreshTokenIfNeeded
+            const originalRefreshTokenIfNeeded = AuthService.refreshTokenIfNeeded;
+            AuthService.refreshTokenIfNeeded = async function() {
+                console.log('🔄 Checking if token refresh is needed...');
+                const result = await originalRefreshTokenIfNeeded.call(this);
+                console.log('🔄 Token refresh result:', result);
+                return result;
+            };
+            
+            // Override getWebSocketURL
+            if (AuthService.getWebSocketURL) {
+                const originalGetWebSocketURL = AuthService.getWebSocketURL;
+                AuthService.getWebSocketURL = function() {
+                    const url = originalGetWebSocketURL.call(this);
+                    console.log('🔗 Generated WebSocket URL:', url.replace(/token=[^&]*/, 'token=***'));
+                    return url;
+                };
+            }
+        }
+        
+        // Add a global debug function
+        window.debugWebSocket = function() {
+            console.log('🔍 === WebSocket Debug Information ===');
+            
+            if (typeof AuthService !== 'undefined') {
+                console.log('🔑 Auth Status:', {
+                    authenticated: AuthService.isAuthenticated(),
+                    user: AuthService.getCurrentUser(),
+                    token: AuthService.getToken() ? 'Present' : 'Missing',
+                    sessionInfo: AuthService.getSessionInfo()
+                });
+            }
+            
+            if (typeof ChatService !== 'undefined' && ChatService.getStatus) {
+                console.log('💬 Chat Service Status:', ChatService.getStatus());
+            }
+            
+            if (window.AAAI_CONFIG) {
+                console.log('⚙️ Configuration:', {
+                    environment: window.AAAI_CONFIG.ENVIRONMENT,
+                    websocketsEnabled: window.AAAI_CONFIG.ENABLE_WEBSOCKETS,
+                    debug: window.AAAI_CONFIG.ENABLE_DEBUG
+                });
+            }
+            
+            console.log('🔍 === End Debug Information ===');
+        };
+        
+        // Add a test function
+        window.testWebSocketAuth = async function() {
+            console.log('🧪 === Testing WebSocket Authentication ===');
+            
+            if (!AuthService.isAuthenticated()) {
+                console.error('🚫 Not authenticated');
+                return;
+            }
+            
+            try {
+                // Refresh token first
+                await AuthService.refreshTokenIfNeeded();
+                
+                // Get WebSocket URL
+                const wsUrl = AuthService.getWebSocketURL();
+                console.log('🔗 WebSocket URL generated:', wsUrl.replace(/token=[^&]*/, 'token=***'));
+                
+                // Create test WebSocket
+                const testWs = new WebSocket(wsUrl.split('?')[0]); // Connect without token
+                
+                testWs.addEventListener('open', () => {
+                    console.log('✅ Test WebSocket connected');
+                    
+                    // Send authentication message
+                    const authMessage = {
+                        type: 'authenticate',
+                        token: AuthService.getToken(),
+                        userId: AuthService.getCurrentUser().id,
+                        timestamp: new Date().toISOString()
+                    };
+                    
+                    console.log('🔐 Sending test auth message');
+                    testWs.send(JSON.stringify(authMessage));
+                });
+                
+                testWs.addEventListener('message', (event) => {
+                    console.log('📨 Test WebSocket received:', event.data);
+                    testWs.close();
+                });
+                
+                testWs.addEventListener('error', (event) => {
+                    console.error('❌ Test WebSocket error:', event);
+                });
+                
+                testWs.addEventListener('close', (event) => {
+                    console.log('🔌 Test WebSocket closed:', { code: event.code, reason: event.reason });
+                });
+                
+            } catch (error) {
+                console.error('🧪 Test failed:', error);
+            }
+        };
+        
+        // Automatically run debug on page load
+        setTimeout(() => {
+            console.log('🔍 Auto-running WebSocket debug...');
+            if (typeof window.debugWebSocket === 'function') {
+                window.debugWebSocket();
+            }
+        }, 2000);
+        
+        console.log('🔍 Debug script loaded. Use debugWebSocket() or testWebSocketAuth() in console.');
         // Application state
         let chatService = null;
         let currentProject = null;
@@ -1701,6 +1910,7 @@
         // Initialize the application
         initializeApp();
     });
+
   </script>
 </body>
 
