@@ -1112,52 +1112,69 @@
           * Initialize chat service with new authentication flow
           */
         async function initializeChatService() {
-            console.log('💬 Initializing chat service...');
-            
-            if (!window.AAAI_CONFIG.ENABLE_WEBSOCKETS || typeof ChatService === 'undefined') {
-                console.log('⚠️ WebSocket chat disabled or unavailable');
-                updateConnectionStatus('disconnected');
-                return;
-            }
-            
-            try {
-                chatService = ChatService.init(AuthService, {
-                    reconnectInterval: 5000,
-                    maxReconnectAttempts: 5,
-                    heartbeatInterval: 30000,
-                    connectionTimeout: 15000,
-                    authTimeout: 10000, // NEW: Authentication timeout
-                    debug: window.AAAI_CONFIG.ENABLE_DEBUG || false
-                });
-                
-                // Setup event listeners
-                chatService.onMessage(handleChatMessage);
-                chatService.onStatusChange(handleConnectionStatus);
-                chatService.onError(handleChatError);
-                
-                console.log('✅ ChatService initialized');
-                
-                // Attempt to connect
-                try {
-                    await chatService.connect();
-                    console.log('✅ WebSocket connected and authenticated');
-                } catch (error) {
-                    console.log('⚠️ WebSocket connection/auth failed, will use HTTP fallback:', error.message);
-                    updateConnectionStatus('disconnected');
-                    
-                    // Show user-friendly message for authentication errors
-                    if (error.message.includes('Authentication')) {
-                        showError('Authentication failed. Please refresh the page to reconnect.');
-                    }
-                }
-                
-            } catch (error) {
-                window.AAAI_LOGGER?.error('Failed to initialize ChatService:', error);
-                console.error('❌ Failed to initialize ChatService:', error);
-                updateConnectionStatus('disconnected');
-            }
+          console.log('💬 Initializing chat service...');
+          
+          if (!window.AAAI_CONFIG.ENABLE_WEBSOCKETS || typeof ChatService === 'undefined') {
+              console.log('⚠️ WebSocket chat disabled or unavailable');
+              updateConnectionStatus('disconnected');
+              return;
+          }
+          
+          try {
+              chatService = ChatService.init(AuthService, {
+                  reconnectInterval: 5000,
+                  maxReconnectAttempts: 5,
+                  heartbeatInterval: 30000,
+                  connectionTimeout: 20000,        // Increased from 15000
+                  authTimeout: 15000,              // Increased from 10000  
+                  socketReadyTimeout: 5000,        // NEW: Socket ready timeout
+                  messageQueueLimit: 20,
+                  debug: window.AAAI_CONFIG.ENABLE_DEBUG || false
+              });
+              
+              // Setup event listeners
+              chatService.onMessage(handleChatMessage);
+              chatService.onStatusChange(handleConnectionStatus);
+              chatService.onError(handleChatError);
+              
+              // NEW: Add authentication-specific listeners
+              chatService.onAuthSuccess((data) => {
+                  console.log('🔐 WebSocket authentication successful');
+                  showStatusIndicator('connected', '✓ Connected & Authenticated');
+              });
+              
+              chatService.onAuthError((data) => {
+                  console.error('🔐 WebSocket authentication failed:', data);
+                  showError('Authentication failed. Please refresh the page.');
+              });
+              
+              console.log('✅ ChatService initialized');
+              
+              // Attempt to connect with better error handling
+              try {
+                  console.log('🚀 Attempting WebSocket connection...');
+                  await chatService.connect();
+                  console.log('✅ WebSocket connected and authenticated');
+              } catch (error) {
+                  console.log('⚠️ WebSocket connection failed, will use HTTP fallback:', error.message);
+                  updateConnectionStatus('disconnected');
+                  
+                  // Show user-friendly message for specific errors
+                  if (error.message.includes('Authentication')) {
+                      showError('Authentication failed. Please refresh the page to reconnect.');
+                  } else if (error.message.includes('timeout')) {
+                      showError('Connection timeout. Please check your internet connection.');
+                  }
+              }
+              
+          } catch (error) {
+              window.AAAI_LOGGER?.error('Failed to initialize ChatService:', error);
+              console.error('❌ Failed to initialize ChatService:', error);
+              updateConnectionStatus('disconnected');
+              showError('Failed to initialize chat service. Please refresh the page.');
+          }
         }
-        
+                
         /**
           * Load project data
           */

@@ -1,6 +1,6 @@
 /**
- * COMPLETE FIX - WebSocket Chat Service with Race Condition Resolution
- * This replaces your entire websocket-chat.js file
+ * RACE CONDITION FIX - WebSocket Chat Service
+ * This fixes the authentication timing issue you're experiencing
  */
 const ChatService = {
     // Core state
@@ -15,6 +15,7 @@ const ChatService = {
     reconnectTimer: null,
     heartbeatTimer: null,
     authTimeout: null,
+    connectionPromise: null, // NEW: Track connection promises
     
     // Message handling
     messageQueue: [],
@@ -29,9 +30,10 @@ const ChatService = {
         reconnectInterval: 5000,
         maxReconnectAttempts: 5,
         heartbeatInterval: 30000,
-        connectionTimeout: 10000,
+        connectionTimeout: 15000,
         authTimeout: 10000,
         messageQueueLimit: 20,
+        socketReadyTimeout: 3000, // NEW: Max time to wait for socket ready
         debug: false
     },
     
@@ -46,7 +48,7 @@ const ChatService = {
         this.authService = authService;
         this.options = { ...this.options, ...options };
         
-        // Bind methods
+        // Bind methods to maintain context
         this._onOpen = this._onOpen.bind(this);
         this._onMessage = this._onMessage.bind(this);
         this._onClose = this._onClose.bind(this);
@@ -56,7 +58,7 @@ const ChatService = {
         // Setup event handlers
         this._setupEventHandlers();
         
-        this._log('ChatService initialized');
+        this._log('ChatService initialized with race condition fixes');
         return this;
     },
     
@@ -95,7 +97,7 @@ const ChatService = {
     },
     
     /**
-     * Connect to WebSocket with post-connection authentication
+     * FIXED: Connect with proper promise handling and authentication timing
      */
     async connect() {
         if (!this.authService.isAuthenticated()) {
@@ -107,40 +109,76 @@ const ChatService = {
             return true;
         }
         
-        if (this.isConnecting) {
-            this._log('Connection already in progress');
-            return new Promise((resolve, reject) => {
-                const checkConnection = () => {
-                    if (this.isAuthenticated) {
-                        resolve(true);
-                    } else if (!this.isConnecting) {
-                        reject(new Error('Connection failed'));
-                    } else {
-                        setTimeout(checkConnection, 100);
-                    }
-                };
-                setTimeout(checkConnection, 100);
-            });
+        // If already connecting, return the existing promise
+        if (this.isConnecting && this.connectionPromise) {
+            this._log('Connection already in progress, waiting...');
+            return this.connectionPromise;
         }
         
+        // Create new connection promise
+        this.connectionPromise = this._performConnection();
+        
+        try {
+            const result = await this.connectionPromise;
+            this.connectionPromise = null;
+            return result;
+        } catch (error) {
+            this.connectionPromise = null;
+            throw error;
+        }
+    },
+    
+    /**
+     * NEW: Perform the actual connection with proper error handling
+     */
+    async _performConnection() {
         return new Promise(async (resolve, reject) => {
             this.isConnecting = true;
             this.isAuthenticated = false;
             this._notifyStatusChange('connecting');
             
+            // Set overall timeout
+            const overallTimeout = setTimeout(() => {
+                if (this.isConnecting && !this.isAuthenticated) {
+                    this._error('Overall connection timeout');
+                    this._cleanupConnection();
+                    reject(new Error('Connection timeout'));
+                }
+            }, this.options.connectionTimeout + this.options.authTimeout);
+            
             try {
-                // Refresh token before connection attempt
+                // Refresh token before connection
                 await this.authService.refreshTokenIfNeeded();
                 
-                // Connect without token in URL - authentication happens after connection
+                // Create WebSocket
                 const wsUrl = this._getWebSocketURL();
                 this._log(`Connecting to: ${this._maskUrl(wsUrl)}`);
                 
                 this.socket = new WebSocket(wsUrl);
                 
-                // Set up connection handlers
-                this.socket.addEventListener('open', (event) => {
-                    this._onOpen(event, resolve, reject);
+                // FIXED: Enhanced event setup with proper error handling
+                this.socket.addEventListener('open', async (event) => {
+                    clearTimeout(overallTimeout);
+                    
+                    try {
+                        this._log('✅ WebSocket opened, starting authentication...');
+                        this.isConnected = true;
+                        
+                        // FIXED: Wait for socket to be truly ready before authenticating
+                        await this._waitForSocketReady();
+                        
+                        // Send authentication
+                        await this._performAuthentication();
+                        
+                        this._log('✅ Authentication completed successfully');
+                        this._handleAuthenticationSuccess({});
+                        resolve(true);
+                        
+                    } catch (error) {
+                        this._error('❌ Authentication failed:', error);
+                        this._handleAuthenticationError({ message: error.message });
+                        reject(error);
+                    }
                 });
                 
                 this.socket.addEventListener('message', this._onMessage);
@@ -148,27 +186,139 @@ const ChatService = {
                 this.socket.addEventListener('error', (event) => {
                     this._onError(event);
                     if (this.isConnecting) {
+                        clearTimeout(overallTimeout);
                         this.isConnecting = false;
                         reject(new Error('WebSocket connection failed'));
                     }
                 });
                 
-                // Connection timeout
-                setTimeout(() => {
-                    if (this.isConnecting && !this.isAuthenticated) {
-                        this._error('Connection/authentication timeout');
-                        this.socket?.close();
-                        this.isConnecting = false;
-                        reject(new Error('Connection timeout'));
-                    }
-                }, this.options.connectionTimeout + this.options.authTimeout);
-                
             } catch (error) {
+                clearTimeout(overallTimeout);
                 this.isConnecting = false;
-                this._error('Connection error:', error);
+                this._error('Connection setup error:', error);
                 reject(error);
             }
         });
+    },
+    
+    /**
+     * FIXED: Enhanced socket ready check with multiple verification methods
+     */
+    async _waitForSocketReady() {
+        return new Promise((resolve, reject) => {
+            const startTime = Date.now();
+            const maxWaitTime = this.options.socketReadyTimeout;
+            
+            const checkReady = () => {
+                const elapsed = Date.now() - startTime;
+                
+                if (!this.socket) {
+                    reject(new Error('WebSocket is null'));
+                    return;
+                }
+                
+                // Multiple checks for socket readiness
+                const isReady = this.socket.readyState === WebSocket.OPEN;
+                const canSend = this._testSocketSend();
+                
+                this._log(`🔍 Socket ready check: readyState=${this.socket.readyState}, canSend=${canSend}, elapsed=${elapsed}ms`);
+                
+                if (isReady && canSend) {
+                    this._log('✅ WebSocket is fully ready');
+                    resolve();
+                } else if (elapsed > maxWaitTime) {
+                    this._error('⏰ Socket ready timeout exceeded');
+                    reject(new Error('Socket ready timeout'));
+                } else {
+                    // Continue checking
+                    setTimeout(checkReady, 50); // Check every 50ms
+                }
+            };
+            
+            checkReady();
+        });
+    },
+    
+    /**
+     * NEW: Test if socket can actually send data
+     */
+    _testSocketSend() {
+        if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
+            return false;
+        }
+        
+        try {
+            // Try to access the send method (this will throw if not ready)
+            const canSend = typeof this.socket.send === 'function';
+            return canSend;
+        } catch (error) {
+            return false;
+        }
+    },
+    
+    /**
+     * FIXED: Perform authentication with better error handling
+     */
+    async _performAuthentication() {
+        // Ensure we have a fresh token
+        await this.authService.refreshTokenIfNeeded();
+        
+        const authMessage = {
+            type: 'authenticate',
+            token: this.authService.getToken(),
+            userId: this.authService.userId,
+            timestamp: new Date().toISOString()
+        };
+        
+        this._log('🔐 Sending authentication message...');
+        
+        // FIXED: Use the safe send method with retries
+        await this._sendMessageWithRetry(authMessage, 3);
+        
+        // Set authentication timeout
+        this.authTimeout = setTimeout(() => {
+            if (!this.isAuthenticated) {
+                this._error('❌ Authentication timeout - no response from server');
+                this.socket?.close(4001, 'Authentication timeout');
+            }
+        }, this.options.authTimeout);
+    },
+    
+    /**
+     * NEW: Send message with retry logic for critical messages
+     */
+    async _sendMessageWithRetry(messageData, maxRetries = 1) {
+        let lastError;
+        
+        for (let attempt = 1; attempt <= maxRetries; attempt++) {
+            try {
+                this._log(`📤 Sending message (attempt ${attempt}/${maxRetries}):`, messageData.type);
+                
+                // Verify socket is ready before each attempt
+                if (this.socket?.readyState !== WebSocket.OPEN) {
+                    await this._waitForSocketReady();
+                }
+                
+                // Send the message
+                const messageStr = JSON.stringify(messageData);
+                this.socket.send(messageStr);
+                
+                this._log('✅ Message sent successfully:', messageData.type);
+                return; // Success!
+                
+            } catch (error) {
+                lastError = error;
+                this._error(`❌ Send attempt ${attempt} failed:`, error);
+                
+                if (attempt < maxRetries) {
+                    this._log(`⏳ Retrying in 100ms...`);
+                    await new Promise(resolve => setTimeout(resolve, 100));
+                } else {
+                    this._error(`❌ All ${maxRetries} send attempts failed`);
+                    throw lastError;
+                }
+            }
+        }
     },
     
     /**
@@ -190,105 +340,6 @@ const ChatService = {
     },
     
     /**
-     * FIXED: Handle WebSocket open - wait for ready state then authenticate
-     */
-    async _onOpen(event, resolve, reject) {
-        this._log('WebSocket opened, waiting for ready state...');
-        
-        this.isConnected = true;
-        
-        try {
-            // FIXED: Wait for WebSocket to be truly ready
-            await this._waitForSocketReady();
-            
-            // Send authentication message
-            await this._sendAuthenticationMessage();
-            
-            // Set up authentication success/error handlers for this connection attempt
-            const authSuccessHandler = (data) => {
-                this._handleAuthenticationSuccess(data);
-                resolve(true);
-            };
-            
-            const authErrorHandler = (data) => {
-                this._handleAuthenticationError(data);
-                reject(new Error(data.message || 'Authentication failed'));
-            };
-            
-            // Add temporary listeners
-            this._tempAuthSuccessHandler = authSuccessHandler;
-            this._tempAuthErrorHandler = authErrorHandler;
-            
-        } catch (error) {
-            this._error('Failed during WebSocket open handling:', error);
-            this.socket?.close();
-            reject(error);
-        }
-    },
-    
-    /**
-     * FIXED: Wait for WebSocket to be truly ready
-     */
-    async _waitForSocketReady() {
-        return new Promise((resolve) => {
-            const maxWaitTime = 1000; // Maximum 1 second wait
-            const startTime = Date.now();
-            
-            const checkReady = () => {
-                if (this.socket && this.socket.readyState === WebSocket.OPEN) {
-                    this._log('✅ WebSocket is ready (readyState === OPEN)');
-                    resolve();
-                } else if (Date.now() - startTime > maxWaitTime) {
-                    this._log('⚠️ WebSocket ready timeout, proceeding anyway');
-                    resolve();
-                } else {
-                    this._log('⏳ WebSocket not ready yet...', { 
-                        readyState: this.socket?.readyState,
-                        states: {
-                            CONNECTING: WebSocket.CONNECTING,
-                            OPEN: WebSocket.OPEN,
-                            CLOSING: WebSocket.CLOSING,
-                            CLOSED: WebSocket.CLOSED
-                        }
-                    });
-                    setTimeout(checkReady, 10); // Check every 10ms
-                }
-            };
-            
-            checkReady();
-        });
-    },
-    
-    /**
-     * Send authentication message after connection
-     */
-    async _sendAuthenticationMessage() {
-        // Ensure we have a fresh token
-        await this.authService.refreshTokenIfNeeded();
-        
-        const authMessage = {
-            type: 'authenticate',
-            token: this.authService.getToken(),
-            userId: this.authService.userId,
-            timestamp: new Date().toISOString()
-        };
-        
-        this._log('🔐 Sending authentication message');
-        await this._sendRawMessageSafely(authMessage);
-        
-        // Set authentication timeout
-        this.authTimeout = setTimeout(() => {
-            if (!this.isAuthenticated) {
-                this._error('Authentication timeout - no response from server');
-                if (this._tempAuthErrorHandler) {
-                    this._tempAuthErrorHandler({ message: 'Authentication timeout' });
-                }
-                this.socket?.close();
-            }
-        }, this.options.authTimeout);
-    },
-    
-    /**
      * Handle WebSocket message with authentication flow
      */
     _onMessage(event) {
@@ -298,26 +349,20 @@ const ChatService = {
             
             // Handle authentication response
             if (data.type === 'auth_success' || data.type === 'authenticated') {
-                if (this._tempAuthSuccessHandler) {
-                    this._tempAuthSuccessHandler(data);
-                } else {
-                    this._handleAuthenticationSuccess(data);
-                }
+                this._handleAuthenticationSuccess(data);
                 return;
             }
             
             if (data.type === 'auth_error' || data.type === 'authentication_failed') {
-                if (this._tempAuthErrorHandler) {
-                    this._tempAuthErrorHandler(data);
-                } else {
-                    this._handleAuthenticationError(data);
-                }
+                this._handleAuthenticationError(data);
                 return;
             }
             
             // Handle heartbeat
             if (data.type === 'ping') {
-                this._sendRawMessageSafely({ type: 'pong' });
+                this._sendMessageWithRetry({ type: 'pong' }).catch(err => 
+                    this._error('Failed to send pong:', err)
+                );
                 return;
             }
             
@@ -348,10 +393,6 @@ const ChatService = {
             clearTimeout(this.authTimeout);
             this.authTimeout = null;
         }
-        
-        // Clear temporary handlers
-        this._tempAuthSuccessHandler = null;
-        this._tempAuthErrorHandler = null;
         
         this.isAuthenticated = true;
         this.isConnecting = false;
@@ -384,10 +425,6 @@ const ChatService = {
             clearTimeout(this.authTimeout);
             this.authTimeout = null;
         }
-        
-        // Clear temporary handlers
-        this._tempAuthSuccessHandler = null;
-        this._tempAuthErrorHandler = null;
         
         this.isAuthenticated = false;
         this.isConnecting = false;
@@ -443,20 +480,8 @@ const ChatService = {
     _onClose(event) {
         this._log('🔌 WebSocket closed', { code: event.code, reason: event.reason });
         
-        this.isConnected = false;
-        this.isConnecting = false;
-        this.isAuthenticated = false;
-        
-        this._stopHeartbeat();
+        this._cleanupConnection();
         this._notifyStatusChange('disconnected');
-        
-        // Clear auth timeout and temp handlers
-        if (this.authTimeout) {
-            clearTimeout(this.authTimeout);
-            this.authTimeout = null;
-        }
-        this._tempAuthSuccessHandler = null;
-        this._tempAuthErrorHandler = null;
         
         // Determine if we should reconnect
         const shouldReconnect = this._shouldReconnect(event.code);
@@ -475,6 +500,22 @@ const ChatService = {
         this._error('💥 WebSocket error:', event);
         this._notifyStatusChange('error');
         this._notifyErrorListeners({ error: 'WebSocket error', event });
+    },
+    
+    /**
+     * NEW: Clean up connection state
+     */
+    _cleanupConnection() {
+        this.isConnected = false;
+        this.isConnecting = false;
+        this.isAuthenticated = false;
+        
+        if (this.authTimeout) {
+            clearTimeout(this.authTimeout);
+            this.authTimeout = null;
+        }
+        
+        this._stopHeartbeat();
     },
     
     /**
@@ -550,9 +591,11 @@ const ChatService = {
      */
     _sendHeartbeat() {
         try {
-            this._sendRawMessageSafely({ 
+            this._sendMessageWithRetry({ 
                 type: 'ping', 
                 timestamp: new Date().toISOString() 
+            }).catch(error => {
+                this._error('Heartbeat failed:', error);
             });
             
             this._log('💓 Heartbeat sent');
@@ -579,7 +622,7 @@ const ChatService = {
         
         if (this.isAuthenticated) {
             try {
-                await this._sendRawMessageSafely(messageData);
+                await this._sendMessageWithRetry(messageData);
                 return messageData.id;
             } catch (error) {
                 this._error('Send error:', error);
@@ -603,34 +646,6 @@ const ChatService = {
             }
             
             return messageData.id;
-        }
-    },
-    
-    /**
-     * FIXED: Send raw message safely with proper state checking
-     */
-    async _sendRawMessageSafely(messageData) {
-        if (!this.socket) {
-            throw new Error('WebSocket is null');
-        }
-        
-        // Wait for socket to be ready if it's still connecting
-        if (this.socket.readyState === WebSocket.CONNECTING) {
-            this._log('⏳ WebSocket still connecting, waiting for OPEN state...');
-            await this._waitForSocketReady();
-        }
-        
-        if (this.socket.readyState !== WebSocket.OPEN) {
-            throw new Error(`WebSocket not ready. ReadyState: ${this.socket.readyState} (expected ${WebSocket.OPEN})`);
-        }
-        
-        try {
-            const messageStr = JSON.stringify(messageData);
-            this.socket.send(messageStr);
-            this._log('📤 Raw message sent:', messageData.type);
-        } catch (error) {
-            this._error('Failed to send raw message:', error);
-            throw error;
         }
     },
     
@@ -662,7 +677,7 @@ const ChatService = {
         let sent = 0;
         for (const messageData of messages) {
             try {
-                await this._sendRawMessageSafely(messageData);
+                await this._sendMessageWithRetry(messageData);
                 sent++;
             } catch (error) {
                 this._error('Failed to send queued message:', error);
@@ -693,9 +708,7 @@ const ChatService = {
             this.socket = null;
         }
         
-        this.isConnected = false;
-        this.isConnecting = false;
-        this.isAuthenticated = false;
+        this._cleanupConnection();
         this.reconnectAttempts = 0;
         
         this._notifyStatusChange('disconnected');
@@ -715,10 +728,8 @@ const ChatService = {
             this.authTimeout = null;
         }
         
-        this._tempAuthSuccessHandler = null;
-        this._tempAuthErrorHandler = null;
-        
         this._stopHeartbeat();
+        this.connectionPromise = null;
     },
     
     /**
@@ -861,4 +872,41 @@ const ChatService = {
 // Export for global use
 if (typeof window !== 'undefined') {
     window.ChatService = ChatService;
+}
+
+// Add global debug function for testing
+if (typeof window !== 'undefined') {
+    window.testWebSocketConnection = async function() {
+        console.log('🧪 === Testing WebSocket Connection ===');
+        
+        if (!window.ChatService || !window.AuthService) {
+            console.error('❌ ChatService or AuthService not available');
+            return;
+        }
+        
+        if (!AuthService.isAuthenticated()) {
+            console.error('❌ Not authenticated');
+            return;
+        }
+        
+        try {
+            console.log('🔧 Initializing test ChatService...');
+            const testChatService = Object.create(ChatService);
+            testChatService.init(AuthService, { debug: true, socketReadyTimeout: 5000 });
+            
+            console.log('🚀 Attempting connection...');
+            await testChatService.connect();
+            
+            console.log('✅ Connection test successful!');
+            
+            // Clean up
+            setTimeout(() => {
+                testChatService.disconnect();
+                console.log('🧹 Test cleanup completed');
+            }, 2000);
+            
+        } catch (error) {
+            console.error('❌ Connection test failed:', error);
+        }
+    };
 }
