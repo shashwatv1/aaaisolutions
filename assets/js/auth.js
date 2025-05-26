@@ -1,13 +1,15 @@
 /**
- * FIXED AuthService with proper refresh token support
- * This adds the missing refresh token functionality your WebSocket server expects
+ * DEBUG VERSION - Enhanced Authentication module for AAAI Solutions
+ * This version includes extensive logging to identify the URL construction issue
  */
 const AuthService = {
     // Initialize the auth service with configuration
     init() {
+        // DEBUG: Log initial state
         console.log('=== AuthService.init() DEBUG START ===');
         console.log('window.location.hostname:', window.location.hostname);
         console.log('window.AAAI_CONFIG exists:', !!window.AAAI_CONFIG);
+        console.log('window.AAAI_CONFIG:', window.AAAI_CONFIG);
         
         // Wait for config to be available
         if (!window.AAAI_CONFIG) {
@@ -22,9 +24,8 @@ const AuthService = {
             this.API_BASE_URL = 'http://localhost:8080';
             this.WS_BASE_URL = 'ws://localhost:8080';
         } else {
-            // FIXED: Use the correct API gateway URL
-            this.AUTH_BASE_URL = 'https://aaai-gateway-754x89jf.uc.gateway.dev';
-            this.API_BASE_URL = 'https://aaai-gateway-754x89jf.uc.gateway.dev';
+            this.AUTH_BASE_URL = '';
+            this.API_BASE_URL = '';
             this.WS_BASE_URL = window.location.origin;
         }
         
