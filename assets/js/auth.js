@@ -459,44 +459,107 @@ const AuthService = {
             throw error;
         }
     },
-    
+      
+    async makeRequest(endpoint, options = {}) {
+        const url = `${this.apiBaseUrl}${endpoint}`;
+        
+        // Add default headers
+        const defaultHeaders = {
+        'Content-Type': 'application/json'
+        };
+
+        const config = {
+        ...options,
+        headers: {
+            ...defaultHeaders,
+            ...options.headers
+        },
+        credentials: 'include' // Important for cookies
+        };
+
+        try {
+        const response = await fetch(url, config);
+        
+        if (!response.ok) {
+            let errorMessage = `HTTP ${response.status}: ${response.statusText}`;
+            
+            try {
+            const errorData = await response.json();
+            errorMessage = errorData.detail || errorData.message || errorMessage;
+            } catch (e) {
+            // Failed to parse error JSON, use default message
+            }
+            
+            throw new Error(errorMessage);
+        }
+
+        const data = await response.json();
+        return data;
+        } catch (error) {
+        if (error.name === 'TypeError' && error.message.includes('fetch')) {
+            throw new Error('Network error. Please check your connection.');
+        }
+        throw error;
+        }
+    },
     // Enhanced logout with server-side session cleanup
     async logout() {
         try {
-            // Attempt server-side logout
-            if (this.isAuthenticated()) {
-                try {
-                    const url = window.AAAI_CONFIG.ENVIRONMENT === 'development' 
-                        ? `${this.AUTH_BASE_URL}/auth/logout`
-                        : '/auth/logout';
-                    
-                    await fetch(url, {
-                        method: 'POST',
-                        headers: {
-                            'Authorization': `Bearer ${this.token}`
-                        },
-                        credentials: 'include'
-                    });
-                } catch (error) {
-                    window.AAAI_LOGGER.warn('Error during server-side logout:', error);
-                }
-            }
+          // Clear token refresh timer
+          if (this.tokenRefreshTimer) {
+            clearInterval(this.tokenRefreshTimer);
+            this.tokenRefreshTimer = null;
+          }
+    
+          // Attempt server-side logout
+          try {
+            await this.makeRequest('/auth/logout', {
+              method: 'POST',
+              headers: {
+                'Authorization': `Bearer ${this.getToken()}`
+              }
+            });
+          } catch (error) {
+            console.warn('Server-side logout failed:', error);
+          }
+    
+          // Clear local auth data
+          this.clearAuthData();
+    
+          console.log('✓ Logout successful');
         } catch (error) {
-            window.AAAI_LOGGER.warn('Error during logout process:', error);
-        } finally {
-            // Always clear client-side state
-            this._clearAuthState();
-            
-            // Clear refresh interval
-            if (this.refreshInterval) {
-                clearInterval(this.refreshInterval);
-                this.refreshInterval = null;
-            }
-            
-            window.AAAI_LOGGER.info('User logged out successfully');
+          console.error('Logout error:', error);
+          // Still clear local data even if server logout fails
+          this.clearAuthData();
+        }
+      },
+    
+    clearAuthData() {
+        // Clear cookies
+        const cookiesToClear = [
+            'access_token', 'refresh_token', 'csrf_token',
+            'user_info', 'user_preferences', 'websocket_id',
+            'session_id', 'authenticated'
+        ];
+
+        cookiesToClear.forEach(cookieName => {
+            this.deleteCookie(cookieName);
+        });
+
+        // Clear WebSocket reconnect token
+        localStorage.removeItem('ws_reconnect_token');
+
+        // Clear instance data
+        this.currentUser = null;
+        this.isRefreshing = false;
+        this.refreshPromise = null;
+
+        if (this.tokenRefreshTimer) {
+            clearInterval(this.tokenRefreshTimer);
+            this.tokenRefreshTimer = null;
         }
     },
-    
+
     // Get WebSocket URL with enhanced authentication
     getWebSocketURL(userId) {
         if (!this.isAuthenticated()) {

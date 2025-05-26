@@ -1,6 +1,6 @@
 /**
  * Enhanced WebSocket-based Chat Service for AAAI Solutions
- * Features persistent connections, automatic reconnection, robust error handling, and advanced caching
+ * Fixed version with improved stability, error handling, and performance
  */
 const ChatService = {
     /**
@@ -18,20 +18,20 @@ const ChatService = {
         
         this.authService = authService;
         this.options = Object.assign({
-            reconnectInterval: 3000,
-            maxReconnectAttempts: 10,
-            heartbeatInterval: 30000, // 30 seconds heartbeat
-            connectionTimeout: 15000, // 15 seconds connection timeout
-            maxConnectionAge: 86400000, // 24 hours in milliseconds
-            messageQueueLimit: 100, // Maximum queued messages
+            reconnectInterval: 5000,           // Increased base interval
+            maxReconnectAttempts: 8,          // Reduced attempts
+            heartbeatInterval: 45000,         // Increased to 45 seconds
+            connectionTimeout: 10000,         // Reduced to 10 seconds
+            maxConnectionAge: 3600000,        // 1 hour max age
+            messageQueueLimit: 50,            // Reduced queue size
             persistentConnection: true,
             debug: window.AAAI_CONFIG.ENABLE_DEBUG || false,
-            cacheExpiry: 3600000, // 1 hour cache expiry
-            maxCacheSize: 1000, // Maximum cached items
-            enableCompression: true,
-            enableBatching: true,
-            batchSize: 10,
-            batchTimeout: 1000
+            cacheExpiry: 1800000,            // 30 minutes cache expiry
+            maxCacheSize: 500,               // Reduced cache size
+            enableCompression: false,         // Disabled for stability
+            enableBatching: false,           // Disabled for simplicity
+            retryOnError: true,
+            gracefulReconnect: true
         }, options);
         
         // Connection state
@@ -40,11 +40,14 @@ const ChatService = {
         this.isConnecting = false;
         this.connectionId = null;
         this.reconnectToken = null;
+        this.userId = null;
         
         // Reconnection management
         this.reconnectAttempts = 0;
         this.reconnectTimer = null;
         this.lastDisconnectReason = null;
+        this.connectionStartTime = null;
+        this.lastActivityTime = null;
         
         // Event listeners
         this.messageListeners = [];
@@ -53,16 +56,16 @@ const ChatService = {
         
         // Message management
         this.messageQueue = [];
-        this.pendingMessages = new Map(); // Track messages waiting for response
+        this.pendingMessages = new Map();
         this.messageHistory = [];
-        this.messageBatch = []; // For batching messages
-        this.batchTimer = null;
+        this.lastMessageSent = null;
         
         // Timing and heartbeat
         this.heartbeatTimer = null;
-        this.connectionStartTime = null;
-        this.lastActivityTime = null;
-        this.lastHeartbeatTime = null;
+        this.heartbeatIntervalId = null;
+        this.lastHeartbeatSent = null;
+        this.lastHeartbeatReceived = null;
+        this.heartbeatFailures = 0;
         
         // Performance tracking
         this.stats = {
@@ -73,18 +76,14 @@ const ChatService = {
             connectionUptime: 0,
             averageLatency: 0,
             lastLatency: 0,
-            cacheHits: 0,
-            cacheMisses: 0,
-            messagesFromCache: 0,
-            bandwidthSaved: 0
+            errorsIgnored: 0,
+            heartbeatsSent: 0,
+            heartbeatsReceived: 0
         };
         
-        // Enhanced Cache System
+        // Simple cache system
         this.cache = new Map();
-        this.cacheIndex = new Map(); // For quick lookups
         this.cacheTimestamps = new Map();
-        this.cacheAccessCount = new Map();
-        this.compressionCache = new Map();
         
         // Bind methods
         this._onMessage = this._onMessage.bind(this);
@@ -92,94 +91,106 @@ const ChatService = {
         this._onClose = this._onClose.bind(this);
         this._onError = this._onError.bind(this);
         this._sendHeartbeat = this._sendHeartbeat.bind(this);
-        this._processBatch = this._processBatch.bind(this);
         
-        // Set up persistent connection data
+        // Set up event handlers
+        this._setupEventHandlers();
+        
+        // Initialize persistent connection
         this._initializePersistentConnection();
         
-        // Set up visibility change handler
-        this._setupVisibilityHandler();
-        
-        // Start cache maintenance
-        this._startCacheMaintenance();
-        
-        window.AAAI_LOGGER.info('Enhanced ChatService initialized', {
+        this._log('Enhanced ChatService initialized', {
             environment: window.AAAI_CONFIG.ENVIRONMENT,
-            websocketsEnabled: window.AAAI_CONFIG.ENABLE_WEBSOCKETS,
-            persistentConnection: this.options.persistentConnection,
-            cacheEnabled: true,
-            debug: this.options.debug
+            options: this.options
         });
         
         return this;
     },
     
     /**
-     * Initialize persistent connection data with enhanced caching
+     * Setup event handlers
+     */
+    _setupEventHandlers() {
+        // Page visibility change handler
+        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'visible') {
+                this._log('Page became visible');
+                if (this.authService.isAuthenticated() && !this.isConnected && !this.isConnecting) {
+                    this._log('Attempting to reconnect on page visible');
+                    this.connect().catch(err => {
+                        this._error('Failed to reconnect on page visible:', err);
+                    });
+                }
+            } else {
+                this._log('Page became hidden');
+                // Reduce activity but don't disconnect
+                this._updateLastActivity();
+            }
+        });
+        
+        // Handle page unload
+        window.addEventListener('beforeunload', () => {
+            this._savePersistentConnection();
+            if (this.isConnected) {
+                this.disconnect();
+            }
+        });
+        
+        // Handle connection errors at window level
+        window.addEventListener('online', () => {
+            this._log('Network came back online');
+            if (!this.isConnected && this.authService.isAuthenticated()) {
+                setTimeout(() => this.connect(), 1000);
+            }
+        });
+        
+        window.addEventListener('offline', () => {
+            this._log('Network went offline');
+            this._notifyStatusChange('offline');
+        });
+    },
+    
+    /**
+     * Initialize persistent connection data
      */
     _initializePersistentConnection() {
         if (!this.options.persistentConnection) return;
         
         try {
-            // Restore connection data
             const savedData = localStorage.getItem('aaai_websocket_data');
             if (savedData) {
                 const data = JSON.parse(savedData);
-                this.connectionId = data.connectionId;
-                this.reconnectToken = data.reconnectToken;
-                this.messageHistory = data.messageHistory || [];
                 
-                // Restore cache data
-                if (data.cache) {
-                    this._restoreCache(data.cache);
-                }
-                
-                // Restore stats
-                if (data.stats) {
-                    Object.assign(this.stats, data.stats);
-                }
-                
-                window.AAAI_LOGGER.info('Persistent connection data restored', {
-                    connectionId: this.connectionId,
-                    hasReconnectToken: !!this.reconnectToken,
-                    messageHistoryCount: this.messageHistory.length,
-                    cacheSize: this.cache.size
-                });
-            }
-        } catch (error) {
-            window.AAAI_LOGGER.warn('Failed to restore persistent connection data:', error);
-        }
-    },
-    
-    /**
-     * Restore cache from persistent storage
-     */
-    _restoreCache(cacheData) {
-        try {
-            const now = Date.now();
-            
-            for (const [key, item] of Object.entries(cacheData)) {
-                // Check if cache item is still valid
-                if (item.timestamp && (now - item.timestamp) < this.options.cacheExpiry) {
-                    this.cache.set(key, item.data);
-                    this.cacheTimestamps.set(key, item.timestamp);
-                    this.cacheAccessCount.set(key, item.accessCount || 0);
+                // Only restore if data is recent (within 24 hours)
+                const dataAge = Date.now() - (data.lastSaved || 0);
+                if (dataAge < 86400000) { // 24 hours
+                    this.connectionId = data.connectionId;
+                    this.reconnectToken = data.reconnectToken;
+                    this.messageHistory = (data.messageHistory || []).slice(-20); // Keep only recent history
                     
-                    // Restore cache index
-                    if (item.index) {
-                        this.cacheIndex.set(key, item.index);
+                    // Restore relevant stats
+                    if (data.stats) {
+                        this.stats.totalConnections = data.stats.totalConnections || 0;
+                        this.stats.totalReconnections = data.stats.totalReconnections || 0;
                     }
+                    
+                    this._log('Persistent connection data restored', {
+                        connectionId: this.connectionId,
+                        hasReconnectToken: !!this.reconnectToken,
+                        messageHistoryCount: this.messageHistory.length
+                    });
+                } else {
+                    this._log('Persistent data too old, clearing');
+                    localStorage.removeItem('aaai_websocket_data');
                 }
             }
-            
-            window.AAAI_LOGGER.info(`Restored ${this.cache.size} items from cache`);
         } catch (error) {
-            window.AAAI_LOGGER.warn('Failed to restore cache:', error);
+            this._warn('Failed to restore persistent connection data:', error);
+            localStorage.removeItem('aaai_websocket_data');
         }
     },
     
     /**
-     * Save persistent connection data with cache
+     * Save persistent connection data
      */
     _savePersistentConnection() {
         if (!this.options.persistentConnection) return;
@@ -188,159 +199,51 @@ const ChatService = {
             const data = {
                 connectionId: this.connectionId,
                 reconnectToken: this.reconnectToken,
-                messageHistory: this.messageHistory.slice(-50),
-                cache: this._serializeCache(),
-                stats: this.stats,
+                messageHistory: this.messageHistory.slice(-20), // Keep only recent messages
+                stats: {
+                    totalConnections: this.stats.totalConnections,
+                    totalReconnections: this.stats.totalReconnections
+                },
                 lastSaved: Date.now()
             };
             
             localStorage.setItem('aaai_websocket_data', JSON.stringify(data));
         } catch (error) {
-            window.AAAI_LOGGER.warn('Failed to save persistent connection data:', error);
+            this._warn('Failed to save persistent connection data:', error);
         }
     },
     
     /**
-     * Serialize cache for persistent storage
-     */
-    _serializeCache() {
-        const serialized = {};
-        const now = Date.now();
-        
-        for (const [key, value] of this.cache.entries()) {
-            const timestamp = this.cacheTimestamps.get(key) || now;
-            
-            // Only serialize non-expired items
-            if ((now - timestamp) < this.options.cacheExpiry) {
-                serialized[key] = {
-                    data: value,
-                    timestamp: timestamp,
-                    accessCount: this.cacheAccessCount.get(key) || 0,
-                    index: this.cacheIndex.get(key)
-                };
-            }
-        }
-        
-        return serialized;
-    },
-    
-    /**
-     * Start cache maintenance tasks
-     */
-    _startCacheMaintenance() {
-        // Clean up expired cache items every 5 minutes
-        setInterval(() => {
-            this._cleanupCache();
-        }, 300000);
-        
-        // Save cache periodically
-        setInterval(() => {
-            if (this.options.persistentConnection) {
-                this._savePersistentConnection();
-            }
-        }, 60000); // Every minute
-    },
-    
-    /**
-     * Clean up expired cache items
-     */
-    _cleanupCache() {
-        const now = Date.now();
-        const expiredKeys = [];
-        
-        for (const [key, timestamp] of this.cacheTimestamps.entries()) {
-            if ((now - timestamp) > this.options.cacheExpiry) {
-                expiredKeys.push(key);
-            }
-        }
-        
-        // Remove expired items
-        expiredKeys.forEach(key => {
-            this.cache.delete(key);
-            this.cacheTimestamps.delete(key);
-            this.cacheAccessCount.delete(key);
-            this.cacheIndex.delete(key);
-            this.compressionCache.delete(key);
-        });
-        
-        // If cache is still too large, remove least recently used items
-        if (this.cache.size > this.options.maxCacheSize) {
-            this._evictLeastRecentlyUsed();
-        }
-        
-        if (expiredKeys.length > 0) {
-            window.AAAI_LOGGER.debug(`Cleaned up ${expiredKeys.length} expired cache items. Cache size: ${this.cache.size}`);
-        }
-    },
-    
-    /**
-     * Evict least recently used cache items
-     */
-    _evictLeastRecentlyUsed() {
-        const entries = Array.from(this.cacheAccessCount.entries())
-            .sort((a, b) => a[1] - b[1]) // Sort by access count
-            .slice(0, Math.floor(this.options.maxCacheSize * 0.1)); // Remove 10%
-        
-        entries.forEach(([key]) => {
-            this.cache.delete(key);
-            this.cacheTimestamps.delete(key);
-            this.cacheAccessCount.delete(key);
-            this.cacheIndex.delete(key);
-            this.compressionCache.delete(key);
-        });
-        
-        window.AAAI_LOGGER.debug(`Evicted ${entries.length} LRU cache items`);
-    },
-    
-    /**
-     * Set up page visibility change handler
-     */
-    _setupVisibilityHandler() {
-        document.addEventListener('visibilitychange', () => {
-            if (document.visibilityState === 'visible') {
-                if (this.authService.isAuthenticated() && !this.isConnected && !this.isConnecting) {
-                    window.AAAI_LOGGER.info('Page visible, attempting to reconnect WebSocket');
-                    this.connect().catch(err => {
-                        window.AAAI_LOGGER.error('Failed to reconnect on page visible:', err);
-                    });
-                }
-            } else {
-                if (this.isConnected) {
-                    window.AAAI_LOGGER.debug('Page hidden, reducing WebSocket activity');
-                    // Flush any pending batches
-                    this._processBatch();
-                }
-            }
-        });
-    },
-    
-    /**
-     * Connect to WebSocket with enhanced persistence
+     * Connect to WebSocket
      */
     connect() {
         return new Promise((resolve, reject) => {
             if (!this.authService.isAuthenticated()) {
                 const error = new Error('Authentication required for WebSocket connection');
-                window.AAAI_LOGGER.error(error.message);
+                this._error(error.message);
                 reject(error);
                 return;
             }
             
             if (this.isConnected) {
-                window.AAAI_LOGGER.debug('Already connected to WebSocket');
+                this._log('Already connected to WebSocket');
                 resolve(true);
                 return;
             }
             
             if (this.isConnecting) {
-                window.AAAI_LOGGER.debug('Connection already in progress');
-                setTimeout(() => {
+                this._log('Connection already in progress');
+                // Wait for connection to complete
+                const checkConnection = () => {
                     if (this.isConnected) {
                         resolve(true);
+                    } else if (!this.isConnecting) {
+                        reject(new Error('Connection failed'));
                     } else {
-                        reject(new Error('Connection attempt timed out'));
+                        setTimeout(checkConnection, 100);
                     }
-                }, this.options.connectionTimeout);
+                };
+                setTimeout(checkConnection, 100);
                 return;
             }
             
@@ -348,13 +251,20 @@ const ChatService = {
             
             try {
                 const user = this.authService.getCurrentUser();
-                const wsUrl = this._buildWebSocketUrl(user.id);
+                this.userId = user.id || user.user_id;
                 
-                window.AAAI_LOGGER.info(`Connecting to WebSocket: ${this._maskSensitiveUrl(wsUrl)}`);
+                if (!this.userId) {
+                    throw new Error('Invalid user data - no user ID found');
+                }
+                
+                const wsUrl = this._buildWebSocketUrl(this.userId);
+                
+                this._log(`Connecting to WebSocket: ${this._maskSensitiveUrl(wsUrl)}`);
                 
                 this.socket = new WebSocket(wsUrl);
                 this.connectionStartTime = Date.now();
                 
+                // Set up event listeners
                 this.socket.addEventListener('open', (event) => {
                     this._onOpen(event);
                     resolve(true);
@@ -362,16 +272,19 @@ const ChatService = {
                 
                 this.socket.addEventListener('message', this._onMessage);
                 this.socket.addEventListener('close', this._onClose);
+                
                 this.socket.addEventListener('error', (event) => {
                     this._onError(event);
                     if (this.isConnecting) {
+                        this.isConnecting = false;
                         reject(new Error('WebSocket connection error'));
                     }
                 });
                 
+                // Connection timeout
                 setTimeout(() => {
                     if (this.isConnecting && this.socket && this.socket.readyState === WebSocket.CONNECTING) {
-                        window.AAAI_LOGGER.error('WebSocket connection timeout');
+                        this._error('WebSocket connection timeout');
                         this.socket.close();
                         this.isConnecting = false;
                         reject(new Error('Connection timeout'));
@@ -380,7 +293,7 @@ const ChatService = {
                 
             } catch (error) {
                 this.isConnecting = false;
-                window.AAAI_LOGGER.error('Connection error:', error);
+                this._error('Connection error:', error);
                 reject(error);
             }
         });
@@ -390,27 +303,37 @@ const ChatService = {
      * Build WebSocket URL with authentication
      */
     _buildWebSocketUrl(userId) {
-        const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const wsHost = window.AAAI_CONFIG.ENVIRONMENT === 'development' 
-            ? 'localhost:8080' 
-            : window.location.host;
-        
-        let url = `${wsProtocol}//${wsHost}/ws/${userId}`;
-        
-        const token = this.authService.getToken();
-        if (token) {
-            url += `?token=${token}`;
+        // Determine WebSocket URL based on environment
+        let wsHost;
+        if (window.AAAI_CONFIG.WS_BASE_URL) {
+            wsHost = window.AAAI_CONFIG.WS_BASE_URL.replace(/^https?:\/\//, '').replace(/^wss?:\/\//, '');
+        } else if (window.AAAI_CONFIG.ENVIRONMENT === 'development') {
+            wsHost = 'localhost:8080';
+        } else {
+            // Production WebSocket URL
+            wsHost = 'api-server-559730737995.us-central1.run.app';
         }
         
+        const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        let url = `${wsProtocol}//${wsHost}/ws/${userId}`;
+        
+        // Add authentication token
+        const token = this.authService.getToken();
+        if (token) {
+            url += `?token=${encodeURIComponent(token)}`;
+        }
+        
+        // Add reconnect token if available
         if (this.reconnectToken) {
-            url += token ? `&reconnect_token=${this.reconnectToken}` : `?reconnect_token=${this.reconnectToken}`;
+            const separator = token ? '&' : '?';
+            url += `${separator}reconnect_token=${encodeURIComponent(this.reconnectToken)}`;
         }
         
         return url;
     },
     
     /**
-     * Mask sensitive information in URLs
+     * Mask sensitive information in URLs for logging
      */
     _maskSensitiveUrl(url) {
         return url.replace(/token=[^&]*/, 'token=***').replace(/reconnect_token=[^&]*/, 'reconnect_token=***');
@@ -420,14 +343,16 @@ const ChatService = {
      * Handle WebSocket open event
      */
     _onOpen(event) {
-        window.AAAI_LOGGER.info('WebSocket connected successfully');
+        this._log('WebSocket connected successfully');
         
         this.isConnected = true;
         this.isConnecting = false;
         this.reconnectAttempts = 0;
-        this.lastActivityTime = Date.now();
+        this.heartbeatFailures = 0;
+        this._updateLastActivity();
         this.stats.totalConnections++;
         
+        // Clear reconnect timer
         if (this.reconnectTimer) {
             clearTimeout(this.reconnectTimer);
             this.reconnectTimer = null;
@@ -435,56 +360,43 @@ const ChatService = {
         
         this._notifyStatusChange('connected');
         
-        // Start heartbeat AFTER a short delay
+        // Start heartbeat after connection is stable
         setTimeout(() => {
-            this._startHeartbeat();
-        }, 2000); // 2 second delay before starting heartbeat
+            if (this.isConnected) {
+                this._startHeartbeat();
+            }
+        }, 3000);
         
-        // Process any queued messages, but NOT empty batches
-        if (this.messageQueue.length > 0) {
-            this._sendQueuedMessages();
-        }
+        // Process queued messages
+        this._processQueuedMessages();
         
+        // Save connection state
         this._savePersistentConnection();
     },
     
     /**
-     * Handle WebSocket message event with caching
+     * Handle WebSocket message event
      */
     _onMessage(event) {
         try {
-            // Debug logging
-            console.log('WebSocket raw message:', event.data);
-            
             const data = JSON.parse(event.data);
             this.stats.totalMessagesReceived++;
-            this.lastActivityTime = Date.now();
+            this._updateLastActivity();
             
-            // IMPORTANT: Check for and ignore the empty message errors
-            if (data.type === "error" && data.message === "Message cannot be empty") {
-                // Completely ignore these errors - they're caused by system messages
-                console.log('Ignoring "Message cannot be empty" error - this is a known issue');
-                return;
-            }
+            this._log('Received WebSocket message:', data.type || 'unknown type');
             
-            window.AAAI_LOGGER.debug('Received WebSocket message:', data.type || 'unknown type');
-            
-            // Cache the message if it's cacheable
-            this._cacheMessage(data);
-            
-            // Handle different message types
+            // Handle specific message types
             switch (data.type) {
                 case 'connection_established':
                     this._handleConnectionEstablished(data);
                     break;
                     
                 case 'heartbeat':
-                case 'ping':
                     this._handleHeartbeat(data);
                     break;
                     
-                case 'pong':
                 case 'heartbeat_ack':
+                case 'pong':
                     this._handleHeartbeatAck(data);
                     break;
                     
@@ -497,164 +409,36 @@ const ChatService = {
                     break;
                     
                 case 'history_loaded':
+                case 'history_response':
                     this._handleHistoryLoaded(data);
                     break;
                     
                 case 'error':
-                    this._handleError(data);
+                    this._handleServerError(data);
+                    break;
+                    
+                case 'token_refresh_recommended':
+                    this._handleTokenRefreshRecommended(data);
+                    break;
+                    
+                case 'disconnect_notice':
+                    this._handleDisconnectNotice(data);
                     break;
                     
                 default:
+                    // Pass through unknown message types to listeners
                     this._notifyMessageListeners(data);
                     break;
             }
             
-            // Add to message history (only add non-error messages)
-            if (data.type !== "error") {
-                this.messageHistory.push({
-                    ...data,
-                    received_at: Date.now()
-                });
-                
-                if (this.messageHistory.length > 100) {
-                    this.messageHistory = this.messageHistory.slice(-50);
-                }
+            // Add to message history (excluding heartbeats and errors)
+            if (!['heartbeat', 'heartbeat_ack', 'pong', 'ping', 'error'].includes(data.type)) {
+                this._addToHistory(data);
             }
             
         } catch (error) {
-            window.AAAI_LOGGER.error('Error processing WebSocket message:', error);
+            this._error('Error processing WebSocket message:', error, event.data);
         }
-    },
-    
-    /**
-     * Cache message data
-     */
-    _cacheMessage(data) {
-        if (!data || !data.type) return;
-        
-        // Don't cache ephemeral messages
-        const ephemeralTypes = ['heartbeat', 'ping', 'pong', 'heartbeat_ack'];
-        if (ephemeralTypes.includes(data.type)) return;
-        
-        const cacheKey = this._generateCacheKey(data);
-        const now = Date.now();
-        
-        // Check if we already have this message
-        if (this.cache.has(cacheKey)) {
-            this.stats.cacheHits++;
-            this.cacheAccessCount.set(cacheKey, (this.cacheAccessCount.get(cacheKey) || 0) + 1);
-            return;
-        }
-        
-        // Compress data if enabled
-        let cacheData = data;
-        if (this.options.enableCompression) {
-            cacheData = this._compressData(data);
-            if (cacheData.compressed) {
-                this.stats.bandwidthSaved += JSON.stringify(data).length - JSON.stringify(cacheData).length;
-            }
-        }
-        
-        // Store in cache
-        this.cache.set(cacheKey, cacheData);
-        this.cacheTimestamps.set(cacheKey, now);
-        this.cacheAccessCount.set(cacheKey, 1);
-        
-        // Create index for quick lookups
-        if (data.message_id) {
-            this.cacheIndex.set(data.message_id, cacheKey);
-        }
-        
-        this.stats.cacheMisses++;
-        
-        // Cleanup if cache is too large
-        if (this.cache.size > this.options.maxCacheSize) {
-            this._evictLeastRecentlyUsed();
-        }
-    },
-    
-    /**
-     * Generate cache key for message
-     */
-    _generateCacheKey(data) {
-        if (data.message_id) {
-            return `msg_${data.message_id}`;
-        }
-        
-        if (data.type && data.timestamp) {
-            return `${data.type}_${data.timestamp}`;
-        }
-        
-        return `generic_${Date.now()}_${Math.random()}`;
-    },
-    
-    /**
-     * Compress data for caching
-     */
-    _compressData(data) {
-        try {
-            const jsonStr = JSON.stringify(data);
-            
-            // Simple compression - remove unnecessary whitespace and compress common patterns
-            const compressed = jsonStr
-                .replace(/\s+/g, ' ')
-                .replace(/": "/g, '":"')
-                .replace(/", "/g, '","')
-                .replace(/\{ "/g, '{"')
-                .replace(/" \}/g, '"}');
-            
-            if (compressed.length < jsonStr.length * 0.8) {
-                return {
-                    compressed: true,
-                    data: compressed
-                };
-            }
-            
-            return data;
-        } catch (error) {
-            return data;
-        }
-    },
-    
-    /**
-     * Decompress cached data
-     */
-    _decompressData(cachedData) {
-        if (cachedData && cachedData.compressed) {
-            try {
-                return JSON.parse(cachedData.data);
-            } catch (error) {
-                return cachedData;
-            }
-        }
-        return cachedData;
-    },
-    
-    /**
-     * Get message from cache
-     */
-    getCachedMessage(messageId) {
-        const cacheKey = this.cacheIndex.get(messageId);
-        if (!cacheKey) return null;
-        
-        const cachedData = this.cache.get(cacheKey);
-        if (!cachedData) return null;
-        
-        // Check if expired
-        const timestamp = this.cacheTimestamps.get(cacheKey);
-        if (timestamp && (Date.now() - timestamp) > this.options.cacheExpiry) {
-            this.cache.delete(cacheKey);
-            this.cacheTimestamps.delete(cacheKey);
-            this.cacheAccessCount.delete(cacheKey);
-            this.cacheIndex.delete(messageId);
-            return null;
-        }
-        
-        // Update access count
-        this.cacheAccessCount.set(cacheKey, (this.cacheAccessCount.get(cacheKey) || 0) + 1);
-        this.stats.messagesFromCache++;
-        
-        return this._decompressData(cachedData);
     },
     
     /**
@@ -664,41 +448,60 @@ const ChatService = {
         this.connectionId = data.connection_id;
         this.reconnectToken = data.reconnect_token;
         
-        window.AAAI_LOGGER.info('WebSocket connection established', {
+        this._log('WebSocket connection established', {
             connectionId: this.connectionId,
             hasReconnectToken: !!this.reconnectToken
         });
         
         this._savePersistentConnection();
+        this._notifyMessageListeners(data);
     },
     
     /**
-     * Handle heartbeat/ping messages
+     * Handle heartbeat message
      */
     _handleHeartbeat(data) {
+        // Respond to server heartbeat
         this._sendMessage({
-            type: 'pong',
-            timestamp: new Date().toISOString()
-        }, false);
+            type: 'heartbeat_ack',
+            timestamp: new Date().toISOString(),
+            server_timestamp: data.timestamp
+        }, false, false);
+        
+        this.stats.heartbeatsReceived++;
     },
     
     /**
      * Handle heartbeat acknowledgment
      */
     _handleHeartbeatAck(data) {
-        this.lastHeartbeatTime = Date.now();
+        this.lastHeartbeatReceived = Date.now();
+        this.heartbeatFailures = 0;
         
-        if (data.client_timestamp) {
-            const latency = Date.now() - new Date(data.client_timestamp).getTime();
-            this.stats.lastLatency = latency;
-            this.stats.averageLatency = (this.stats.averageLatency + latency) / 2;
+        // Calculate latency if we have client timestamp
+        if (data.client_timestamp || data.timestamp) {
+            try {
+                const sentTime = new Date(data.client_timestamp || data.timestamp).getTime();
+                const latency = Date.now() - sentTime;
+                if (latency > 0 && latency < 60000) { // Reasonable latency range
+                    this.stats.lastLatency = latency;
+                    this.stats.averageLatency = this.stats.averageLatency 
+                        ? (this.stats.averageLatency + latency) / 2 
+                        : latency;
+                }
+            } catch (e) {
+                // Ignore timestamp parsing errors
+            }
         }
+        
+        this._log('Heartbeat acknowledged', { latency: this.stats.lastLatency });
     },
     
     /**
-     * Handle chat messages
+     * Handle chat message
      */
     _handleChatMessage(data) {
+        // Remove from pending messages if this is a response
         if (data.message_id && this.pendingMessages.has(data.message_id)) {
             this.pendingMessages.delete(data.message_id);
         }
@@ -724,39 +527,71 @@ const ChatService = {
      * Handle message history
      */
     _handleHistoryLoaded(data) {
-        window.AAAI_LOGGER.info(`Loaded ${data.messages?.length || 0} messages from history`);
-        
-        // Cache history messages
-        if (data.messages) {
-            data.messages.forEach(msg => this._cacheMessage(msg));
-        }
-        
+        this._log(`Loaded ${data.messages?.length || 0} messages from history`);
         this._notifyMessageListeners(data);
     },
     
     /**
-     * Handle error messages
+     * Handle server errors
      */
-    _handleError(data) {
-        // Ignore empty message errors if they come right after connection
-        // or if they're near heartbeat timing
-        const now = Date.now();
-        const timeSinceConnection = now - (this.connectionStartTime || now);
-        const timeSinceLastHeartbeat = now - (this.lastHeartbeatTime || now);
+    _handleServerError(data) {
+        // Filter out known non-critical errors
+        const ignorableErrors = [
+            'Message cannot be empty',
+            'Invalid message format'
+        ];
         
-        if (data.message === "Message cannot be empty" && 
-            (timeSinceConnection < 5000 || timeSinceLastHeartbeat < 2000)) {
-            
-            window.AAAI_LOGGER.debug('Ignoring empty message error - likely system message', {
-                timeSinceConnection,
-                timeSinceLastHeartbeat
-            });
+        if (ignorableErrors.some(err => data.message && data.message.includes(err))) {
+            this._log('Ignoring non-critical server error:', data.message);
+            this.stats.errorsIgnored++;
             return;
         }
         
-        // For real errors, log and notify listeners
-        window.AAAI_LOGGER.error('WebSocket error message:', data.message);
+        // Handle authentication errors
+        if (data.code === 'AUTH_FAILED' || data.message?.toLowerCase().includes('authentication')) {
+            this._error('Authentication failed, redirecting to login');
+            this.authService.logout();
+            return;
+        }
+        
+        // Log and notify other errors
+        this._error('Server error:', data.message);
         this._notifyErrorListeners(data);
+        this._notifyMessageListeners(data);
+    },
+    
+    /**
+     * Handle token refresh recommendation
+     */
+    _handleTokenRefreshRecommended(data) {
+        this._warn('Token refresh recommended:', data.message);
+        
+        // Attempt silent token refresh
+        if (this.authService.refreshTokenSilently) {
+            this.authService.refreshTokenSilently()
+                .then(() => {
+                    this._log('Token refreshed successfully');
+                })
+                .catch(error => {
+                    this._warn('Failed to refresh token:', error);
+                });
+        }
+    },
+    
+    /**
+     * Handle disconnect notice
+     */
+    _handleDisconnectNotice(data) {
+        this._warn('Server disconnect notice:', data.message);
+        
+        if (data.reconnect_recommended) {
+            // Schedule reconnection after a delay
+            setTimeout(() => {
+                if (!this.isConnected && this.authService.isAuthenticated()) {
+                    this.connect();
+                }
+            }, 5000);
+        }
     },
     
     /**
@@ -767,8 +602,8 @@ const ChatService = {
         this.isConnecting = false;
         
         this._stopHeartbeat();
-        this._processBatch(); // Flush any pending batches
         
+        // Calculate uptime
         if (this.connectionStartTime) {
             const uptime = Date.now() - this.connectionStartTime;
             this.stats.connectionUptime += uptime;
@@ -776,7 +611,7 @@ const ChatService = {
         
         this.lastDisconnectReason = event.reason || 'Unknown';
         
-        window.AAAI_LOGGER.warn('WebSocket disconnected', { 
+        this._log('WebSocket disconnected', { 
             code: event.code, 
             reason: event.reason,
             wasClean: event.wasClean
@@ -784,19 +619,41 @@ const ChatService = {
         
         this._notifyStatusChange('disconnected');
         
-        if (event.code !== 1000 && event.code !== 1001 && this.authService.isAuthenticated()) {
+        // Determine if we should attempt to reconnect
+        const shouldReconnect = this._shouldAttemptReconnect(event.code);
+        
+        if (shouldReconnect && this.authService.isAuthenticated()) {
             this._scheduleReconnect();
-        } else if (this.options.persistentConnection) {
-            localStorage.removeItem('aaai_websocket_data');
+        } else {
+            this._log('Not attempting to reconnect', { code: event.code, authenticated: this.authService.isAuthenticated() });
+            if (!this.authService.isAuthenticated()) {
+                this._clearPersistentConnection();
+            }
         }
+    },
+    
+    /**
+     * Determine if we should attempt to reconnect based on close code
+     */
+    _shouldAttemptReconnect(code) {
+        // Don't reconnect for these codes
+        const noReconnectCodes = [
+            1000, // Normal closure
+            1001, // Going away
+            1005, // No status code (browser initiated)
+            4001, // Custom: Authentication failed
+            4403  // Custom: Forbidden
+        ];
+        
+        return !noReconnectCodes.includes(code) && this.reconnectAttempts < this.options.maxReconnectAttempts;
     },
     
     /**
      * Handle WebSocket error event
      */
     _onError(event) {
-        window.AAAI_LOGGER.error('WebSocket error:', event);
-        this.lastActivityTime = Date.now();
+        this._error('WebSocket error:', event);
+        this._updateLastActivity();
         this._notifyStatusChange('error');
     },
     
@@ -805,20 +662,26 @@ const ChatService = {
      */
     _scheduleReconnect() {
         if (this.reconnectAttempts >= this.options.maxReconnectAttempts) {
-            window.AAAI_LOGGER.error('Max reconnect attempts reached');
+            this._error('Max reconnect attempts reached');
             this._notifyStatusChange('failed');
             return;
+        }
+        
+        // Clear any existing timer
+        if (this.reconnectTimer) {
+            clearTimeout(this.reconnectTimer);
         }
         
         this.reconnectAttempts++;
         this.stats.totalReconnections++;
         
+        // Calculate delay with exponential backoff and jitter
         const baseDelay = this.options.reconnectInterval;
-        const backoffDelay = Math.min(baseDelay * Math.pow(2, this.reconnectAttempts - 1), 30000);
-        const jitter = Math.random() * 1000;
+        const backoffDelay = Math.min(baseDelay * Math.pow(1.5, this.reconnectAttempts - 1), 30000);
+        const jitter = Math.random() * 2000; // 0-2 seconds jitter
         const delay = backoffDelay + jitter;
         
-        window.AAAI_LOGGER.info(`Scheduling reconnect attempt ${this.reconnectAttempts}/${this.options.maxReconnectAttempts} in ${Math.round(delay)}ms`);
+        this._log(`Scheduling reconnect attempt ${this.reconnectAttempts}/${this.options.maxReconnectAttempts} in ${Math.round(delay)}ms`);
         
         this._notifyStatusChange('reconnecting');
         
@@ -826,9 +689,10 @@ const ChatService = {
             if (!this.isConnected && this.authService.isAuthenticated()) {
                 try {
                     await this.connect();
-                    window.AAAI_LOGGER.info('Reconnected successfully');
+                    this._log('Reconnected successfully');
                 } catch (err) {
-                    window.AAAI_LOGGER.error('Reconnect failed:', err);
+                    this._error('Reconnect failed:', err);
+                    // Will schedule another attempt if within limits
                     this._scheduleReconnect();
                 }
             }
@@ -841,31 +705,34 @@ const ChatService = {
     _startHeartbeat() {
         this._stopHeartbeat();
         
-        // Initialize heartbeat status
-        this.lastHeartbeatTime = Date.now();
-        this.heartbeatSent = false;
+        if (!this.options.heartbeatInterval || this.options.heartbeatInterval <= 0) {
+            return;
+        }
         
-        this.heartbeatTimer = setInterval(() => {
+        this.lastHeartbeatSent = Date.now();
+        this.lastHeartbeatReceived = Date.now();
+        this.heartbeatFailures = 0;
+        
+        this.heartbeatIntervalId = setInterval(() => {
             if (this.isConnected) {
-                // Only send heartbeat if we've waited at least the full interval
-                const timeSinceLastHeartbeat = Date.now() - this.lastHeartbeatTime;
-                if (timeSinceLastHeartbeat >= this.options.heartbeatInterval - 1000) {
-                    this._sendHeartbeat();
-                } else {
-                    window.AAAI_LOGGER.debug(`Skipping heartbeat, only ${timeSinceLastHeartbeat}ms since last one`);
-                }
+                this._sendHeartbeat();
             }
         }, this.options.heartbeatInterval);
         
-        window.AAAI_LOGGER.debug('Started heartbeat mechanism');
+        this._log('Started heartbeat mechanism');
     },
     
     /**
      * Stop heartbeat mechanism
      */
     _stopHeartbeat() {
+        if (this.heartbeatIntervalId) {
+            clearInterval(this.heartbeatIntervalId);
+            this.heartbeatIntervalId = null;
+        }
+        
         if (this.heartbeatTimer) {
-            clearInterval(this.heartbeatTimer);
+            clearTimeout(this.heartbeatTimer);
             this.heartbeatTimer = null;
         }
     },
@@ -875,71 +742,82 @@ const ChatService = {
      */
     _sendHeartbeat() {
         try {
-            // Use a specific type that won't be confused with user messages
-            this._sendMessage({
-                type: 'heartbeat',
-                timestamp: new Date().toISOString(),
-                client_timestamp: new Date().toISOString(),
-                is_heartbeat: true  // Add explicit flag
-            }, false);
+            // Check for missed heartbeats
+            const now = Date.now();
+            const timeSinceLastReceived = now - (this.lastHeartbeatReceived || now);
             
-            window.AAAI_LOGGER.debug('Sent heartbeat');
+            if (timeSinceLastReceived > this.options.heartbeatInterval * 2) {
+                this.heartbeatFailures++;
+                this._warn(`Heartbeat failure ${this.heartbeatFailures} - no response in ${timeSinceLastReceived}ms`);
+                
+                if (this.heartbeatFailures >= 3) {
+                    this._error('Multiple heartbeat failures, closing connection');
+                    this.socket?.close(1002, 'Heartbeat timeout');
+                    return;
+                }
+            }
+            
+            this._sendMessage({
+                type: 'ping',
+                timestamp: new Date().toISOString(),
+                client_timestamp: new Date().toISOString()
+            }, false, false);
+            
+            this.lastHeartbeatSent = now;
+            this.stats.heartbeatsSent++;
+            
+            this._log('Sent heartbeat');
         } catch (error) {
-            window.AAAI_LOGGER.error('Error sending heartbeat:', error);
+            this._error('Error sending heartbeat:', error);
+            this.heartbeatFailures++;
         }
     },
     
     /**
-     * Send a message through WebSocket with batching support
+     * Send a message through WebSocket
      */
     sendMessage(message) {
         return new Promise((resolve, reject) => {
-            if (!message || message.trim() === '') {
-                reject(new Error('Message cannot be empty'));
+            if (!message || typeof message !== 'string' || message.trim() === '') {
+                reject(new Error('Message cannot be empty or invalid'));
                 return;
             }
             
-            // Store the last message sent for error validation
-            this.lastMessageSent = message.trim();
+            const trimmedMessage = message.trim();
+            this.lastMessageSent = trimmedMessage;
             
             const messageData = {
-                type: 'message',          // Explicitly mark as user message
-                message: this.lastMessageSent,
+                type: 'message',
+                message: trimmedMessage,
                 timestamp: new Date().toISOString(),
-                id: this._generateMessageId(),
-                is_user_message: true     // Add this flag to distinguish from system messages
+                id: this._generateMessageId()
             };
-            
-            if (this.options.enableBatching && this.messageBatch.length < this.options.batchSize) {
-                this._addToBatch(messageData);
-                resolve(true);
-                return;
-            }
             
             if (this.isConnected) {
                 try {
-                    this._sendMessage(messageData);
+                    this._sendMessage(messageData, true, true);
                     this.stats.totalMessagesSent++;
-                    resolve(true);
+                    resolve(messageData.id);
                 } catch (error) {
-                    window.AAAI_LOGGER.error('Send error:', error);
+                    this._error('Send error:', error);
                     reject(error);
                 }
             } else {
+                // Queue message and attempt to connect
                 this._queueMessage(messageData);
                 
                 if (!this.isConnecting) {
                     this.connect()
                         .then(() => {
-                            window.AAAI_LOGGER.info('Connected and will send queued message');
-                            resolve(true);
+                            this._log('Connected and will send queued message');
+                            resolve(messageData.id);
                         })
                         .catch(err => {
-                            window.AAAI_LOGGER.error('Failed to connect for message send:', err);
+                            this._error('Failed to connect for message send:', err);
                             reject(new Error('Not connected and failed to connect'));
                         });
                 } else {
-                    resolve(true);
+                    resolve(messageData.id);
                 }
             }
         });
@@ -953,87 +831,26 @@ const ChatService = {
     },
     
     /**
-     * Add message to batch
-     */
-    _addToBatch(messageData) {
-        this.messageBatch.push(messageData);
-        
-        if (this.batchTimer) {
-            clearTimeout(this.batchTimer);
-        }
-        
-        this.batchTimer = setTimeout(() => {
-            this._processBatch();
-        }, this.options.batchTimeout);
-        
-        if (this.messageBatch.length >= this.options.batchSize) {
-            this._processBatch();
-        }
-    },
-    
-    /**
-     * Process batched messages
-     */
-    _processBatch() {
-        if (!this.messageBatch || this.messageBatch.length === 0) {
-            // Skip empty batches entirely
-            return;
-        }
-        
-        if (this.batchTimer) {
-            clearTimeout(this.batchTimer);
-            this.batchTimer = null;
-        }
-        
-        const batch = [...this.messageBatch];
-        this.messageBatch = [];
-        
-        if (this.isConnected) {
-            try {
-                // Only send if we actually have messages
-                if (batch.length > 0) {
-                    // Send as a single batch message with explicit type
-                    this._sendMessage({
-                        type: 'message_batch',
-                        messages: batch,
-                        timestamp: new Date().toISOString(),
-                        batch_count: batch.length,
-                        is_user_batch: true  // Flag to identify user batches
-                    });
-                    
-                    this.stats.totalMessagesSent += batch.length;
-                    window.AAAI_LOGGER.debug(`Sent batch of ${batch.length} messages`);
-                }
-            } catch (error) {
-                // Re-queue messages on error
-                batch.forEach(msg => this._queueMessage(msg));
-                window.AAAI_LOGGER.error('Error sending batch:', error);
-            }
-        } else {
-            // Queue all messages if not connected
-            batch.forEach(msg => this._queueMessage(msg));
-        }
-    },
-    
-    /**
      * Internal message sending
      */
-    _sendMessage(messageData, allowQueue = true) {
+    _sendMessage(messageData, allowQueue = true, isUserMessage = false) {
         if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
-            if (allowQueue) {
+            if (allowQueue && isUserMessage) {
                 this._queueMessage(messageData);
             }
             return;
         }
         
         try {
-            // Debug logging to see exactly what's being sent
-            console.log('Sending WebSocket message:', JSON.stringify(messageData));
+            const jsonString = JSON.stringify(messageData);
+            this.socket.send(jsonString);
+            this._updateLastActivity();
             
-            this.socket.send(JSON.stringify(messageData));
-            this.lastActivityTime = Date.now();
+            if (this.options.debug) {
+                this._log('Sent message:', messageData.type, jsonString.length + ' bytes');
+            }
         } catch (error) {
-            if (allowQueue) {
+            if (allowQueue && isUserMessage) {
                 this._queueMessage(messageData);
             }
             throw error;
@@ -1044,8 +861,10 @@ const ChatService = {
      * Queue message for later sending
      */
     _queueMessage(messageData) {
+        // Prevent queue overflow
         if (this.messageQueue.length >= this.options.messageQueueLimit) {
             this.messageQueue.shift(); // Remove oldest message
+            this._warn('Message queue full, removed oldest message');
         }
         
         this.messageQueue.push({
@@ -1053,59 +872,97 @@ const ChatService = {
             queued_at: Date.now()
         });
         
-        window.AAAI_LOGGER.debug(`Message queued (${this.messageQueue.length}/${this.options.messageQueueLimit})`);
+        this._log(`Message queued (${this.messageQueue.length}/${this.options.messageQueueLimit})`);
     },
     
     /**
-     * Send all queued messages
+     * Process all queued messages
      */
-    _sendQueuedMessages() {
+    _processQueuedMessages() {
+        if (this.messageQueue.length === 0) return;
+        
         const messagesToSend = [...this.messageQueue];
         this.messageQueue = [];
         
+        let sentCount = 0;
+        let failedCount = 0;
+        
         messagesToSend.forEach(messageData => {
             try {
-                this._sendMessage(messageData, false);
+                this._sendMessage(messageData, false, true);
                 this.stats.totalMessagesSent++;
+                sentCount++;
             } catch (error) {
-                window.AAAI_LOGGER.error('Error sending queued message:', error);
-                this._queueMessage(messageData);
+                this._error('Error sending queued message:', error);
+                this._queueMessage(messageData); // Re-queue failed messages
+                failedCount++;
             }
         });
         
-        if (messagesToSend.length > 0) {
-            window.AAAI_LOGGER.info(`Sent ${messagesToSend.length} queued messages`);
+        this._log(`Processed queued messages: ${sentCount} sent, ${failedCount} failed`);
+    },
+    
+    /**
+     * Add message to history
+     */
+    _addToHistory(data) {
+        this.messageHistory.push({
+            ...data,
+            received_at: Date.now()
+        });
+        
+        // Keep history size manageable
+        if (this.messageHistory.length > 50) {
+            this.messageHistory = this.messageHistory.slice(-30);
         }
+    },
+    
+    /**
+     * Update last activity timestamp
+     */
+    _updateLastActivity() {
+        this.lastActivityTime = Date.now();
     },
     
     /**
      * Disconnect from WebSocket
      */
     disconnect() {
+        this._log('Disconnecting from WebSocket');
+        
+        // Clear timers
         if (this.reconnectTimer) {
             clearTimeout(this.reconnectTimer);
             this.reconnectTimer = null;
         }
         
-        if (this.batchTimer) {
-            clearTimeout(this.batchTimer);
-            this.batchTimer = null;
-        }
-        
-        // Process any pending batch before disconnecting
-        this._processBatch();
-        
         this._stopHeartbeat();
         
+        // Close socket
         if (this.socket) {
-            window.AAAI_LOGGER.info('Disconnecting from WebSocket');
             this.socket.close(1000, 'Client disconnected');
             this.socket = null;
         }
         
+        // Update state
         this.isConnected = false;
         this.isConnecting = false;
+        this.reconnectAttempts = 0;
+        
         this._notifyStatusChange('disconnected');
+        this._savePersistentConnection();
+    },
+    
+    /**
+     * Clear persistent connection data
+     */
+    _clearPersistentConnection() {
+        try {
+            localStorage.removeItem('aaai_websocket_data');
+            this._log('Cleared persistent connection data');
+        } catch (error) {
+            this._warn('Failed to clear persistent connection data:', error);
+        }
     },
     
     /**
@@ -1139,19 +996,16 @@ const ChatService = {
      * Remove listener
      */
     removeListener(type, callback) {
-        switch (type) {
-            case 'message':
-                const msgIndex = this.messageListeners.indexOf(callback);
-                if (msgIndex > -1) this.messageListeners.splice(msgIndex, 1);
-                break;
-            case 'status':
-                const statusIndex = this.statusListeners.indexOf(callback);
-                if (statusIndex > -1) this.statusListeners.splice(statusIndex, 1);
-                break;
-            case 'error':
-                const errorIndex = this.errorListeners.indexOf(callback);
-                if (errorIndex > -1) this.errorListeners.splice(errorIndex, 1);
-                break;
+        const listeners = {
+            'message': this.messageListeners,
+            'status': this.statusListeners,
+            'error': this.errorListeners
+        };
+        
+        const array = listeners[type];
+        if (array) {
+            const index = array.indexOf(callback);
+            if (index > -1) array.splice(index, 1);
         }
     },
     
@@ -1163,7 +1017,7 @@ const ChatService = {
             try {
                 callback(data);
             } catch (error) {
-                window.AAAI_LOGGER.error('Error in message listener:', error);
+                this._error('Error in message listener:', error);
             }
         });
     },
@@ -1176,7 +1030,7 @@ const ChatService = {
             try {
                 callback(status);
             } catch (error) {
-                window.AAAI_LOGGER.error('Error in status listener:', error);
+                this._error('Error in status listener:', error);
             }
         });
     },
@@ -1189,9 +1043,53 @@ const ChatService = {
             try {
                 callback(data);
             } catch (error) {
-                window.AAAI_LOGGER.error('Error in error listener:', error);
+                this._error('Error in error listener:', error);
             }
         });
+    },
+    
+    /**
+     * Get connection status
+     */
+    getStatus() {
+        const now = Date.now();
+        const connectionAge = this.connectionStartTime ? now - this.connectionStartTime : 0;
+        
+        return {
+            // Connection Status
+            connected: this.isConnected,
+            connecting: this.isConnecting,
+            connectionId: this.connectionId,
+            reconnectToken: this.reconnectToken,
+            userId: this.userId,
+            
+            // Reconnection Status
+            reconnectAttempts: this.reconnectAttempts,
+            maxReconnectAttempts: this.options.maxReconnectAttempts,
+            lastDisconnectReason: this.lastDisconnectReason,
+            
+            // Message Status
+            queuedMessages: this.messageQueue.length,
+            pendingMessages: this.pendingMessages.size,
+            messageHistoryCount: this.messageHistory.length,
+            
+            // WebSocket Status
+            readyState: this.socket ? this.socket.readyState : null,
+            readyStateName: this.socket ? this._getReadyStateName(this.socket.readyState) : null,
+            
+            // Timing
+            connectionAge: connectionAge,
+            lastActivityTime: this.lastActivityTime,
+            lastHeartbeatSent: this.lastHeartbeatSent,
+            lastHeartbeatReceived: this.lastHeartbeatReceived,
+            heartbeatFailures: this.heartbeatFailures,
+            
+            // Performance
+            stats: { ...this.stats },
+            
+            // Configuration
+            options: { ...this.options }
+        };
     },
     
     /**
@@ -1208,189 +1106,7 @@ const ChatService = {
     },
     
     /**
-     * Get comprehensive connection status with cache information
-     */
-    getStatus() {
-        const now = Date.now();
-        let connectionAge = 0;
-        
-        if (this.connectionStartTime) {
-            connectionAge = now - this.connectionStartTime;
-        }
-        
-        return {
-            // Connection Status
-            connected: this.isConnected,
-            connecting: this.isConnecting,
-            connectionId: this.connectionId,
-            reconnectToken: this.reconnectToken,
-            reconnectAttempts: this.reconnectAttempts,
-            maxReconnectAttempts: this.options.maxReconnectAttempts,
-            
-            // Message Queue Status
-            queuedMessages: this.messageQueue.length,
-            pendingMessages: this.pendingMessages.size,
-            batchedMessages: this.messageBatch.length,
-            
-            // WebSocket Status
-            readyState: this.socket ? this.socket.readyState : null,
-            readyStateName: this.socket ? this._getReadyStateName(this.socket.readyState) : null,
-            url: this.socket ? this._maskSensitiveUrl(this.socket.url) : null,
-            
-            // Connection Timing
-            connectionAge: {
-                ms: connectionAge,
-                seconds: Math.floor(connectionAge / 1000),
-                minutes: Math.floor(connectionAge / (1000 * 60)),
-                hours: Math.floor(connectionAge / (1000 * 60 * 60)),
-                days: Math.floor(connectionAge / (1000 * 60 * 60 * 24))
-            },
-            lastDisconnectReason: this.lastDisconnectReason,
-            lastActivityTime: this.lastActivityTime,
-            lastHeartbeatTime: this.lastHeartbeatTime,
-            
-            // Cache Status
-            cache: {
-                size: this.cache.size,
-                maxSize: this.options.maxCacheSize,
-                usage: Math.round((this.cache.size / this.options.maxCacheSize) * 100),
-                hits: this.stats.cacheHits,
-                misses: this.stats.cacheMisses,
-                hitRate: this.stats.cacheHits + this.stats.cacheMisses > 0 
-                    ? Math.round((this.stats.cacheHits / (this.stats.cacheHits + this.stats.cacheMisses)) * 100) 
-                    : 0,
-                messagesFromCache: this.stats.messagesFromCache,
-                bandwidthSaved: this.stats.bandwidthSaved,
-                compressionEnabled: this.options.enableCompression
-            },
-            
-            // Performance Stats
-            stats: {
-                totalConnections: this.stats.totalConnections,
-                totalReconnections: this.stats.totalReconnections,
-                totalMessagesSent: this.stats.totalMessagesSent,
-                totalMessagesReceived: this.stats.totalMessagesReceived,
-                connectionUptime: this.stats.connectionUptime,
-                averageLatency: Math.round(this.stats.averageLatency),
-                lastLatency: this.stats.lastLatency
-            },
-            
-            // Feature Status
-            features: {
-                persistentConnection: this.options.persistentConnection,
-                hasPersistentData: this.options.persistentConnection && !!(this.connectionId || this.reconnectToken),
-                batchingEnabled: this.options.enableBatching,
-                compressionEnabled: this.options.enableCompression,
-                cacheEnabled: true
-            },
-            
-            // Configuration
-            config: {
-                heartbeatInterval: this.options.heartbeatInterval,
-                reconnectInterval: this.options.reconnectInterval,
-                connectionTimeout: this.options.connectionTimeout,
-                messageQueueLimit: this.options.messageQueueLimit,
-                batchSize: this.options.batchSize,
-                batchTimeout: this.options.batchTimeout,
-                cacheExpiry: this.options.cacheExpiry
-            }
-        };
-    },
-    
-    /**
-     * Get cache statistics
-     */
-    getCacheStats() {
-        const totalAccesses = Array.from(this.cacheAccessCount.values()).reduce((sum, count) => sum + count, 0);
-        const avgAccessCount = this.cacheAccessCount.size > 0 ? totalAccesses / this.cacheAccessCount.size : 0;
-        
-        return {
-            totalItems: this.cache.size,
-            maxItems: this.options.maxCacheSize,
-            usagePercent: Math.round((this.cache.size / this.options.maxCacheSize) * 100),
-            totalAccesses: totalAccesses,
-            averageAccessCount: Math.round(avgAccessCount),
-            hits: this.stats.cacheHits,
-            misses: this.stats.cacheMisses,
-            hitRate: this.stats.cacheHits + this.stats.cacheMisses > 0 
-                ? Math.round((this.stats.cacheHits / (this.stats.cacheHits + this.stats.cacheMisses)) * 100) 
-                : 0,
-            bandwidthSaved: this.stats.bandwidthSaved,
-            compressionEnabled: this.options.enableCompression,
-            oldestItem: Math.min(...Array.from(this.cacheTimestamps.values())),
-            newestItem: Math.max(...Array.from(this.cacheTimestamps.values()))
-        };
-    },
-    
-    /**
-     * Clear cache manually
-     */
-    clearCache() {
-        const clearedItems = this.cache.size;
-        
-        this.cache.clear();
-        this.cacheIndex.clear();
-        this.cacheTimestamps.clear();
-        this.cacheAccessCount.clear();
-        this.compressionCache.clear();
-        
-        // Reset cache stats
-        this.stats.cacheHits = 0;
-        this.stats.cacheMisses = 0;
-        this.stats.messagesFromCache = 0;
-        this.stats.bandwidthSaved = 0;
-        
-        window.AAAI_LOGGER.info(`Cleared ${clearedItems} items from cache`);
-        
-        return clearedItems;
-    },
-    
-    /**
-     * Prefill cache with common data
-     */
-    prefillCache(data) {
-        if (!Array.isArray(data)) return;
-        
-        let cached = 0;
-        
-        data.forEach(item => {
-            if (item && typeof item === 'object') {
-                this._cacheMessage(item);
-                cached++;
-            }
-        });
-        
-        window.AAAI_LOGGER.info(`Prefilled cache with ${cached} items`);
-        
-        return cached;
-    },
-    
-    /**
-     * Export cache for debugging
-     */
-    exportCache() {
-        const exported = {
-            items: {},
-            timestamps: {},
-            accessCounts: {},
-            index: {}
-        };
-        
-        for (const [key, value] of this.cache.entries()) {
-            exported.items[key] = this._decompressData(value);
-            exported.timestamps[key] = this.cacheTimestamps.get(key);
-            exported.accessCounts[key] = this.cacheAccessCount.get(key);
-        }
-        
-        for (const [messageId, cacheKey] of this.cacheIndex.entries()) {
-            exported.index[messageId] = cacheKey;
-        }
-        
-        return exported;
-    },
-    
-    /**
-     * Test connection with debug information
+     * Test connection
      */
     async testConnection() {
         try {
@@ -1399,17 +1115,25 @@ const ChatService = {
             }
             
             const user = this.authService.getCurrentUser();
-            const testWsUrl = this._buildWebSocketUrl(user.id);
+            const userId = user.id || user.user_id;
+            const testWsUrl = this._buildWebSocketUrl(userId);
             
-            window.AAAI_LOGGER.info(`Testing WebSocket connection: ${this._maskSensitiveUrl(testWsUrl)}`);
+            this._log(`Testing WebSocket connection: ${this._maskSensitiveUrl(testWsUrl)}`);
             
             return new Promise((resolve, reject) => {
                 const testSocket = new WebSocket(testWsUrl);
                 const startTime = Date.now();
                 
-                testSocket.onopen = (event) => {
+                const cleanup = () => {
+                    testSocket.onopen = null;
+                    testSocket.onerror = null;
+                    testSocket.onclose = null;
+                };
+                
+                testSocket.onopen = () => {
                     const latency = Date.now() - startTime;
-                    window.AAAI_LOGGER.info(`✅ Test WebSocket connected in ${latency}ms`);
+                    this._log(`✅ Test WebSocket connected in ${latency}ms`);
+                    cleanup();
                     testSocket.close();
                     resolve({
                         success: true,
@@ -1418,59 +1142,57 @@ const ChatService = {
                     });
                 };
                 
-                testSocket.onerror = (event) => {
-                    window.AAAI_LOGGER.error('❌ Test WebSocket failed');
+                testSocket.onerror = (error) => {
+                    this._error('❌ Test WebSocket failed:', error);
+                    cleanup();
                     reject(new Error('Test connection failed'));
                 };
                 
                 testSocket.onclose = (event) => {
                     if (event.code !== 1000) {
+                        cleanup();
                         reject(new Error(`Test connection closed with code: ${event.code}`));
                     }
                 };
                 
+                // Timeout
                 setTimeout(() => {
                     if (testSocket.readyState === WebSocket.CONNECTING) {
+                        cleanup();
                         testSocket.close();
                         reject(new Error('Test connection timeout'));
                     }
                 }, 5000);
             });
         } catch (error) {
-            window.AAAI_LOGGER.error('Test connection error:', error);
+            this._error('Test connection error:', error);
             throw error;
         }
     },
     
     /**
-     * Get detailed diagnostics
+     * Logging methods
      */
-    getDiagnostics() {
-        const now = Date.now();
-        
-        return {
-            timestamp: new Date().toISOString(),
-            uptime: now - (this.connectionStartTime || now),
-            environment: window.AAAI_CONFIG.ENVIRONMENT,
-            userAgent: navigator.userAgent,
-            connection: this.getStatus(),
-            cache: this.getCacheStats(),
-            messageHistory: {
-                count: this.messageHistory.length,
-                oldest: this.messageHistory.length > 0 ? this.messageHistory[0].received_at : null,
-                newest: this.messageHistory.length > 0 ? this.messageHistory[this.messageHistory.length - 1].received_at : null
-            },
-            performance: {
-                memoryUsage: performance.memory ? {
-                    used: Math.round(performance.memory.usedJSHeapSize / 1024 / 1024),
-                    total: Math.round(performance.memory.totalJSHeapSize / 1024 / 1024),
-                    limit: Math.round(performance.memory.jsHeapSizeLimit / 1024 / 1024)
-                } : 'Not available',
-                timing: performance.timing ? {
-                    pageLoad: performance.timing.loadEventEnd - performance.timing.navigationStart,
-                    domReady: performance.timing.domContentLoadedEventEnd - performance.timing.navigationStart
-                } : 'Not available'
-            }
-        };
+    _log(...args) {
+        if (this.options.debug && window.AAAI_LOGGER) {
+            window.AAAI_LOGGER.debug('[ChatService]', ...args);
+        }
+    },
+    
+    _warn(...args) {
+        if (window.AAAI_LOGGER) {
+            window.AAAI_LOGGER.warn('[ChatService]', ...args);
+        }
+    },
+    
+    _error(...args) {
+        if (window.AAAI_LOGGER) {
+            window.AAAI_LOGGER.error('[ChatService]', ...args);
+        }
     }
 };
+
+// Export for global use
+if (typeof window !== 'undefined') {
+    window.ChatService = ChatService;
+}
