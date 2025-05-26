@@ -24,11 +24,11 @@ window.AAAI_CONFIG = {
     // API Configuration
     API_BASE_URL: getEnvironment() === 'development' 
         ? 'http://localhost:8080' 
-        : 'https://aaai-gateway-754x89jf.uc.gateway.dev',
+        : '', // Use relative URLs in production (same origin)
     
     WS_BASE_URL: getEnvironment() === 'development'
         ? 'ws://localhost:8080'
-        : 'wss://api-server-559730737995.us-central1.run.app',
+        : `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}`, // Use same domain in production
     
     // Feature Flags
     ENABLE_WEBSOCKETS: true,
@@ -87,7 +87,7 @@ window.getChatServiceConfig = function() {
 
 // Validation
 try {
-    const required = ['API_BASE_URL', 'WS_BASE_URL'];
+    const required = ['WS_BASE_URL']; // API_BASE_URL can be empty for production (relative URLs)
     const missing = required.filter(key => !window.AAAI_CONFIG[key]);
     
     if (missing.length > 0) {
@@ -98,6 +98,7 @@ try {
     window.AAAI_LOGGER.info('AAAI Configuration loaded successfully', {
         environment: window.AAAI_CONFIG.ENVIRONMENT,
         version: window.AAAI_CONFIG.VERSION,
+        apiBaseUrl: window.AAAI_CONFIG.API_BASE_URL || 'relative',
         websocketsEnabled: window.AAAI_CONFIG.ENABLE_WEBSOCKETS,
         debugEnabled: window.AAAI_CONFIG.ENABLE_DEBUG
     });

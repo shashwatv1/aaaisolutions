@@ -28,9 +28,14 @@ const AuthService = {
             }
             
             // Set API base URL based on environment
-            this.config.API_BASE_URL = window.AAAI_CONFIG.ENVIRONMENT === 'development' 
-                ? 'http://localhost:8080' 
-                : window.AAAI_CONFIG.API_BASE_URL || '';
+            // In production, use relative URLs (same origin) to avoid CORS
+            // In development, use full localhost URL
+            if (window.AAAI_CONFIG.ENVIRONMENT === 'development') {
+                this.config.API_BASE_URL = 'http://localhost:8080';
+            } else {
+                // Use empty string for relative URLs in production (same origin)
+                this.config.API_BASE_URL = '';
+            }
             
             // Restore session from storage
             this._restoreSession();
@@ -467,9 +472,15 @@ const AuthService = {
         }
         
         const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const wsHost = window.AAAI_CONFIG.ENVIRONMENT === 'development' 
-            ? 'localhost:8080' 
-            : 'api-server-559730737995.us-central1.run.app';
+        
+        let wsHost;
+        if (window.AAAI_CONFIG.ENVIRONMENT === 'development') {
+            wsHost = 'localhost:8080';
+        } else {
+            // In production, check if WebSocket is proxied through same domain
+            // or use the direct WebSocket server
+            wsHost = window.location.host; // Try same domain first
+        }
         
         return `${wsProtocol}//${wsHost}/ws/${this.userInfo.id}?token=${encodeURIComponent(this.token)}`;
     },
