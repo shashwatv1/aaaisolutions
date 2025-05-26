@@ -1091,8 +1091,8 @@
                 enableCompression: false
             });
             
-            chatService._onMessage(handleChatMessage);
-            chatService._onStatusChange(handleConnectionStatus);
+            chatService.onMessage(handleChatMessage);
+            chatService.onStatusChange(handleConnectionStatus);
             chatService._onError(handleChatError);
             
             // Connect to WebSocket with project context
