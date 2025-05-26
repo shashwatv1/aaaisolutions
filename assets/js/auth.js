@@ -1,177 +1,164 @@
 /**
- * Simplified Authentication Service for AAAI Solutions
- * Handles OTP authentication, token management, and session persistence
+ * Enhanced Authentication module for AAAI Solutions
+ * Handles OTP request/verification, token management, and persistent sessions with cookies
  */
 const AuthService = {
-    // Core state
-    token: null,
-    userInfo: null,
-    authenticated: false,
-    refreshTimer: null,
-    
-    // Configuration
-    config: {
-        API_BASE_URL: '',
-        TOKEN_REFRESH_THRESHOLD: 300000, // 5 minutes
-        SESSION_CHECK_INTERVAL: 60000,   // 1 minute
-        REQUEST_TIMEOUT: 30000           // 30 seconds
+    // Initialize the auth service with configuration
+    init() {
+        // Wait for config to be available
+        if (!window.AAAI_CONFIG) {
+            throw new Error('AAAI_CONFIG not available. Make sure config.js is loaded first.');
+        }
+        
+        // Set up URLs based on environment
+        if (window.AAAI_CONFIG.ENVIRONMENT === 'development') {
+            this.AUTH_BASE_URL = 'http://localhost:8080';
+            this.API_BASE_URL = 'http://localhost:8080';
+            this.WS_BASE_URL = 'ws://localhost:8080';
+        } else {
+            this.AUTH_BASE_URL = '';
+            this.API_BASE_URL = '';
+            this.WS_BASE_URL = window.location.origin;
+        }
+        
+        // Initialize authentication state from cookies
+        this._initializeFromCookies();
+        
+        // Set up periodic token refresh
+        this._setupTokenRefresh();
+        
+        // Set up visibility change handler for session management
+        this._setupVisibilityHandler();
+        
+        window.AAAI_LOGGER.info('Enhanced AuthService initialized', {
+            environment: window.AAAI_CONFIG.ENVIRONMENT,
+            authBaseUrl: this.AUTH_BASE_URL,
+            apiBaseUrl: this.API_BASE_URL,
+            wsBaseUrl: this.WS_BASE_URL,
+            authenticated: this.isAuthenticated(),
+            persistentSession: this.hasPersistentSession()
+        });
+        
+        return this.isAuthenticated();
     },
     
-    /**
-     * Initialize authentication service
-     */
-    init() {
+    // Initialize authentication state from cookies
+    _initializeFromCookies() {
         try {
-            // Wait for global config
-            if (!window.AAAI_CONFIG) {
-                throw new Error('AAAI_CONFIG not available');
-            }
+            // Get authentication status from cookie
+            const authCookie = this._getCookie('authenticated');
+            const userInfoCookie = this._getCookie('user_info');
+            const accessTokenCookie = this._getCookie('access_token');
             
-            // Set API base URL based on environment
-            // In production, use relative URLs (same origin) to avoid CORS
-            // In development, use full localhost URL
-            if (window.AAAI_CONFIG.ENVIRONMENT === 'development') {
-                this.config.API_BASE_URL = 'http://localhost:8080';
+            if (authCookie === 'true' && userInfoCookie && accessTokenCookie) {
+                const userInfo = JSON.parse(userInfoCookie);
+                
+                // Restore authentication state
+                this.token = accessTokenCookie;
+                this.userEmail = userInfo.email;
+                this.userId = userInfo.id;
+                this.sessionId = userInfo.session_id;
+                this.authenticated = true;
+                
+                // Also store in localStorage as backup
+                this._setSecureItem('auth_token', accessTokenCookie);
+                this._setSecureItem('user_email', userInfo.email);
+                this._setSecureItem('user_id', userInfo.id);
+                
+                window.AAAI_LOGGER.info('Authentication state restored from cookies', {
+                    email: userInfo.email,
+                    userId: userInfo.id
+                });
+                
+                return true;
             } else {
-                // Use empty string for relative URLs in production (same origin)
-                this.config.API_BASE_URL = '';
+                // Check localStorage as fallback
+                this.token = this._getSecureItem('auth_token');
+                this.userEmail = this._getSecureItem('user_email');
+                this.userId = this._getSecureItem('user_id');
+                this.authenticated = !!(this.token && this.userId);
+                
+                if (this.authenticated) {
+                    window.AAAI_LOGGER.info('Authentication state restored from localStorage');
+                }
             }
             
-            // Restore session from storage
-            this._restoreSession();
-            
-            // Set up token refresh if authenticated
-            if (this.authenticated) {
-                this._setupTokenRefresh();
+            // Validate token if present
+            if (this.token) {
+                if (!this._isTokenValid(this.token)) {
+                    window.AAAI_LOGGER.warn('Stored token is invalid or expired');
+                    this._clearAuthState();
+                    return false;
+                }
             }
-            
-            // Set up visibility change handler
-            this._setupEventHandlers();
-            
-            window.AAAI_LOGGER?.info('AuthService initialized', {
-                authenticated: this.authenticated,
-                user: this.userInfo?.email
-            });
             
             return this.authenticated;
             
         } catch (error) {
-            window.AAAI_LOGGER?.error('AuthService initialization failed:', error);
+            window.AAAI_LOGGER.error('Error initializing from cookies:', error);
+            this._clearAuthState();
             return false;
         }
     },
     
-    /**
-     * Restore session from storage
-     */
-    _restoreSession() {
-        try {
-            // Try cookies first (preferred for security)
-            const tokenCookie = this._getCookie('access_token');
-            const userCookie = this._getCookie('user_info');
-            
-            if (tokenCookie && userCookie) {
-                this.token = tokenCookie;
-                this.userInfo = JSON.parse(userCookie);
-                this.authenticated = this._isTokenValid(this.token);
-                
-                if (this.authenticated) {
-                    window.AAAI_LOGGER?.info('Session restored from cookies');
-                    return;
-                }
-            }
-            
-            // Fallback to localStorage
-            const storedToken = localStorage.getItem('aaai_auth_token');
-            const storedUser = localStorage.getItem('aaai_user_info');
-            
-            if (storedToken && storedUser) {
-                this.token = storedToken;
-                this.userInfo = JSON.parse(storedUser);
-                this.authenticated = this._isTokenValid(this.token);
-                
-                if (this.authenticated) {
-                    window.AAAI_LOGGER?.info('Session restored from localStorage');
-                    return;
-                }
-            }
-            
-            // No valid session found
-            this._clearSession();
-            
-        } catch (error) {
-            window.AAAI_LOGGER?.error('Error restoring session:', error);
-            this._clearSession();
-        }
-    },
-    
-    /**
-     * Set up event handlers
-     */
-    _setupEventHandlers() {
-        // Handle page visibility changes
-        document.addEventListener('visibilitychange', () => {
-            if (document.visibilityState === 'visible' && this.authenticated) {
-                this._validateSession();
-            }
-        });
-        
-        // Cleanup on unload
-        window.addEventListener('beforeunload', () => {
-            if (this.refreshTimer) {
-                clearInterval(this.refreshTimer);
-            }
-        });
-    },
-    
-    /**
-     * Set up automatic token refresh
-     */
+    // Set up automatic token refresh
     _setupTokenRefresh() {
-        if (this.refreshTimer) {
-            clearInterval(this.refreshTimer);
-        }
-        
-        this.refreshTimer = setInterval(() => {
-            if (this.authenticated) {
-                this._checkTokenExpiry();
+        // Check token every 5 minutes
+        this.refreshInterval = setInterval(() => {
+            if (this.isAuthenticated()) {
+                this._checkAndRefreshToken();
             }
-        }, this.config.SESSION_CHECK_INTERVAL);
+        }, 300000); // 5 minutes
+        
+        // Check token on page visibility change
+        this._setupVisibilityHandler();
     },
     
-    /**
-     * Check if token needs refresh
-     */
-    async _checkTokenExpiry() {
-        if (!this.token) return;
+    // Set up page visibility change handler
+    _setupVisibilityHandler() {
+        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'visible' && this.isAuthenticated()) {
+                // Page became visible, check if token needs refresh
+                this._checkAndRefreshToken();
+            }
+        });
+    },
+    
+    // Check if token needs refresh and refresh if necessary
+    async _checkAndRefreshToken() {
+        if (!this.token) return false;
         
         try {
-            const payload = JSON.parse(atob(this.token.split('.')[1]));
-            const timeUntilExpiry = payload.exp - (Date.now() / 1000);
-            
-            // Refresh if token expires soon
-            if (timeUntilExpiry < (this.config.TOKEN_REFRESH_THRESHOLD / 1000)) {
-                await this._refreshToken();
+            const tokenParts = this.token.split('.');
+            if (tokenParts.length === 3) {
+                const payload = JSON.parse(atob(tokenParts[1]));
+                const timeUntilExpiry = payload.exp - (Date.now() / 1000);
+                
+                // Refresh if token expires in less than 10 minutes
+                if (timeUntilExpiry < 600) {
+                    const refreshToken = this._getCookie('refresh_token');
+                    if (refreshToken) {
+                        return await this._refreshAccessToken(refreshToken);
+                    } else {
+                        window.AAAI_LOGGER.warn('Token expiring soon but no refresh token available');
+                        this.logout();
+                        return false;
+                    }
+                }
             }
+            return true;
         } catch (error) {
-            window.AAAI_LOGGER?.error('Error checking token expiry:', error);
+            window.AAAI_LOGGER.error('Error checking token expiration:', error);
             this.logout();
+            return false;
         }
     },
     
-    /**
-     * Refresh access token
-     */
-    async _refreshToken() {
+    // Refresh access token using refresh token
+    async _refreshAccessToken(refreshToken) {
         try {
-            const refreshToken = this._getCookie('refresh_token');
-            if (!refreshToken) {
-                throw new Error('No refresh token available');
-            }
-            
-            // Build URL based on environment (matching original pattern)
             const url = window.AAAI_CONFIG.ENVIRONMENT === 'development' 
-                ? `${this.config.API_BASE_URL}/auth/refresh`
+                ? `${this.AUTH_BASE_URL}/auth/refresh`
                 : '/auth/refresh';
             
             const response = await fetch(url, {
@@ -180,7 +167,7 @@ const AuthService = {
                     'Content-Type': 'application/json'
                 },
                 body: JSON.stringify({ refresh_token: refreshToken }),
-                credentials: 'include'
+                credentials: 'include' // Include cookies
             });
             
             if (response.ok) {
@@ -188,331 +175,357 @@ const AuthService = {
                 
                 // Update token
                 this.token = data.access_token;
-                this._saveSession();
-                window.AAAI_LOGGER?.info('Token refreshed successfully');
+                this._setSecureItem('auth_token', data.access_token);
+                
+                window.AAAI_LOGGER.info('Access token refreshed successfully');
                 return true;
             } else {
-                window.AAAI_LOGGER?.warn('Failed to refresh access token');
+                window.AAAI_LOGGER.warn('Failed to refresh access token');
                 this.logout();
                 return false;
             }
         } catch (error) {
-            window.AAAI_LOGGER?.error('Token refresh failed:', error);
+            window.AAAI_LOGGER.error('Error refreshing access token:', error);
             this.logout();
             return false;
         }
     },
     
-    /**
-     * Validate token format and expiration
-     */
+    // Validate token format and expiration
     _isTokenValid(token) {
-        if (!token) return false;
-        
         try {
-            const parts = token.split('.');
-            if (parts.length !== 3) return false;
+            const tokenParts = token.split('.');
+            if (tokenParts.length !== 3) return false;
             
-            const payload = JSON.parse(atob(parts[1]));
+            const payload = JSON.parse(atob(tokenParts[1]));
             const now = Date.now() / 1000;
             
-            return payload.exp && payload.exp > now;
+            // Check if token is expired (with 5 minute grace period)
+            return payload.exp && (payload.exp + 300) > now;
         } catch (error) {
             return false;
         }
     },
     
-    /**
-     * Make authenticated API request
-     */
-    async _makeRequest(endpoint, options = {}) {
-        // Build URL based on environment (matching original working pattern)
-        const url = window.AAAI_CONFIG.ENVIRONMENT === 'development' 
-            ? `${this.config.API_BASE_URL}${endpoint}`
-            : endpoint; // Use relative URL in production
+    // Clear authentication state
+    _clearAuthState() {
+        this.token = null;
+        this.userEmail = null;
+        this.userId = null;
+        this.sessionId = null;
+        this.authenticated = false;
         
-        const config = {
-            ...options,
-            headers: {
-                'Content-Type': 'application/json',
-                ...options.headers
-            },
-            credentials: 'include'
-        };
-        
-        // Add auth header if authenticated
-        if (this.authenticated && this.token) {
-            config.headers['Authorization'] = `Bearer ${this.token}`;
-        }
-        
-        // Add timeout
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), this.config.REQUEST_TIMEOUT);
-        config.signal = controller.signal;
-        
-        try {
-            const response = await fetch(url, config);
-            clearTimeout(timeoutId);
-            
-            if (!response.ok) {
-                const errorData = await response.json().catch(() => ({}));
-                throw new Error(errorData.error || errorData.detail || `HTTP ${response.status}`);
-            }
-            
-            return await response.json();
-            
-        } catch (error) {
-            clearTimeout(timeoutId);
-            
-            if (error.name === 'AbortError') {
-                throw new Error('Request timeout');
-            }
-            
-            // Handle auth errors
-            if (error.message.includes('401') || error.message.includes('Unauthorized')) {
-                this.logout();
-                throw new Error('Session expired');
-            }
-            
-            throw error;
-        }
+        // Clear localStorage
+        this._removeSecureItem('auth_token');
+        this._removeSecureItem('user_email');
+        this._removeSecureItem('user_id');
     },
     
-    /**
-     * Request OTP for email
-     */
+    // Check if user is authenticated
+    isAuthenticated() {
+        return this.authenticated && !!this.token && !!this.userId;
+    },
+    
+    // Check if user has persistent session (refresh token available)
+    hasPersistentSession() {
+        return !!this._getCookie('refresh_token');
+    },
+    
+    // Get current user information
+    getCurrentUser() {
+        return {
+            email: this.userEmail,
+            id: this.userId,
+            sessionId: this.sessionId,
+            authenticated: this.authenticated
+        };
+    },
+    
+    // Get token for API requests
+    getToken() {
+        return this.token;
+    },
+    
+    // Request OTP with enhanced error handling
     async requestOTP(email) {
         try {
-            window.AAAI_LOGGER?.info(`Requesting OTP for: ${email}`);
+            window.AAAI_LOGGER.info(`Requesting OTP for email: ${email}`);
             
-            const response = await this._makeRequest('/auth/request-otp', {
+            const url = window.AAAI_CONFIG.ENVIRONMENT === 'development' 
+                ? `${this.AUTH_BASE_URL}/auth/request-otp`
+                : '/auth/request-otp';
+            
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
+            
+            const response = await fetch(url, {
                 method: 'POST',
-                body: JSON.stringify({ email })
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ email }),
+                signal: controller.signal,
+                credentials: 'include' // Include cookies
             });
             
-            window.AAAI_LOGGER?.info('OTP request successful');
-            return response;
+            clearTimeout(timeoutId);
+            const responseData = await response.json();
+            
+            if (!response.ok) {
+                window.AAAI_LOGGER.error('OTP request failed:', responseData);
+                throw new Error(responseData.error || responseData.detail || 'Failed to request OTP');
+            }
+            
+            window.AAAI_LOGGER.info('OTP request successful');
+            return responseData;
             
         } catch (error) {
-            window.AAAI_LOGGER?.error('OTP request failed:', error);
-            throw new Error(`Failed to send OTP: ${error.message}`);
+            if (error.name === 'AbortError') {
+                window.AAAI_LOGGER.error('OTP request timeout');
+                throw new Error('Request timed out. Please check your connection and try again.');
+            }
+            window.AAAI_LOGGER.error('OTP Request error:', error);
+            throw new Error(`OTP request failed: ${error.message}`);
         }
     },
     
-    /**
-     * Verify OTP and authenticate
-     */
+    // Verify OTP with enhanced session management
     async verifyOTP(email, otp) {
         try {
-            window.AAAI_LOGGER?.info(`Verifying OTP for: ${email}`);
+            window.AAAI_LOGGER.info(`Verifying OTP for email: ${email}`);
             
-            const response = await this._makeRequest('/auth/verify-otp', {
+            const url = window.AAAI_CONFIG.ENVIRONMENT === 'development' 
+                ? `${this.AUTH_BASE_URL}/auth/verify-otp`
+                : '/auth/verify-otp';
+            
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
+            
+            const response = await fetch(url, {
                 method: 'POST',
-                body: JSON.stringify({ email, otp })
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ email, otp }),
+                signal: controller.signal,
+                credentials: 'include' // Include cookies for session management
             });
             
-            if (response.access_token) {
-                // Update auth state
-                this.token = response.access_token;
-                this.userInfo = {
-                    id: response.id,
-                    email: email,
-                    session_id: response.session_id
-                };
-                this.authenticated = true;
-                
-                // Save session
-                this._saveSession();
-                
-                // Setup token refresh
-                this._setupTokenRefresh();
-                
-                window.AAAI_LOGGER?.info('Authentication successful');
-                return response;
+            clearTimeout(timeoutId);
+            const data = await response.json();
+            
+            if (!response.ok) {
+                window.AAAI_LOGGER.error('OTP verification failed:', data);
+                throw new Error(data.error || data.detail || 'Invalid OTP');
             }
             
-            throw new Error('Invalid OTP response');
+            window.AAAI_LOGGER.info('OTP verification successful');
+            
+            // Update authentication state
+            this.token = data.access_token;
+            this.userEmail = email;
+            this.userId = data.id;
+            this.sessionId = data.session_id;
+            this.authenticated = true;
+            
+            // Store in localStorage as backup
+            this._setSecureItem('auth_token', data.access_token);
+            this._setSecureItem('user_email', email);
+            this._setSecureItem('user_id', data.id);
+            
+            // Cookies should already be set by the server response
+            window.AAAI_LOGGER.info('Authentication state updated with session cookies');
+            
+            return data;
             
         } catch (error) {
-            window.AAAI_LOGGER?.error('OTP verification failed:', error);
+            if (error.name === 'AbortError') {
+                window.AAAI_LOGGER.error('OTP verification timeout');
+                throw new Error('Request timed out. Please check your connection and try again.');
+            }
+            window.AAAI_LOGGER.error('OTP Verification error:', error);
             throw new Error(`OTP verification failed: ${error.message}`);
         }
     },
     
-    /**
-     * Execute authenticated function
-     */
+    // Execute a function with automatic token refresh
     async executeFunction(functionName, inputData) {
-        if (!this.authenticated) {
+        if (!this.isAuthenticated()) {
             throw new Error('Authentication required');
         }
         
         try {
-            window.AAAI_LOGGER?.info(`Executing function: ${functionName}`);
+            // Check if token needs refresh before making request
+            await this._checkAndRefreshToken();
             
-            const response = await this._makeRequest(`/api/function/${functionName}`, {
-                method: 'POST',
-                body: JSON.stringify(inputData)
-            });
+            window.AAAI_LOGGER.info(`Executing function: ${functionName}`);
             
-            return response;
-            
-        } catch (error) {
-            window.AAAI_LOGGER?.error(`Function execution failed (${functionName}):`, error);
-            throw error;
-        }
-    },
-    
-    /**
-     * Send chat message via HTTP
-     */
-    async sendChatMessage(message) {
-        if (!this.authenticated) {
-            throw new Error('Authentication required');
-        }
-        
-        try {
-            const response = await this._makeRequest('/api/chat', {
-                method: 'POST',
-                body: JSON.stringify({ message })
-            });
-            
-            return response;
-            
-        } catch (error) {
-            window.AAAI_LOGGER?.error('Chat message failed:', error);
-            throw error;
-        }
-    },
-    
-    /**
-     * Validate current session
-     */
-    async _validateSession() {
-        if (!this.authenticated) return false;
-        
-        try {
-            // Build URL based on environment (matching original pattern)
             const url = window.AAAI_CONFIG.ENVIRONMENT === 'development' 
-                ? `${this.config.API_BASE_URL}/auth/validate-session`
-                : '/auth/validate-session';
+                ? `${this.API_BASE_URL}/api/function/${functionName}`
+                : `/api/function/${functionName}`;
+            
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 60000); // 60 second timeout
             
             const response = await fetch(url, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${this.token}`,
-                    'X-Session-ID': this.userInfo?.session_id || ''
+                    'Authorization': `Bearer ${this.token}`
                 },
-                body: JSON.stringify({}),
+                body: JSON.stringify(inputData),
+                signal: controller.signal,
+                credentials: 'include' // Include cookies
+            });
+            
+            clearTimeout(timeoutId);
+            const data = await response.json();
+            
+            if (!response.ok) {
+                window.AAAI_LOGGER.error(`Function execution failed:`, data);
+                
+                // Handle token expiration
+                if (response.status === 401) {
+                    window.AAAI_LOGGER.warn('Token expired during function execution');
+                    await this._checkAndRefreshToken();
+                    throw new Error('Session expired. Please try again.');
+                }
+                
+                throw new Error(data.error || data.detail || `Failed to execute function: ${functionName}`);
+            }
+            
+            return data;
+            
+        } catch (error) {
+            if (error.name === 'AbortError') {
+                window.AAAI_LOGGER.error('Function execution timeout');
+                throw new Error('Request timed out. Please try again.');
+            }
+            window.AAAI_LOGGER.error(`Function execution error (${functionName}):`, error);
+            throw error;
+        }
+    },
+    
+    // Send chat message via HTTP API
+    async sendChatMessage(message) {
+        if (!this.isAuthenticated()) {
+            throw new Error('Authentication required');
+        }
+        
+        try {
+            await this._checkAndRefreshToken();
+            
+            const url = window.AAAI_CONFIG.ENVIRONMENT === 'development' 
+                ? `${this.API_BASE_URL}/api/chat`
+                : '/api/chat';
+            
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 45000); // 45 second timeout
+            
+            const response = await fetch(url, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${this.token}`
+                },
+                body: JSON.stringify({ message }),
+                signal: controller.signal,
                 credentials: 'include'
             });
             
-            if (response.ok) {
-                return true;
-            } else {
-                window.AAAI_LOGGER?.warn('Session validation failed');
-                this.logout();
-                return false;
+            clearTimeout(timeoutId);
+            const data = await response.json();
+            
+            if (!response.ok) {
+                window.AAAI_LOGGER.error('Chat message failed:', data);
+                
+                if (response.status === 401) {
+                    window.AAAI_LOGGER.warn('Token expired during chat message');
+                    await this._checkAndRefreshToken();
+                    throw new Error('Session expired. Please try again.');
+                }
+                
+                throw new Error(data.error || 'Failed to send message');
             }
             
-        } catch (error) {
-            window.AAAI_LOGGER?.warn('Session validation failed:', error.message);
-            this.logout();
-            return false;
-        }
-    },
-    
-    /**
-     * Save session to storage
-     */
-    _saveSession() {
-        if (!this.authenticated || !this.token || !this.userInfo) return;
-        
-        try {
-            // Save to localStorage as backup
-            localStorage.setItem('aaai_auth_token', this.token);
-            localStorage.setItem('aaai_user_info', JSON.stringify(this.userInfo));
-            
-            window.AAAI_LOGGER?.info('Session saved');
+            return data;
             
         } catch (error) {
-            window.AAAI_LOGGER?.error('Failed to save session:', error);
+            if (error.name === 'AbortError') {
+                window.AAAI_LOGGER.error('Chat message timeout');
+                throw new Error('Request timed out. Please try again.');
+            }
+            window.AAAI_LOGGER.error('Chat error:', error);
+            throw error;
         }
     },
     
-    /**
-     * Clear session data
-     */
-    _clearSession() {
-        this.token = null;
-        this.userInfo = null;
-        this.authenticated = false;
-        
-        // Clear localStorage
-        try {
-            localStorage.removeItem('aaai_auth_token');
-            localStorage.removeItem('aaai_user_info');
-        } catch (error) {
-            window.AAAI_LOGGER?.error('Failed to clear localStorage:', error);
-        }
-        
-        // Clear cookies
-        this._deleteCookie('access_token');
-        this._deleteCookie('refresh_token');
-        this._deleteCookie('user_info');
-        this._deleteCookie('authenticated');
-    },
-    
-    /**
-     * Logout user
-     */
+    // Enhanced logout with server-side session cleanup
     async logout() {
         try {
-            // Clear refresh timer
-            if (this.refreshTimer) {
-                clearInterval(this.refreshTimer);
-                this.refreshTimer = null;
-            }
+          // Clear token refresh timer
+          if (this.tokenRefreshTimer) {
+            clearInterval(this.tokenRefreshTimer);
+            this.tokenRefreshTimer = null;
+          }
+    
+          // Attempt server-side logout
+          try {
+            const url = window.AAAI_CONFIG.ENVIRONMENT === 'development' 
+                ? `${this.API_BASE_URL}/auth/logout`
+                : '/auth/logout';
             
-            // Attempt server-side logout
-            if (this.authenticated) {
-                try {
-                    // Build URL based on environment (matching original pattern)
-                    const url = window.AAAI_CONFIG.ENVIRONMENT === 'development' 
-                        ? `${this.config.API_BASE_URL}/auth/logout`
-                        : '/auth/logout';
-                    
-                    await fetch(url, {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                            'Authorization': `Bearer ${this.token}`
-                        },
-                        credentials: 'include'
-                    });
-                } catch (error) {
-                    window.AAAI_LOGGER?.warn('Server logout failed:', error);
-                }
-            }
-            
-            // Clear local session
-            this._clearSession();
-            
-            window.AAAI_LOGGER?.info('Logout successful');
-            
+            await fetch(url, {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${this.getToken()}`
+                },
+                credentials: 'include'
+            });
+          } catch (error) {
+            console.warn('Server-side logout failed:', error);
+          }
+    
+          // Clear local auth data
+          this.clearAuthData();
+    
+          console.log('✓ Logout successful');
         } catch (error) {
-            window.AAAI_LOGGER?.error('Logout error:', error);
-            // Still clear local data
-            this._clearSession();
+          console.error('Logout error:', error);
+          // Still clear local data even if server logout fails
+          this.clearAuthData();
+        }
+      },
+    
+    clearAuthData() {
+        // Clear cookies
+        const cookiesToClear = [
+            'access_token', 'refresh_token', 'csrf_token',
+            'user_info', 'user_preferences', 'websocket_id',
+            'session_id', 'authenticated'
+        ];
+
+        cookiesToClear.forEach(cookieName => {
+            this._deleteCookie(cookieName);
+        });
+
+        // Clear WebSocket reconnect token
+        localStorage.removeItem('ws_reconnect_token');
+
+        // Clear instance data
+        this.currentUser = null;
+        this.isRefreshing = false;
+        this.refreshPromise = null;
+
+        if (this.tokenRefreshTimer) {
+            clearInterval(this.tokenRefreshTimer);
+            this.tokenRefreshTimer = null;
         }
     },
-    
-    /**
-     * Get WebSocket URL for authenticated user
-     */
-    getWebSocketURL() {
-        if (!this.authenticated || !this.userInfo?.id) {
+
+    // Get WebSocket URL with enhanced authentication
+    getWebSocketURL(userId) {
+        if (!this.isAuthenticated()) {
             throw new Error('Authentication required for WebSocket');
         }
         
@@ -522,48 +535,48 @@ const AuthService = {
             : window.location.host;
         
         // Include token as query parameter for initial authentication
-        const url = `${wsProtocol}//${wsHost}/ws/${this.userInfo.id}?token=${encodeURIComponent(this.token)}`;
-        window.AAAI_LOGGER?.debug(`WebSocket URL: ${url.replace(/token=[^&]*/, 'token=***')}`);
+        // WebSocket will also use cookies for persistent authentication
+        const url = `${wsProtocol}//${wsHost}/ws/${userId}?token=${this.token}`;
+        window.AAAI_LOGGER.debug(`WebSocket URL: ${url.replace(/token=[^&]*/, 'token=***')}`);
         return url;
     },
     
-    /**
-     * Get current user info
-     */
-    getCurrentUser() {
-        return this.userInfo ? { ...this.userInfo } : null;
-    },
-    
-    /**
-     * Get auth token
-     */
-    getToken() {
-        return this.token;
-    },
-    
-    /**
-     * Check if user is authenticated
-     */
-    isAuthenticated() {
-        return this.authenticated && !!this.token && this._isTokenValid(this.token);
-    },
-    
-    /**
-     * Get user credits
-     */
+    // Get user credits
     async getUserCredits() {
+        if (!this.isAuthenticated()) {
+            throw new Error('Authentication required');
+        }
+        
         try {
             const result = await this.executeFunction('get_user_creds', {
-                email: this.userInfo?.email
+                email: this.userEmail
             });
-            return result.data?.credits || 0;
+            return result.data.credits;
         } catch (error) {
-            window.AAAI_LOGGER?.error('Failed to get user credits:', error);
+            window.AAAI_LOGGER.error('Error getting user credits:', error);
             return 0;
         }
     },
     
-    // Cookie utilities
+    // Check drive access
+    async checkDriveAccess(driveLink) {
+        if (!this.isAuthenticated()) {
+            throw new Error('Authentication required');
+        }
+        
+        try {
+            const result = await this.executeFunction('check_drive_access', {
+                drive_link: driveLink,
+                email: this.userEmail
+            });
+            return result.data;
+        } catch (error) {
+            window.AAAI_LOGGER.error('Error checking drive access:', error);
+            throw error;
+        }
+    },
+    
+    // Cookie management utilities
     _getCookie(name) {
         const value = `; ${document.cookie}`;
         const parts = value.split(`; ${name}=`);
@@ -573,12 +586,76 @@ const AuthService = {
         return null;
     },
     
+    _setCookie(name, value, days = 7) {
+        const expires = new Date(Date.now() + days * 864e5).toUTCString();
+        const secureFlag = window.location.protocol === 'https:' ? '; secure' : '';
+        document.cookie = `${name}=${encodeURIComponent(value)}; expires=${expires}; path=/; samesite=lax${secureFlag}`;
+    },
+    
     _deleteCookie(name) {
         document.cookie = `${name}=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;`;
+    },
+    
+    // Secure storage methods (localStorage fallback)
+    _setSecureItem(key, value) {
+        try {
+            const storageKey = `aaai_${key}`;
+            localStorage.setItem(storageKey, value);
+            return true;
+        } catch (error) {
+            window.AAAI_LOGGER.error('Error storing secure item:', error);
+            return false;
+        }
+    },
+    
+    _getSecureItem(key) {
+        try {
+            const storageKey = `aaai_${key}`;
+            return localStorage.getItem(storageKey);
+        } catch (error) {
+            window.AAAI_LOGGER.error('Error retrieving secure item:', error);
+            return null;
+        }
+    },
+    
+    _removeSecureItem(key) {
+        try {
+            const storageKey = `aaai_${key}`;
+            localStorage.removeItem(storageKey);
+            return true;
+        } catch (error) {
+            window.AAAI_LOGGER.error('Error removing secure item:', error);
+            return false;
+        }
+    },
+    
+    // Get authentication headers
+    getAuthHeader() {
+        return {
+            'Authorization': `Bearer ${this.token}`,
+            'X-Session-ID': this.sessionId || ''
+        };
+    },
+    
+    // Get session information
+    getSessionInfo() {
+        return {
+            authenticated: this.authenticated,
+            userId: this.userId,
+            email: this.userEmail,
+            sessionId: this.sessionId,
+            hasRefreshToken: this.hasPersistentSession(),
+            tokenValid: this.token ? this._isTokenValid(this.token) : false
+        };
+    },
+    
+    // Refresh token if needed (public method)
+    async refreshTokenIfNeeded() {
+        return await this._checkAndRefreshToken();
     }
 };
 
-// Auto-initialize when available
-if (typeof window !== 'undefined') {
-    window.AuthService = AuthService;
+// Export the service for module usage
+if (typeof module !== 'undefined' && module.exports) {
+    module.exports = AuthService;
 }
