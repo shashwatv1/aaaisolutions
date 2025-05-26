@@ -90,7 +90,7 @@ const ChatService = {
     },
     
     /**
-     * FIXED: Connect with proper promise handling and authentication timing
+     * FIXED: Enhanced connect method with better token handling
      */
     async connect() {
         if (!this.authService.isAuthenticated()) {
@@ -106,6 +106,35 @@ const ChatService = {
         if (this.isConnecting && this.connectionPromise) {
             this._log('Connection already in progress, waiting...');
             return this.connectionPromise;
+        }
+        
+        // FIXED: Pre-validate token before attempting connection
+        const currentToken = this.authService.getToken();
+        if (!currentToken || !this._isTokenValid(currentToken)) {
+            this._log('🔄 Token invalid/expired, refreshing before connection...');
+            
+            try {
+                const refreshed = await this.authService.refreshTokenIfNeeded();
+                if (!refreshed) {
+                    // Try alternative refresh if available
+                    if (typeof this.authService.forceTokenRefresh === 'function') {
+                        await this.authService.forceTokenRefresh();
+                    } else {
+                        throw new Error('Unable to refresh expired token');
+                    }
+                }
+                
+                const newToken = this.authService.getToken();
+                if (!newToken || !this._isTokenValid(newToken)) {
+                    throw new Error('Token refresh failed to provide valid token');
+                }
+                
+                this._log('✅ Token refreshed successfully before connection');
+                
+            } catch (error) {
+                this._error('Pre-connection token refresh failed:', error);
+                throw new Error('Authentication token expired and could not be refreshed');
+            }
         }
         
         // Create new connection promise
@@ -284,41 +313,79 @@ const ChatService = {
     },
     
     /**
-     * FIXED: Enhanced authentication with better token handling
+     * FIXED: Enhanced authentication with proper token refresh handling
      */
     async _performAuthentication() {
-        // Ensure we have the freshest possible token
-        await this.authService.refreshTokenIfNeeded();
+        // FIXED: Force token refresh when server indicates token issues
+        this._log('🔐 Preparing authentication - checking token validity...');
         
-        const token = this.authService.getToken();
-        const user = this.authService.getCurrentUser();
-        
-        if (!token || !user.id) {
-            throw new Error('Missing authentication credentials');
-        }
-        
-        const authMessage = {
-            type: 'authenticate',
-            token: token,
-            userId: user.id,
-            email: user.email, // Include email for additional validation
-            timestamp: new Date().toISOString()
-        };
-        
-        this._log('🔐 Sending authentication message...');
-        
-        // Send authentication with retry
-        await this._sendMessageWithRetry(authMessage, 2);
-        
-        // Set authentication timeout
-        this.authTimeout = setTimeout(() => {
-            if (!this.isAuthenticated) {
-                this._error('❌ Authentication timeout - no response from server');
-                if (this.socket) {
-                    this.socket.close(4001, 'Authentication timeout');
-                }
+        try {
+            // Always refresh token before WebSocket auth to ensure it's valid
+            const refreshed = await this.authService.refreshTokenIfNeeded();
+            if (refreshed) {
+                this._log('✅ Token refreshed before authentication');
             }
-        }, this.options.authTimeout);
+            
+            const token = this.authService.getToken();
+            const user = this.authService.getCurrentUser();
+            
+            if (!token || !user.id) {
+                throw new Error('Missing authentication credentials after refresh');
+            }
+            
+            // Validate token is not expired
+            if (!this._isTokenValid(token)) {
+                this._error('Token appears expired, attempting forced refresh...');
+                // Force a new login if token is definitively expired
+                throw new Error('Token expired - authentication required');
+            }
+            
+            const authMessage = {
+                type: 'authenticate',
+                token: token,
+                userId: user.id,
+                email: user.email,
+                timestamp: new Date().toISOString()
+            };
+            
+            this._log('🔐 Sending authentication message with fresh token...');
+            
+            // Send authentication with retry
+            await this._sendMessageWithRetry(authMessage, 2);
+            
+            // Set authentication timeout
+            this.authTimeout = setTimeout(() => {
+                if (!this.isAuthenticated) {
+                    this._error('❌ Authentication timeout - no response from server');
+                    if (this.socket) {
+                        this.socket.close(4001, 'Authentication timeout');
+                    }
+                }
+            }, this.options.authTimeout);
+            
+        } catch (error) {
+            this._error('Authentication preparation failed:', error);
+            throw error;
+        }
+    },
+    
+    /**
+     * FIXED: Add token validation helper
+     */
+    _isTokenValid(token) {
+        try {
+            const tokenParts = token.split('.');
+            if (tokenParts.length !== 3) return false;
+            
+            const payload = JSON.parse(atob(tokenParts[1]));
+            const now = Math.floor(Date.now() / 1000);
+            
+            // Check if token expires within next 5 minutes (300 seconds)
+            return payload.exp && payload.exp > (now + 300);
+        } catch (error) {
+            this._error('Token validation error:', error);
+            return false;
+        }
     },
     
     /**
@@ -439,7 +506,7 @@ const ChatService = {
     },
     
     /**
-     * FIXED: Enhanced authentication failure handling
+     * FIXED: Enhanced authentication failure handling with token refresh
      */
     _handleAuthenticationError(data) {
         this._error('❌ Authentication failed:', data.message || data.error);
@@ -461,45 +528,93 @@ const ChatService = {
             this.socket.close(4001, 'Authentication failed');
         }
         
-        // Try to refresh token and reconnect after a delay
-        setTimeout(() => {
+        // FIXED: Handle token refresh requirement from server
+        if (data.requires_refresh || data.code === 'AUTH_FAILED') {
+            this._log('🔄 Server requires token refresh, attempting immediate refresh...');
             this._handleTokenRefreshAndReconnect(data);
-        }, 2000);
+        } else {
+            // Try to refresh token and reconnect after a delay for other auth errors
+            setTimeout(() => {
+                this._handleTokenRefreshAndReconnect(data);
+            }, 2000);
+        }
     },
     
     /**
-     * Handle token refresh and reconnection
+     * FIXED: Enhanced token refresh and reconnection with better error handling
      */
     async _handleTokenRefreshAndReconnect(errorData) {
         this._log('🔄 Attempting token refresh and reconnection');
         
         try {
-            const refreshed = await this.authService.refreshTokenIfNeeded();
+            // FIXED: More aggressive token refresh approach
+            this._log('🔄 Forcing token refresh due to authentication failure...');
             
-            if (refreshed || this.authService.isAuthenticated()) {
-                this._log('✅ Token refreshed, reconnecting in 3 seconds...');
-                // Close current connection and reconnect
-                this.disconnect();
-                setTimeout(() => {
-                    this.connect().catch(err => {
-                        this._error('Failed to reconnect after token refresh:', err);
-                        this._notifyErrorListeners({
-                            error: 'Authentication failed - please log in again',
-                            originalError: errorData
-                        });
-                    });
-                }, 3000);
-            } else {
-                this._error('❌ Token refresh failed or user not authenticated');
+            // Check if we can refresh the token
+            const hasRefreshCapability = this.authService.hasPersistentSession && this.authService.hasPersistentSession();
+            
+            if (!hasRefreshCapability) {
+                this._error('❌ No refresh token available - user needs to re-authenticate');
                 this._notifyErrorListeners({
-                    error: 'Authentication failed - please log in again',
+                    error: 'Session expired - please log in again',
+                    requiresLogin: true,
                     originalError: errorData
                 });
+                return;
             }
+            
+            // Attempt to refresh token
+            const refreshed = await this.authService.refreshTokenIfNeeded();
+            
+            if (!refreshed) {
+                // Try alternative refresh method if available
+                if (typeof this.authService.forceTokenRefresh === 'function') {
+                    this._log('🔄 Attempting forced token refresh...');
+                    await this.authService.forceTokenRefresh();
+                } else {
+                    throw new Error('Token refresh failed');
+                }
+            }
+            
+            // Verify we now have a valid token
+            const newToken = this.authService.getToken();
+            if (!newToken || !this._isTokenValid(newToken)) {
+                throw new Error('Token refresh resulted in invalid token');
+            }
+            
+            this._log('✅ Token refresh successful, reconnecting in 1 second...');
+            
+            // Close current connection and reconnect
+            this.disconnect();
+            setTimeout(() => {
+                this.connect().catch(err => {
+                    this._error('Failed to reconnect after token refresh:', err);
+                    this._notifyErrorListeners({
+                        error: 'Failed to reconnect after token refresh - please refresh page',
+                        requiresPageRefresh: true,
+                        originalError: errorData
+                    });
+                });
+            }, 1000);
+            
         } catch (error) {
             this._error('Error during token refresh:', error);
+            
+            // Determine the appropriate user action
+            let userAction = 'please log in again';
+            let requiresLogin = true;
+            
+            if (error.message.includes('expired') || error.message.includes('invalid token')) {
+                userAction = 'please refresh the page and log in again';
+                requiresLogin = true;
+            } else if (error.message.includes('network') || error.message.includes('connection')) {
+                userAction = 'please check your connection and try again';
+                requiresLogin = false;
+            }
+            
             this._notifyErrorListeners({
-                error: 'Authentication failed - please log in again',
+                error: `Authentication failed - ${userAction}`,
+                requiresLogin: requiresLogin,
                 originalError: errorData
             });
         }
@@ -997,7 +1112,7 @@ if (typeof window !== 'undefined') {
     };
 }
 
-// FIXED: Additional debug utilities for troubleshooting
+// FIXED: Enhanced debug utilities with token analysis
 if (typeof window !== 'undefined') {
     window.debugChatService = function() {
         console.log('🔍 === ChatService Debug Information ===');
@@ -1013,6 +1128,29 @@ if (typeof window !== 'undefined') {
         if (typeof AuthService !== 'undefined') {
             const authStatus = AuthService.getSessionInfo();
             console.log('🔑 Auth Status:', authStatus);
+            
+            // FIXED: Add token analysis
+            const token = AuthService.getToken();
+            if (token) {
+                try {
+                    const parts = token.split('.');
+                    if (parts.length === 3) {
+                        const payload = JSON.parse(atob(parts[1]));
+                        const now = Math.floor(Date.now() / 1000);
+                        console.log('🎫 Token Analysis:', {
+                            issued: new Date(payload.iat * 1000).toISOString(),
+                            expires: new Date(payload.exp * 1000).toISOString(),
+                            expiresIn: payload.exp - now,
+                            isExpired: payload.exp <= now,
+                            expiresWithin5Min: payload.exp <= (now + 300),
+                            userId: payload.sub || payload.user_id,
+                            email: payload.email
+                        });
+                    }
+                } catch (e) {
+                    console.warn('🎫 Could not parse token:', e);
+                }
+            }
         }
         
         console.log('⚙️ Options:', ChatService.options);
@@ -1030,13 +1168,38 @@ if (typeof window !== 'undefined') {
         console.log('🔍 === End Debug Information ===');
     };
     
-    // Quick connection test function
+    // Enhanced connection test with token validation
     window.quickConnectionTest = async function() {
-        console.log('⚡ === Quick Connection Test ===');
+        console.log('⚡ === Quick Connection Test with Token Validation ===');
         
         if (!AuthService.isAuthenticated()) {
             console.error('❌ Not authenticated');
             return;
+        }
+        
+        // Check token validity first
+        const token = AuthService.getToken();
+        if (token) {
+            try {
+                const parts = token.split('.');
+                const payload = JSON.parse(atob(parts[1]));
+                const now = Math.floor(Date.now() / 1000);
+                
+                console.log('🎫 Token Check:', {
+                    expiresIn: payload.exp - now,
+                    isExpired: payload.exp <= now,
+                    needsRefresh: payload.exp <= (now + 300)
+                });
+                
+                if (payload.exp <= now) {
+                    console.warn('⚠️ Token is expired!');
+                    console.log('🔄 Attempting token refresh...');
+                    await AuthService.refreshTokenIfNeeded();
+                }
+                
+            } catch (e) {
+                console.warn('Could not parse token for validation');
+            }
         }
         
         try {
@@ -1051,13 +1214,22 @@ if (typeof window !== 'undefined') {
                 const timeout = setTimeout(() => {
                     testWs.close();
                     reject(new Error('Connection timeout'));
-                }, 5000);
+                }, 10000); // Longer timeout for debugging
                 
                 testWs.onopen = () => {
                     console.log('✅ WebSocket opened successfully');
-                    clearTimeout(timeout);
-                    testWs.close();
-                    resolve('Connection successful');
+                    
+                    // Try to authenticate
+                    const authMsg = {
+                        type: 'authenticate',
+                        token: AuthService.getToken(),
+                        userId: user.id,
+                        email: user.email,
+                        timestamp: new Date().toISOString()
+                    };
+                    
+                    console.log('🔐 Sending authentication...');
+                    testWs.send(JSON.stringify(authMsg));
                 };
                 
                 testWs.onerror = (error) => {
@@ -1072,12 +1244,18 @@ if (typeof window !== 'undefined') {
                         console.log('📨 Received:', data.type, data.message || '');
                         
                         if (data.type === 'error') {
+                            console.error('❌ Server error:', data);
                             clearTimeout(timeout);
                             testWs.close();
                             reject(new Error(`Server error: ${data.message}`));
+                        } else if (data.type === 'auth_success' || data.type === 'authenticated') {
+                            console.log('✅ Authentication successful!');
+                            clearTimeout(timeout);
+                            testWs.close();
+                            resolve('Connection and authentication successful');
                         }
                     } catch (e) {
-                        console.log('📨 Received non-JSON message');
+                        console.log('📨 Received non-JSON message:', event.data);
                     }
                 };
                 
@@ -1086,7 +1264,9 @@ if (typeof window !== 'undefined') {
                     clearTimeout(timeout);
                     
                     if (event.code === 4001) {
-                        reject(new Error('Authentication failed'));
+                        reject(new Error(`Authentication failed: ${event.reason}`));
+                    } else if (!event.wasClean) {
+                        reject(new Error(`Connection closed unexpectedly: ${event.code} ${event.reason}`));
                     }
                 };
             });
