@@ -1724,134 +1724,136 @@
     (function() {
       'use strict';
       
-      console.log('🔍 WebSocket Authentication Debug Script Loaded');
+      console.log('🔍 Enhanced WebSocket Debug Script Loaded');
       
-      // Override console methods to add timestamps and better formatting
-      const originalLog = console.log;
-      const originalError = console.error;
-      const originalWarn = console.warn;
+      // Track WebSocket lifecycle events
+      const wsEvents = [];
+      let wsConnectionStartTime = null;
       
-      console.log = function(...args) {
-          originalLog.apply(console, [`[${new Date().toISOString()}] 📝`, ...args]);
-      };
-      
-      console.error = function(...args) {
-          originalError.apply(console, [`[${new Date().toISOString()}] ❌`, ...args]);
-      };
-      
-      console.warn = function(...args) {
-          originalWarn.apply(console, [`[${new Date().toISOString()}] ⚠️`, ...args]);
-      };
-      
-      // Debug WebSocket creation
+      // Override WebSocket to track creation and events
       const originalWebSocket = window.WebSocket;
       window.WebSocket = function(url, protocols) {
-          console.log('🔌 Creating WebSocket:', url);
-          console.log('🔌 Protocols:', protocols);
+          console.log('🔌 Creating WebSocket:', url.replace(/token=[^&]*/, 'token=***'));
+          wsConnectionStartTime = Date.now();
           
           const ws = new originalWebSocket(url, protocols);
           
-          // Override addEventListener to log all events
-          const originalAddEventListener = ws.addEventListener;
-          ws.addEventListener = function(type, listener, options) {
-              console.log(`📡 Adding WebSocket event listener: ${type}`);
-              
-              const wrappedListener = function(event) {
-                  console.log(`📡 WebSocket event fired: ${type}`, {
-                      type: event.type,
+          // Track all WebSocket events
+          ['open', 'message', 'close', 'error'].forEach(eventType => {
+              ws.addEventListener(eventType, function(event) {
+                  const eventTime = Date.now();
+                  const elapsed = wsConnectionStartTime ? eventTime - wsConnectionStartTime : 0;
+                  
+                  const eventData = {
+                      type: eventType,
+                      timestamp: new Date().toISOString(),
+                      elapsed: elapsed,
+                      readyState: ws.readyState,
                       code: event.code,
                       reason: event.reason,
-                      data: event.data ? event.data.substring(0, 200) + '...' : undefined
-                  });
-                  return listener.call(this, event);
-              };
-              
-              return originalAddEventListener.call(this, type, wrappedListener, options);
-          };
+                      dataPreview: event.data ? event.data.substring(0, 100) : undefined
+                  };
+                  
+                  wsEvents.push(eventData);
+                  
+                  // Enhanced logging
+                  if (eventType === 'open') {
+                      console.log(`✅ WebSocket OPENED in ${elapsed}ms`);
+                      console.log(`   ReadyState: ${ws.readyState} (${getReadyStateName(ws.readyState)})`);
+                  } else if (eventType === 'close') {
+                      console.log(`🔌 WebSocket CLOSED: Code ${event.code} - ${event.reason || 'No reason'}`);
+                      console.log(`   Total connection time: ${elapsed}ms`);
+                  } else if (eventType === 'error') {
+                      console.error(`❌ WebSocket ERROR after ${elapsed}ms:`, event);
+                  } else if (eventType === 'message') {
+                      try {
+                          const data = JSON.parse(event.data);
+                          if (data.type === 'auth_success' || data.type === 'authenticated') {
+                              console.log(`🔐 Authentication SUCCESS after ${elapsed}ms`);
+                          } else if (data.type === 'auth_error' || data.type === 'authentication_failed') {
+                              console.error(`🔐 Authentication FAILED after ${elapsed}ms:`, data);
+                          } else {
+                              console.log(`📨 Message received (${data.type}) after ${elapsed}ms`);
+                          }
+                      } catch (e) {
+                          console.log(`📨 Non-JSON message received after ${elapsed}ms`);
+                      }
+                  }
+              });
+          });
           
-          // Override send method to log messages
+          // Override send to track outgoing messages
           const originalSend = ws.send;
           ws.send = function(data) {
               try {
                   const parsed = JSON.parse(data);
-                  console.log('📤 Sending WebSocket message:', {
-                      type: parsed.type,
-                      hasToken: !!(parsed.token),
-                      tokenLength: parsed.token ? parsed.token.length : 0,
-                      userId: parsed.userId,
-                      timestamp: parsed.timestamp
-                  });
+                  const elapsed = wsConnectionStartTime ? Date.now() - wsConnectionStartTime : 0;
+                  
+                  if (parsed.type === 'authenticate') {
+                      console.log(`🔐 Sending AUTHENTICATION after ${elapsed}ms:`, {
+                          type: parsed.type,
+                          hasToken: !!parsed.token,
+                          tokenLength: parsed.token ? parsed.token.length : 0,
+                          userId: parsed.userId,
+                          readyState: ws.readyState
+                      });
+                  } else {
+                      console.log(`📤 Sending message (${parsed.type}) after ${elapsed}ms`, {
+                          readyState: ws.readyState
+                      });
+                  }
               } catch (e) {
-                  console.log('📤 Sending WebSocket message (raw):', data.substring(0, 100) + '...');
+                  console.log(`📤 Sending raw data after ${Date.now() - wsConnectionStartTime}ms`);
               }
+              
               return originalSend.call(this, data);
           };
           
           return ws;
       };
       
-      // Debug AuthService method calls
-      if (typeof AuthService !== 'undefined') {
-          console.log('🔑 AuthService available, adding debug hooks');
+      function getReadyStateName(readyState) {
+          const states = {
+              0: 'CONNECTING',
+              1: 'OPEN', 
+              2: 'CLOSING',
+              3: 'CLOSED'
+          };
+          return states[readyState] || 'UNKNOWN';
+      }
+      
+      // Enhanced debug functions
+      window.debugWebSocket = function() {
+          console.log('🔍 === Enhanced WebSocket Debug Information ===');
           
-          // Override getToken to log token info
-          const originalGetToken = AuthService.getToken;
-          AuthService.getToken = function() {
-              const token = originalGetToken.call(this);
-              if (token) {
+          if (typeof AuthService !== 'undefined') {
+              const sessionInfo = AuthService.getSessionInfo();
+              console.log('🔑 Auth Status:', {
+                  authenticated: sessionInfo.authenticated,
+                  userId: sessionInfo.userId,
+                  email: sessionInfo.email,
+                  tokenValid: sessionInfo.tokenValid,
+                  hasRefreshToken: sessionInfo.hasRefreshToken
+              });
+              
+              if (sessionInfo.tokenValid && AuthService.getToken()) {
                   try {
+                      const token = AuthService.getToken();
                       const parts = token.split('.');
                       if (parts.length === 3) {
                           const payload = JSON.parse(atob(parts[1]));
                           const now = Math.floor(Date.now() / 1000);
-                          console.log('🎫 Token info:', {
-                              length: token.length,
-                              expires: new Date(payload.exp * 1000).toISOString(),
+                          console.log('🎫 Token Details:', {
+                              expiresAt: new Date(payload.exp * 1000).toISOString(),
                               expiresIn: payload.exp - now,
-                              userId: payload.sub || payload.user_id,
-                              isValid: payload.exp > now
+                              isExpired: payload.exp <= now,
+                              userId: payload.sub || payload.user_id
                           });
                       }
                   } catch (e) {
-                      console.warn('🎫 Could not parse token');
+                      console.warn('🎫 Could not parse token details');
                   }
-              } else {
-                  console.warn('🎫 No token available');
               }
-              return token;
-          };
-          
-          // Override refreshTokenIfNeeded
-          const originalRefreshTokenIfNeeded = AuthService.refreshTokenIfNeeded;
-          AuthService.refreshTokenIfNeeded = async function() {
-              console.log('🔄 Checking if token refresh is needed...');
-              const result = await originalRefreshTokenIfNeeded.call(this);
-              console.log('🔄 Token refresh result:', result);
-              return result;
-          };
-          
-          // Override getWebSocketURL
-          if (AuthService.getWebSocketURL) {
-              const originalGetWebSocketURL = AuthService.getWebSocketURL;
-              AuthService.getWebSocketURL = function() {
-                  const url = originalGetWebSocketURL.call(this);
-                  console.log('🔗 Generated WebSocket URL:', url.replace(/token=[^&]*/, 'token=***'));
-                  return url;
-              };
-          }
-      }
-      
-      // Add a global debug function
-      window.debugWebSocket = function() {
-          console.log('🔍 === WebSocket Debug Information ===');
-          
-          if (typeof AuthService !== 'undefined') {
-              console.log('🔑 Auth Status:', {
-                  authenticated: AuthService.isAuthenticated(),
-                  user: AuthService.getCurrentUser(),
-                  token: AuthService.getToken() ? 'Present' : 'Missing',
-                  sessionInfo: AuthService.getSessionInfo()
-              });
           }
           
           if (typeof ChatService !== 'undefined' && ChatService.getStatus) {
@@ -1866,71 +1868,115 @@
               });
           }
           
+          console.log('📊 WebSocket Events (' + wsEvents.length + ' total):');
+          wsEvents.slice(-10).forEach((event, index) => {
+              console.log(`  ${index + 1}. [${event.elapsed}ms] ${event.type.toUpperCase()}`, {
+                  readyState: event.readyState,
+                  code: event.code,
+                  reason: event.reason
+              });
+          });
+          
           console.log('🔍 === End Debug Information ===');
       };
       
-      // Add a test function
-      window.testWebSocketAuth = async function() {
-          console.log('🧪 === Testing WebSocket Authentication ===');
+      // Test function for connection issues
+      window.testWebSocketTiming = async function() {
+          console.log('⏱️ === Testing WebSocket Connection Timing ===');
           
           if (!AuthService.isAuthenticated()) {
-              console.error('🚫 Not authenticated');
+              console.error('❌ Not authenticated');
               return;
           }
           
           try {
-              // Refresh token first
+              // Clear previous events
+              wsEvents.length = 0;
+              
+              console.log('🧪 Starting timing test...');
               await AuthService.refreshTokenIfNeeded();
               
-              // Get WebSocket URL
-              const wsUrl = AuthService.getWebSocketURL();
-              console.log('🔗 WebSocket URL generated:', wsUrl.replace(/token=[^&]*/, 'token=***'));
+              const wsUrl = `wss://api-server-559730737995.us-central1.run.app/ws/${AuthService.getCurrentUser().id}`;
+              const testWs = new WebSocket(wsUrl);
               
-              // Create test WebSocket
-              const testWs = new WebSocket(wsUrl.split('?')[0]); // Connect without token
-              
-              testWs.addEventListener('open', () => {
-                  console.log('✅ Test WebSocket connected');
+              return new Promise((resolve, reject) => {
+                  let authSent = false;
+                  let authReceived = false;
                   
-                  // Send authentication message
-                  const authMessage = {
-                      type: 'authenticate',
-                      token: AuthService.getToken(),
-                      userId: AuthService.getCurrentUser().id,
-                      timestamp: new Date().toISOString()
-                  };
+                  testWs.addEventListener('open', async () => {
+                      console.log('📡 Test WebSocket opened, waiting for ready state...');
+                      
+                      // Wait a bit to ensure socket is truly ready
+                      setTimeout(() => {
+                          console.log('🔐 Sending test authentication...');
+                          authSent = true;
+                          
+                          const authMessage = {
+                              type: 'authenticate',
+                              token: AuthService.getToken(),
+                              userId: AuthService.getCurrentUser().id,
+                              timestamp: new Date().toISOString()
+                          };
+                          
+                          testWs.send(JSON.stringify(authMessage));
+                      }, 100); // Small delay to ensure readiness
+                  });
                   
-                  console.log('🔐 Sending test auth message');
-                  testWs.send(JSON.stringify(authMessage));
-              });
-              
-              testWs.addEventListener('message', (event) => {
-                  console.log('📨 Test WebSocket received:', event.data);
-                  testWs.close();
-              });
-              
-              testWs.addEventListener('error', (event) => {
-                  console.error('❌ Test WebSocket error:', event);
-              });
-              
-              testWs.addEventListener('close', (event) => {
-                  console.log('🔌 Test WebSocket closed:', { code: event.code, reason: event.reason });
+                  testWs.addEventListener('message', (event) => {
+                      try {
+                          const data = JSON.parse(event.data);
+                          if (data.type === 'auth_success' || data.type === 'authenticated') {
+                              console.log('✅ Test authentication successful!');
+                              authReceived = true;
+                              testWs.close();
+                              resolve('success');
+                          } else if (data.type === 'auth_error') {
+                              console.error('❌ Test authentication failed:', data);
+                              testWs.close();
+                              reject(new Error('Authentication failed: ' + (data.message || 'Unknown error')));
+                          }
+                      } catch (e) {
+                          console.log('📨 Test received non-JSON message');
+                      }
+                  });
+                  
+                  testWs.addEventListener('error', (event) => {
+                      console.error('❌ Test WebSocket error:', event);
+                      reject(new Error('WebSocket error'));
+                  });
+                  
+                  testWs.addEventListener('close', (event) => {
+                      console.log('🔌 Test WebSocket closed:', { code: event.code, reason: event.reason });
+                      if (!authReceived && authSent) {
+                          reject(new Error('Authentication timeout'));
+                      }
+                  });
+                  
+                  // Overall timeout
+                  setTimeout(() => {
+                      if (!authReceived) {
+                          console.error('⏰ Test timed out');
+                          testWs.close();
+                          reject(new Error('Test timeout'));
+                      }
+                  }, 10000);
               });
               
           } catch (error) {
-              console.error('🧪 Test failed:', error);
+              console.error('🧪 Timing test failed:', error);
+              throw error;
           }
       };
       
-      // Automatically run debug on page load
+      // Auto-run debug info after page load
       setTimeout(() => {
-          console.log('🔍 Auto-running WebSocket debug...');
           if (typeof window.debugWebSocket === 'function') {
+              console.log('🔍 Auto-running WebSocket debug...');
               window.debugWebSocket();
           }
-      }, 2000);
+      }, 3000);
       
-      console.log('🔍 Debug script loaded. Use debugWebSocket() or testWebSocketAuth() in console.');
+      console.log('🔍 Enhanced debug loaded. Use debugWebSocket() or testWebSocketTiming() in console.');
     })();
   </script>
 </body>
