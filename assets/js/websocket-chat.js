@@ -1,6 +1,6 @@
 /**
  * FIXED WebSocket Chat Service - Resolves binding and authentication issues
- * This addresses the specific errors you're encountering
+ * This addresses the method binding errors and connection issues
  */
 const ChatService = {
     // Core state
@@ -48,22 +48,10 @@ const ChatService = {
         this.authService = authService;
         this.options = { ...this.options, ...options };
         
-        // FIXED: Properly bind methods with error handling
-        try {
-            this._onOpen = this._onOpen.bind(this);
-            this._onMessage = this._onMessage.bind(this);
-            this._onClose = this._onClose.bind(this);
-            this._onError = this._onError.bind(this);
-            this._sendHeartbeat = this._sendHeartbeat.bind(this);
-        } catch (error) {
-            console.error('Error binding methods:', error);
-            throw new Error('Failed to initialize ChatService: binding error');
-        }
-        
-        // Setup event handlers
+        // Setup event handlers without binding issues
         this._setupEventHandlers();
         
-        this._log('ChatService initialized with fixes');
+        this._log('ChatService initialized successfully');
         return this;
     },
     
@@ -161,7 +149,7 @@ const ChatService = {
                 
                 this.socket = new WebSocket(wsUrl);
                 
-                // FIXED: Enhanced event setup with immediate error handling
+                // FIXED: Use arrow functions to maintain 'this' context
                 this.socket.addEventListener('open', async (event) => {
                     clearTimeout(overallTimeout);
                     
@@ -190,8 +178,14 @@ const ChatService = {
                     }
                 });
                 
-                this.socket.addEventListener('message', this._onMessage);
-                this.socket.addEventListener('close', this._onClose);
+                this.socket.addEventListener('message', (event) => {
+                    this._onMessage(event);
+                });
+                
+                this.socket.addEventListener('close', (event) => {
+                    this._onClose(event);
+                });
+                
                 this.socket.addEventListener('error', (event) => {
                     this._onError(event);
                     if (this.isConnecting) {
@@ -320,7 +314,9 @@ const ChatService = {
         this.authTimeout = setTimeout(() => {
             if (!this.isAuthenticated) {
                 this._error('❌ Authentication timeout - no response from server');
-                this.socket?.close(4001, 'Authentication timeout');
+                if (this.socket) {
+                    this.socket.close(4001, 'Authentication timeout');
+                }
             }
         }, this.options.authTimeout);
     },
