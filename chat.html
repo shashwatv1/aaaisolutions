@@ -1119,78 +1119,151 @@
         /**
           * Initialize chat service with new authentication flow
           */
-        async function initializeChatService() {
-          console.log('💬 Initializing chat service...');
-          
-          if (!window.AAAI_CONFIG.ENABLE_WEBSOCKETS || typeof ChatService === 'undefined') {
-              console.log('⚠️ WebSocket chat disabled or unavailable');
-              updateConnectionStatus('disconnected');
-              showStatusIndicator('disconnected', '📡 Using HTTP mode');
-              return;
-          }
-          
+          async function initializeChatService() {
+            console.log('💬 FIXED: Initializing chat service...');
+            
+            if (!window.AAAI_CONFIG.ENABLE_WEBSOCKETS || typeof ChatService === 'undefined') {
+                console.log('⚠️ WebSocket chat disabled or unavailable');
+                updateConnectionStatus('disconnected');
+                showStatusIndicator('disconnected', '📡 Using HTTP mode');
+                return;
+            }
+            
+            try {
+                // CRITICAL FIX: Validate and refresh authentication BEFORE WebSocket connection
+                console.log('🔍 FIXED: Pre-connection authentication validation...');
+                
+                // Check current authentication state
+                const isAuth = AuthService.isAuthenticated();
+                const hasAuthCookie = getCookie('authenticated') === 'true';
+                const hasAccessToken = getCookie('access_token');
+                
+                console.log('🍪 Authentication state:', {
+                    serviceAuth: isAuth,
+                    authCookie: hasAuthCookie,
+                    hasAccessToken: !!hasAccessToken
+                });
+                
+                // If we don't have proper cookies but service says we're authenticated, refresh
+                if (isAuth && (!hasAuthCookie || !hasAccessToken)) {
+                    console.log('🔄 FIXED: Missing auth cookies, refreshing...');
+                    
+                    try {
+                        await AuthService.refreshTokenIfNeeded();
+                        
+                        // Wait for cookies to be set
+                        await new Promise(resolve => setTimeout(resolve, 1000));
+                        
+                        // Verify cookies are now present
+                        const newHasAuthCookie = getCookie('authenticated') === 'true';
+                        const newHasAccessToken = getCookie('access_token');
+                        
+                        console.log('🍪 Post-refresh cookie state:', {
+                            authCookie: newHasAuthCookie,
+                            hasAccessToken: !!newHasAccessToken
+                        });
+                        
+                        if (!newHasAuthCookie || !newHasAccessToken) {
+                            throw new Error('Auth cookies still missing after refresh');
+                        }
+                        
+                    } catch (refreshError) {
+                        console.error('❌ FIXED: Pre-connection refresh failed:', refreshError);
+                        updateConnectionStatus('disconnected');
+                        showStatusIndicator('disconnected', '🔑 Authentication refresh failed');
+                        return;
+                    }
+                }
+                
+                // Initialize ChatService with enhanced options
+                chatService = ChatService.init(AuthService, {
+                    reconnectInterval: 5000,
+                    maxReconnectAttempts: 2, // Reduced attempts
+                    heartbeatInterval: 30000,
+                    connectionTimeout: 12000, // Reduced timeout
+                    authTimeout: 8000,       // Reduced auth timeout
+                    socketReadyTimeout: 2000, // Reduced ready timeout
+                    preAuthDelay: 750,       // Wait before sending auth
+                    messageQueueLimit: 20,
+                    debug: window.AAAI_CONFIG.ENABLE_DEBUG || false
+                });
+                
+                // Setup event listeners with enhanced error handling
+                chatService.onMessage(handleChatMessage);
+                chatService.onStatusChange(handleConnectionStatus);
+                chatService.onError(handleChatError);
+                
+                // Enhanced authentication-specific listeners
+                chatService.onAuthSuccess((data) => {
+                    console.log('🔐 FIXED: WebSocket authentication successful');
+                    showStatusIndicator('connected', '✅ Connected via WebSocket');
+                });
+                
+                chatService.onAuthError((data) => {
+                    console.error('🔐 FIXED: WebSocket authentication failed:', data);
+                    // Don't show error immediately - let error handler decide
+                });
+                
+                console.log('✅ FIXED: ChatService initialized');
+                
+                // Attempt connection with better error handling
+                try {
+                    console.log('🚀 FIXED: Attempting WebSocket connection with validated auth...');
+                    await chatService.connect();
+                    console.log('✅ FIXED: WebSocket connected and authenticated');
+                } catch (error) {
+                    console.log('⚠️ FIXED: WebSocket connection failed:', error.message);
+                    updateConnectionStatus('disconnected');
+                    
+                    // Enhanced error classification
+                    if (error.message.includes('Authentication') || error.message.includes('expired')) {
+                        console.log('🔑 FIXED: Authentication error detected');
+                        
+                        // Try one more refresh and reconnect
+                        try {
+                            console.log('🔄 FIXED: Attempting recovery refresh...');
+                            await AuthService.refreshTokenIfNeeded();
+                            await new Promise(resolve => setTimeout(resolve, 500));
+                            
+                            // Try connecting one more time
+                            await chatService.connect();
+                            console.log('✅ FIXED: Recovery connection successful');
+                            
+                        } catch (recoveryError) {
+                            console.error('❌ FIXED: Recovery failed:', recoveryError);
+                            showError('Session expired. Please refresh the page to reconnect.');
+                            showStatusIndicator('disconnected', '🔑 Please refresh page');
+                        }
+                        
+                    } else if (error.message.includes('timeout')) {
+                        showStatusIndicator('disconnected', '⏰ Connection timeout - using HTTP mode');
+                    } else {
+                        showStatusIndicator('disconnected', '📡 Using HTTP mode');
+                    }
+                }
+                
+            } catch (error) {
+                window.AAAI_LOGGER?.error('FIXED: Failed to initialize ChatService:', error);
+                console.error('❌ FIXED: Failed to initialize ChatService:', error);
+                updateConnectionStatus('disconnected');
+                showStatusIndicator('disconnected', '📡 Using HTTP mode');
+            }
+        }
+        function getCookie(name) {
           try {
-              chatService = ChatService.init(AuthService, {
-                  reconnectInterval: 5000,
-                  maxReconnectAttempts: 3, // Reduced attempts
-                  heartbeatInterval: 30000,
-                  connectionTimeout: 15000,
-                  authTimeout: 10000,
-                  socketReadyTimeout: 3000,
-                  messageQueueLimit: 20,
-                  debug: window.AAAI_CONFIG.ENABLE_DEBUG || false
-              });
-              
-              // Setup event listeners
-              chatService.onMessage(handleChatMessage);
-              chatService.onStatusChange(handleConnectionStatus);
-              chatService.onError(handleChatError);
-              
-              // Enhanced authentication-specific listeners
-              chatService.onAuthSuccess((data) => {
-                  console.log('🔐 WebSocket authentication successful');
-                  showStatusIndicator('connected', '✅ Connected');
-              });
-              
-              chatService.onAuthError((data) => {
-                  console.error('🔐 WebSocket authentication failed:', data);
-                  // Don't show error here - let the error handler decide
-              });
-              
-              console.log('✅ ChatService initialized');
-              
-              // Attempt to connect with enhanced error handling
-              try {
-                  console.log('🚀 Attempting WebSocket connection...');
-                  await chatService.connect();
-                  console.log('✅ WebSocket connected and authenticated');
-              } catch (error) {
-                  console.log('⚠️ WebSocket connection failed:', error.message);
-                  updateConnectionStatus('disconnected');
-                  
-                  // Check if it's an authentication issue with valid token
-                  const token = AuthService.getToken();
-                  const isTokenValid = token && !isTokenExpired(token);
-                  
-                  if (isTokenValid && error.message.includes('Authentication')) {
-                      console.log('📡 Token valid but WebSocket auth failed - using HTTP mode');
-                      showStatusIndicator('disconnected', '📡 Using HTTP mode');
-                  } else if (error.message.includes('Authentication') || error.message.includes('expired')) {
-                      showError('Session expired. Please refresh the page to reconnect.');
-                  } else if (error.message.includes('timeout')) {
-                      showStatusIndicator('disconnected', '⏰ Connection timeout - using HTTP mode');
-                  } else {
-                      showStatusIndicator('disconnected', '📡 Using HTTP mode');
-                  }
+              const value = `; ${document.cookie}`;
+              const parts = value.split(`; ${name}=`);
+              if (parts.length === 2) {
+                  const cookieValue = parts.pop().split(';').shift();
+                  return decodeURIComponent(cookieValue);
               }
-              
           } catch (error) {
-              window.AAAI_LOGGER?.error('Failed to initialize ChatService:', error);
-              console.error('❌ Failed to initialize ChatService:', error);
-              updateConnectionStatus('disconnected');
-              showStatusIndicator('disconnected', '📡 Using HTTP mode');
+              console.warn(`Error reading cookie ${name}:`, error);
           }
-        }        
+          return null;
+      }
+
+      
         function isTokenExpired(token) {
           try {
               const parts = token.split('.');
@@ -1372,16 +1445,16 @@
         /**
           * Handle connection status changes with authentication states
           */
-        function handleConnectionStatus(status) {
-            console.log('🔄 Connection status changed:', status);
+          function handleConnectionStatus(status) {
+            console.log('🔄 FIXED: Connection status changed:', status);
             updateConnectionStatus(status);
             
-            // Enhanced status messages
+            // Enhanced status messages with better UX
             switch (status) {
                 case 'connected':
-                    // Check if also authenticated
+                    // Double-check authentication status
                     if (chatService && chatService.getStatus().authenticated) {
-                        showStatusIndicator('connected', '✓ Connected & Authenticated');
+                        showStatusIndicator('connected', '✓ Connected via WebSocket');
                     } else {
                         showStatusIndicator('connecting', '🔐 Authenticating...');
                     }
@@ -1393,25 +1466,44 @@
                     showStatusIndicator('reconnecting', '🔄 Reconnecting...');
                     break;
                 case 'disconnected':
-                    showStatusIndicator('disconnected', '✗ Disconnected');
+                    // Check if we should show different messages
+                    const authStatus = AuthService.isAuthenticated();
+                    if (!authStatus) {
+                        showStatusIndicator('disconnected', '🔑 Please log in');
+                    } else {
+                        showStatusIndicator('disconnected', '📡 Using HTTP mode');
+                    }
                     break;
                 case 'error':
-                    showStatusIndicator('disconnected', '⚠️ Connection Error');
+                    showStatusIndicator('disconnected', '⚠️ Connection error');
+                    break;
+                case 'offline':
+                    showStatusIndicator('disconnected', '📴 Offline');
                     break;
             }
         }
         
         function handleChatError(data) {
-          console.error('💥 Chat service error:', data);
+          console.error('💥 FIXED: Chat service error:', data);
           
           if (data.requiresLogin || (data.error && data.error.includes('Session expired'))) {
-              console.log('🔑 Authentication error detected');
+              console.log('🔑 FIXED: Authentication error detected');
               showError('Your session has expired. Please refresh the page to reconnect.');
+              
+              // Clear potentially stale auth state
+              setTimeout(() => {
+                  window.location.reload();
+              }, 3000);
+              
+          } else if (data.error && data.error.includes('timeout')) {
+              console.log('⏰ FIXED: Timeout error');
+              showStatusIndicator('disconnected', '⏰ Connection timeout');
+              
+          } else {
+              console.log('🔄 FIXED: General error, will retry');
+              showStatusIndicator('disconnected', '⚠️ Connection error');
           }
-          
-          // Show status indicator
-          showStatusIndicator('disconnected', '⚠️ Connection error');
-      }
+        }
         /**
           * Send message with authentication check
           */
