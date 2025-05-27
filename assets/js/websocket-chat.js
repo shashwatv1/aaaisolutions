@@ -355,6 +355,11 @@ const ChatService = {
             throw new Error('User ID not available for WebSocket connection');
         }
         
+        const token = this.authService.getToken();
+        if (!token) {
+            throw new Error('No authentication token available for WebSocket');
+        }
+        
         const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
         let wsHost;
         
@@ -364,7 +369,7 @@ const ChatService = {
             wsHost = 'api-server-559730737995.us-central1.run.app';
         }
         
-        return `${wsProtocol}//${wsHost}/ws/${user.id}`;
+        return `${wsProtocol}//${wsHost}/ws/${user.id}?token=${encodeURIComponent(token)}`;
     },
     
     /**
