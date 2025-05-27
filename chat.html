@@ -1401,6 +1401,17 @@
             }
         }
         
+        function handleChatError(data) {
+          console.error('💥 Chat service error:', data);
+          
+          if (data.requiresLogin || (data.error && data.error.includes('Session expired'))) {
+              console.log('🔑 Authentication error detected');
+              showError('Your session has expired. Please refresh the page to reconnect.');
+          }
+          
+          // Show status indicator
+          showStatusIndicator('disconnected', '⚠️ Connection error');
+      }
         /**
           * Send message with authentication check
           */
