@@ -1118,9 +1118,8 @@
         
         /**
           * Initialize chat service with new authentication flow
-          */
-          async function initializeChatService() {
-            console.log('💬 FIXED: Initializing chat service...');
+          */async function initializeChatService() {
+            console.log('💬 FIXED: Initializing chat service for httpOnly cookies...');
             
             if (!window.AAAI_CONFIG.ENABLE_WEBSOCKETS || typeof ChatService === 'undefined') {
                 console.log('⚠️ WebSocket chat disabled or unavailable');
@@ -1130,23 +1129,31 @@
             }
             
             try {
-                // CRITICAL FIX: Validate and refresh authentication BEFORE WebSocket connection
-                console.log('🔍 FIXED: Pre-connection authentication validation...');
+                // FIXED: Don't try to validate httpOnly cookies from JavaScript
+                console.log('🔍 FIXED: Simplified pre-connection validation...');
                 
-                // Check current authentication state
+                // Check authentication service state
                 const isAuth = AuthService.isAuthenticated();
-                const hasAuthCookie = getCookie('authenticated') === 'true';
-                const hasAccessToken = getCookie('access_token');
+                if (!isAuth) {
+                    console.log('❌ FIXED: User not authenticated via AuthService');
+                    updateConnectionStatus('disconnected');
+                    showStatusIndicator('disconnected', '🔑 Please log in');
+                    return;
+                }
                 
-                console.log('🍪 Authentication state:', {
+                // Check for basic authentication indicators (non-httpOnly cookies)
+                const hasAuthCookie = getCookie('authenticated') === 'true';
+                const hasUserInfo = getCookie('user_info');
+                
+                console.log('🍪 FIXED: Authentication indicators:', {
                     serviceAuth: isAuth,
                     authCookie: hasAuthCookie,
-                    hasAccessToken: !!hasAccessToken
+                    hasUserInfo: !!hasUserInfo
                 });
                 
-                // If we don't have proper cookies but service says we're authenticated, refresh
-                if (isAuth && (!hasAuthCookie || !hasAccessToken)) {
-                    console.log('🔄 FIXED: Missing auth cookies, refreshing...');
+                // FIXED: If we have basic auth indicators, trust the server-side cookie handling
+                if (!hasAuthCookie || !hasUserInfo) {
+                    console.log('🔄 FIXED: Basic auth indicators missing, attempting refresh...');
                     
                     try {
                         await AuthService.refreshTokenIfNeeded();
@@ -1154,17 +1161,18 @@
                         // Wait for cookies to be set
                         await new Promise(resolve => setTimeout(resolve, 1000));
                         
-                        // Verify cookies are now present
+                        // Re-check basic indicators
                         const newHasAuthCookie = getCookie('authenticated') === 'true';
-                        const newHasAccessToken = getCookie('access_token');
+                        const newHasUserInfo = getCookie('user_info');
                         
-                        console.log('🍪 Post-refresh cookie state:', {
+                        console.log('🍪 FIXED: Post-refresh indicators:', {
                             authCookie: newHasAuthCookie,
-                            hasAccessToken: !!newHasAccessToken
+                            hasUserInfo: !!newHasUserInfo
                         });
                         
-                        if (!newHasAuthCookie || !newHasAccessToken) {
-                            throw new Error('Auth cookies still missing after refresh');
+                        if (!newHasAuthCookie || !newHasUserInfo) {
+                            console.log('⚠️ FIXED: Basic auth indicators still missing, but proceeding (server handles httpOnly cookies)');
+                            // Don't fail here - let the WebSocket server handle the httpOnly cookies
                         }
                         
                     } catch (refreshError) {
@@ -1178,52 +1186,53 @@
                 // Initialize ChatService with enhanced options
                 chatService = ChatService.init(AuthService, {
                     reconnectInterval: 5000,
-                    maxReconnectAttempts: 2, // Reduced attempts
+                    maxReconnectAttempts: 2,
                     heartbeatInterval: 30000,
-                    connectionTimeout: 12000, // Reduced timeout
-                    authTimeout: 8000,       // Reduced auth timeout
-                    socketReadyTimeout: 2000, // Reduced ready timeout
-                    preAuthDelay: 750,       // Wait before sending auth
+                    connectionTimeout: 12000,
+                    authTimeout: 8000,
+                    socketReadyTimeout: 2000,
+                    preAuthDelay: 750,
                     messageQueueLimit: 20,
                     debug: window.AAAI_CONFIG.ENABLE_DEBUG || false
                 });
                 
-                // Setup event listeners with enhanced error handling
+                // Setup event listeners
                 chatService.onMessage(handleChatMessage);
                 chatService.onStatusChange(handleConnectionStatus);
                 chatService.onError(handleChatError);
                 
                 // Enhanced authentication-specific listeners
                 chatService.onAuthSuccess((data) => {
-                    console.log('🔐 FIXED: WebSocket authentication successful');
+                    console.log('🔐 FIXED: WebSocket authentication successful (server verified httpOnly cookies)');
                     showStatusIndicator('connected', '✅ Connected via WebSocket');
                 });
                 
                 chatService.onAuthError((data) => {
                     console.error('🔐 FIXED: WebSocket authentication failed:', data);
-                    // Don't show error immediately - let error handler decide
+                    // The server couldn't validate the httpOnly cookies
+                    showStatusIndicator('disconnected', '🔑 Session expired - please refresh');
                 });
                 
-                console.log('✅ FIXED: ChatService initialized');
+                console.log('✅ FIXED: ChatService initialized for httpOnly cookie authentication');
                 
-                // Attempt connection with better error handling
+                // Attempt connection - let server handle httpOnly cookie validation
                 try {
-                    console.log('🚀 FIXED: Attempting WebSocket connection with validated auth...');
+                    console.log('🚀 FIXED: Attempting WebSocket connection (server will validate httpOnly cookies)...');
                     await chatService.connect();
-                    console.log('✅ FIXED: WebSocket connected and authenticated');
+                    console.log('✅ FIXED: WebSocket connected and authenticated via server-side cookie validation');
                 } catch (error) {
                     console.log('⚠️ FIXED: WebSocket connection failed:', error.message);
                     updateConnectionStatus('disconnected');
                     
                     // Enhanced error classification
                     if (error.message.includes('Authentication') || error.message.includes('expired')) {
-                        console.log('🔑 FIXED: Authentication error detected');
+                        console.log('🔑 FIXED: Authentication error - httpOnly cookies may be expired');
                         
                         // Try one more refresh and reconnect
                         try {
                             console.log('🔄 FIXED: Attempting recovery refresh...');
                             await AuthService.refreshTokenIfNeeded();
-                            await new Promise(resolve => setTimeout(resolve, 500));
+                            await new Promise(resolve => setTimeout(resolve, 1000));
                             
                             // Try connecting one more time
                             await chatService.connect();
@@ -1249,6 +1258,7 @@
                 showStatusIndicator('disconnected', '📡 Using HTTP mode');
             }
         }
+
         function getCookie(name) {
           try {
               const value = `; ${document.cookie}`;
@@ -1258,10 +1268,14 @@
                   return decodeURIComponent(cookieValue);
               }
           } catch (error) {
-              console.warn(`Error reading cookie ${name}:`, error);
+              console.warn(`FIXED: Error reading cookie ${name}:`, error);
+              // Note: This is expected for httpOnly cookies like access_token
+              if (name === 'access_token') {
+                  console.log(`FIXED: Cannot read httpOnly cookie '${name}' from JavaScript (this is normal and secure)`);
+              }
           }
           return null;
-      }
+        }
 
       
         function isTokenExpired(token) {
