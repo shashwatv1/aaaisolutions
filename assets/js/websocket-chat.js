@@ -104,27 +104,320 @@ const ChatService = {
     /**
      * FIXED: Connect with improved authentication flow
      */
-    async connect() {
-        // FIXED: Strict authentication check with token validation
-        if (!this.authService.isAuthenticated() || !this.authService.isTokenValid()) {
-            const error = new Error('Valid authentication required for WebSocket connection');
-            this._error('❌ Connection failed:', error.message);
-            throw error;
+    _isTokenValidForWebSocket(token) {
+        try {
+            if (!token) return false;
+            
+            const parts = token.split('.');
+            if (parts.length !== 3) return false;
+            
+            const payload = JSON.parse(atob(parts[1]));
+            const now = Math.floor(Date.now() / 1000);
+            
+            // WebSocket needs longer buffer (10 minutes instead of 5)
+            return payload.exp && payload.exp > (now + 600);
+        } catch (error) {
+            this._error('Token validation error:', error);
+            return false;
+        }
+    },
+
+    _getEnhancedWebSocketURL() {
+        const user = this.authService.getCurrentUser();
+        if (!user || !user.id) {
+            throw new Error('User ID not available for WebSocket connection');
         }
         
+        const token = this.authService.getToken();
+        if (!token) {
+            throw new Error('Authentication token not available');
+        }
+        
+        const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        let wsHost;
+        
+        if (window.AAAI_CONFIG?.ENVIRONMENT === 'development') {
+            wsHost = 'localhost:8080';
+        } else {
+            wsHost = 'api-server-559730737995.us-central1.run.app';
+        }
+        
+        // Enhanced parameters
+        const params = new URLSearchParams({
+            token: token,
+            t: Date.now().toString(),
+            client: 'web',
+            version: window.AAAI_CONFIG?.VERSION || '1.0',
+            retry: this.reconnectAttempts.toString()
+        });
+        
+        return `${wsProtocol}//${wsHost}/ws/${user.id}?${params.toString()}`;
+    },
+
+    _onEnhancedMessage(event, connectResolve, connectReject, overallTimeout) {
+        try {
+            const data = JSON.parse(event.data);
+            this._log('📨 Enhanced message received:', data.type);
+            
+            // Handle authentication responses
+            if (data.type === 'auth_success' || data.type === 'authenticated' || data.type === 'connection_established') {
+                clearTimeout(overallTimeout);
+                if (this.authTimeout) {
+                    clearTimeout(this.authTimeout);
+                    this.authTimeout = null;
+                }
+                
+                this._log('✅ Enhanced WebSocket authentication successful');
+                this.isAuthenticated = true;
+                this.isConnecting = false;
+                this.reconnectAttempts = 0;
+                
+                this._notifyStatusChange('connected');
+                this._notifyAuthSuccess(data);
+                this._startHeartbeat();
+                this._processQueuedMessages();
+                
+                if (connectResolve) {
+                    connectResolve(true);
+                }
+                return;
+            }
+            
+            // Handle authentication errors
+            if (data.type === 'auth_error' || data.type === 'authentication_failed' || data.type === 'error') {
+                clearTimeout(overallTimeout);
+                
+                this._error('❌ Enhanced authentication error:', data);
+                
+                if (connectReject) {
+                    connectReject(new Error(`Enhanced authentication failed: ${data.message || 'Unknown error'}`));
+                }
+                
+                this._handleAuthenticationError(data);
+                return;
+            }
+            
+            // Handle other messages normally
+            this._onMessage(event);
+            
+        } catch (error) {
+            this._error('❌ Error processing enhanced message:', error);
+            if (connectReject) {
+                connectReject(error);
+            }
+        }
+    },
+    
+    async _performEnhancedConnection() {
+        return new Promise(async (resolve, reject) => {
+            this.isConnecting = true;
+            this.isAuthenticated = false;
+            this._notifyStatusChange('connecting');
+            
+            // Increased timeouts for WebSocket
+            const CONNECTION_TIMEOUT = 20000; // 20 seconds
+            const AUTH_TIMEOUT = 15000; // 15 seconds
+            
+            const overallTimeout = setTimeout(() => {
+                this._error('❌ Enhanced connection timeout');
+                this._cleanupConnection();
+                reject(new Error('WebSocket connection timeout (enhanced)'));
+            }, CONNECTION_TIMEOUT + AUTH_TIMEOUT);
+            
+            try {
+                // Get fresh URL with timestamp
+                const wsUrl = this._getEnhancedWebSocketURL();
+                this._log(`🔌 Enhanced connection to: ${this._maskUrl(wsUrl)}`);
+                
+                this.socket = new WebSocket(wsUrl);
+                
+                // Enhanced open handler
+                this.socket.addEventListener('open', async (event) => {
+                    this._log('✅ WebSocket opened, beginning enhanced authentication...');
+                    this.isConnected = true;
+                    
+                    try {
+                        // Wait for socket stability with error detection
+                        await this._waitForSocketStabilization();
+                        
+                        if (this.socket.readyState !== WebSocket.OPEN) {
+                            throw new Error('Socket closed during stabilization');
+                        }
+                        
+                        // Enhanced authentication
+                        await this._performEnhancedAuthentication();
+                        
+                    } catch (error) {
+                        this._error('❌ Enhanced authentication failed:', error);
+                        clearTimeout(overallTimeout);
+                        reject(error);
+                    }
+                });
+                
+                // Enhanced message handler
+                this.socket.addEventListener('message', (event) => {
+                    this._onEnhancedMessage(event, resolve, reject, overallTimeout);
+                });
+                
+                this.socket.addEventListener('close', (event) => {
+                    clearTimeout(overallTimeout);
+                    this._onClose(event);
+                });
+                
+                this.socket.addEventListener('error', (event) => {
+                    clearTimeout(overallTimeout);
+                    this._onError(event);
+                    if (this.isConnecting) {
+                        this.isConnecting = false;
+                        reject(new Error('Enhanced WebSocket connection failed'));
+                    }
+                });
+                
+            } catch (error) {
+                clearTimeout(overallTimeout);
+                this.isConnecting = false;
+                this._error('❌ Enhanced connection setup error:', error);
+                reject(error);
+            }
+        });
+    },
+
+
+    async _performEnhancedAuthentication() {
+        const token = this.authService.getToken();
+        const user = this.authService.getCurrentUser();
+        
+        if (!token || !user.id) {
+            throw new Error('Missing authentication credentials for enhanced auth');
+        }
+        
+        // Enhanced authentication message
+        const authMessage = {
+            type: 'authenticate',
+            token: token,
+            userId: user.id,
+            email: user.email,
+            timestamp: new Date().toISOString(),
+            client: 'web-enhanced',
+            version: window.AAAI_CONFIG?.VERSION || '1.0',
+            capabilities: ['message_queue', 'real_time', 'components'],
+            reconnectAttempt: this.reconnectAttempts
+        };
+        
+        this._log('🔐 Sending enhanced authentication message...');
+        
+        // Send with multiple attempts
+        let attempts = 0;
+        const maxAttempts = 3;
+        
+        while (attempts < maxAttempts) {
+            try {
+                await this._sendMessageWithRetry(authMessage, 1);
+                break;
+            } catch (error) {
+                attempts++;
+                if (attempts >= maxAttempts) {
+                    throw new Error(`Enhanced authentication failed after ${maxAttempts} attempts: ${error.message}`);
+                }
+                
+                this._log(`⚠️ Auth attempt ${attempts} failed, retrying...`);
+                await new Promise(resolve => setTimeout(resolve, 1000 * attempts));
+            }
+        }
+        
+        // Set authentication timeout
+        this.authTimeout = setTimeout(() => {
+            if (!this.isAuthenticated) {
+                this._error('❌ Enhanced authentication timeout - no response from server');
+                if (this.socket) {
+                    this.socket.close(4001, 'Enhanced authentication timeout');
+                }
+            }
+        }, 15000); // 15 second timeout
+    },
+
+    async connect() {
+        if (!this.authService.isAuthenticated()) {
+            throw new Error('Authentication required');
+        }
+    
         if (this.isConnected && this.isAuthenticated) {
             this._log('Already connected and authenticated');
             return true;
         }
-        
+    
         // If already connecting, return the existing promise
         if (this.isConnecting && this.connectionPromise) {
             this._log('Connection already in progress, waiting...');
             return this.connectionPromise;
         }
-        
+    
+        // ENHANCED: More aggressive token refresh
+        this._log('🔄 Performing comprehensive token validation before WebSocket connection...');
+        try {
+            // Check token expiration
+            const token = this.authService.getToken();
+            if (!token) {
+                throw new Error('No authentication token available');
+            }
+    
+            // Validate token expiration (more generous buffer)
+            const isValid = this._isTokenValidForWebSocket(token);
+            if (!isValid) {
+                this._log('⚠️ Token expired or expiring soon, forcing refresh...');
+                
+                // Try multiple refresh methods
+                let refreshed = false;
+                
+                // Method 1: Force refresh if available
+                if (typeof this.authService.forceTokenRefresh === 'function') {
+                    this._log('🔄 Attempting forceTokenRefresh...');
+                    refreshed = await this.authService.forceTokenRefresh();
+                }
+                
+                // Method 2: Standard refresh
+                if (!refreshed) {
+                    this._log('🔄 Attempting standard refresh...');
+                    refreshed = await this.authService.refreshTokenIfNeeded();
+                }
+                
+                // Method 3: Silent refresh
+                if (!refreshed) {
+                    this._log('🔄 Attempting silent refresh...');
+                    try {
+                        const response = await fetch('/auth/refresh-silent', {
+                            method: 'POST',
+                            credentials: 'include'
+                        });
+                        refreshed = response.ok;
+                    } catch (error) {
+                        this._log('❌ Silent refresh failed:', error.message);
+                    }
+                }
+                
+                if (!refreshed) {
+                    throw new Error('All token refresh methods failed');
+                }
+                
+                // Verify the new token
+                const newToken = this.authService.getToken();
+                if (!this._isTokenValidForWebSocket(newToken)) {
+                    throw new Error('Token refresh resulted in invalid token');
+                }
+                
+                this._log('✅ Token successfully refreshed and validated');
+            } else {
+                this._log('✅ Token is valid for WebSocket connection');
+            }
+            
+        } catch (error) {
+            this._error('❌ Token preparation failed:', error);
+            // Continue anyway - the server will reject if truly invalid
+            this._log('⚠️ Continuing with current token despite refresh failure');
+        }
+    
         // Create new connection promise
-        this.connectionPromise = this._performConnection();
+        this.connectionPromise = this._performEnhancedConnection();
         
         try {
             const result = await this.connectionPromise;
