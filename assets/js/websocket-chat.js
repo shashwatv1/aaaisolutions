@@ -109,26 +109,25 @@ const ChatService = {
             return this.connectionPromise;
         }
         
-        // MANDATORY: Always refresh token before WebSocket connection
-        this._log('🔄 Refreshing token before WebSocket connection (mandatory)...');
+        // CRITICAL FIX: Force a token refresh before WebSocket connection
+        this._log('🔄 Forcing token refresh before WebSocket connection...');
         try {
-            let refreshed = await this.authService.refreshTokenIfNeeded();
+            // Try to refresh token with different methods
+            const refreshed = await this.authService.forceTokenRefresh();
             
             if (!refreshed) {
-                // Force refresh if standard refresh didn't work
-                this._log('🔄 Standard refresh didn\'t work, forcing refresh...');
-                refreshed = await this.authService.forceTokenRefresh();
+                throw new Error('Unable to refresh authentication token');
             }
             
+            // Verify token is now valid
             const token = this.authService.getToken();
             if (!token || !this._isTokenValid(token)) {
-                throw new Error('Unable to obtain valid token after refresh attempts');
+                throw new Error('Invalid token after refresh');
             }
             
-            this._log('✅ Token successfully refreshed/validated before WebSocket connection');
-            
+            this._log('✅ Token successfully refreshed before WebSocket connection');
         } catch (error) {
-            this._error('❌ Mandatory token refresh failed:', error);
+            this._error('❌ Token refresh failed:', error);
             throw new Error('Authentication token refresh failed - cannot connect to WebSocket');
         }
         
@@ -309,7 +308,7 @@ const ChatService = {
      * Perform WebSocket authentication
      */
     async _performAuthentication() {
-        // Get fresh token (should already be refreshed in connect())
+        // Get fresh token
         const token = this.authService.getToken();
         const user = this.authService.getCurrentUser();
         
@@ -317,23 +316,27 @@ const ChatService = {
             throw new Error('Missing authentication credentials');
         }
         
-        // Validate token one more time
+        // Validate token 
         if (!this._isTokenValid(token)) {
             throw new Error('Token appears expired during authentication');
         }
         
+        // Updated authentication message format
         const authMessage = {
             type: 'authenticate',
             token: token,
             userId: user.id,
             email: user.email,
-            timestamp: new Date().toISOString()
+            timestamp: new Date().toISOString(),
+            client: 'web',
+            version: window.AAAI_CONFIG?.VERSION || '1.0'
         };
         
         this._log('🔐 Sending authentication message...');
         
         // Send authentication
         await this._sendMessageWithRetry(authMessage, 3);
+    
         
         // Set authentication timeout
         this.authTimeout = setTimeout(() => {
@@ -355,11 +358,6 @@ const ChatService = {
             throw new Error('User ID not available for WebSocket connection');
         }
         
-        const token = this.authService.getToken();
-        if (!token) {
-            throw new Error('No authentication token available for WebSocket');
-        }
-        
         const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
         let wsHost;
         
@@ -369,9 +367,11 @@ const ChatService = {
             wsHost = 'api-server-559730737995.us-central1.run.app';
         }
         
-        return `${wsProtocol}//${wsHost}/ws/${user.id}?token=${encodeURIComponent(token)}`;
+        // Add timestamp parameter to prevent caching issues
+        const timestamp = Date.now();
+        return `${wsProtocol}//${wsHost}/ws/${user.id}?token=${encodeURIComponent(this.authService.getToken())}&t=${timestamp}`;
     },
-    
+
     /**
      * Handle WebSocket messages
      */

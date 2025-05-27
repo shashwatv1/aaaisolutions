@@ -882,6 +882,14 @@
         </div>
       </div>
       
+      <div id="connectionError" style="display:none; text-align:center; padding:20px; background:rgba(231,76,60,0.1); border-radius:10px; margin:10px;">
+        <p>Connection error: Your session may have expired.</p>
+        <button id="reconnectBtn" class="chat-send-btn" style="margin:10px auto; display:inline-block;">
+          <ion-icon name="refresh-outline"></ion-icon>
+          <span>Reconnect</span>
+        </button>
+      </div>
+      
       <!-- Chat Body -->
       <div class="chat-body" id="chatBody">
         <!-- Message history header -->
@@ -1745,7 +1753,62 @@
         // Initialize the application
         initializeApp();
     });
+    document.getElementById('reconnectBtn').addEventListener('click', async function() {
+      try {
+        // Show loading state
+        this.disabled = true;
+        this.innerHTML = '<ion-icon name="sync-outline"></ion-icon><span>Reconnecting...</span>';
+        
+        // Force token refresh and connection restart
+        await AuthService.forceTokenRefresh();
+        
+        // Try to reinitialize chat service
+        if (chatService) chatService.disconnect();
+        await initializeChatService();
+        
+        // Hide error
+        document.getElementById('connectionError').style.display = 'none';
+        
+        // Restore button
+        this.disabled = false;
+        this.innerHTML = '<ion-icon name="refresh-outline"></ion-icon><span>Reconnect</span>';
+      } catch (error) {
+        console.error('Reconnection failed:', error);
+        // Update button
+        this.disabled = false;
+        this.innerHTML = '<ion-icon name="refresh-outline"></ion-icon><span>Try Again</span>';
+        
+        // Show more detailed error
+        const errorMsg = document.createElement('p');
+        errorMsg.style.color = '#e74c3c';
+        errorMsg.textContent = 'Reconnection failed. Please refresh the page.';
+        document.getElementById('connectionError').appendChild(errorMsg);
+      }
+    });
     
+    // Add to handleChatError function
+    function handleChatError(data) {
+      console.error('💥 Chat service error:', data);
+      
+      if (data.requiresLogin || (data.error && data.error.includes('Session expired'))) {
+        console.log('🔑 Authentication error detected');
+        document.getElementById('connectionError').style.display = 'block';
+        
+        showError('Your session has expired. Please refresh the page to reconnect.');
+        
+        // Optional: Auto-refresh after a delay
+        /*
+        setTimeout(() => {
+          if (confirm('Session expired. Would you like to refresh the page now?')) {
+            window.location.reload();
+          }
+        }, 3000);
+        */
+      }
+      
+      // Show status indicator
+      showStatusIndicator('disconnected', '⚠️ Connection error');
+    }
   </script>
   <script>
     (function() {
@@ -2005,6 +2068,62 @@
       
       console.log('🔍 Enhanced debug loaded. Use debugWebSocket() or testWebSocketTiming() in console.');
     })();
+  document.getElementById('reconnectBtn').addEventListener('click', async function() {
+    try {
+      // Show loading state
+      this.disabled = true;
+      this.innerHTML = '<ion-icon name="sync-outline"></ion-icon><span>Reconnecting...</span>';
+      
+      // Force token refresh and connection restart
+      await AuthService.forceTokenRefresh();
+      
+      // Try to reinitialize chat service
+      if (chatService) chatService.disconnect();
+      await initializeChatService();
+      
+      // Hide error
+      document.getElementById('connectionError').style.display = 'none';
+      
+      // Restore button
+      this.disabled = false;
+      this.innerHTML = '<ion-icon name="refresh-outline"></ion-icon><span>Reconnect</span>';
+    } catch (error) {
+      console.error('Reconnection failed:', error);
+      // Update button
+      this.disabled = false;
+      this.innerHTML = '<ion-icon name="refresh-outline"></ion-icon><span>Try Again</span>';
+      
+      // Show more detailed error
+      const errorMsg = document.createElement('p');
+      errorMsg.style.color = '#e74c3c';
+      errorMsg.textContent = 'Reconnection failed. Please refresh the page.';
+      document.getElementById('connectionError').appendChild(errorMsg);
+    }
+  });
+  
+  // Add to handleChatError function
+  function handleChatError(data) {
+    console.error('💥 Chat service error:', data);
+    
+    if (data.requiresLogin || (data.error && data.error.includes('Session expired'))) {
+      console.log('🔑 Authentication error detected');
+      document.getElementById('connectionError').style.display = 'block';
+      
+      showError('Your session has expired. Please refresh the page to reconnect.');
+      
+      // Optional: Auto-refresh after a delay
+      /*
+      setTimeout(() => {
+        if (confirm('Session expired. Would you like to refresh the page now?')) {
+          window.location.reload();
+        }
+      }, 3000);
+      */
+    }
+    
+    // Show status indicator
+    showStatusIndicator('disconnected', '⚠️ Connection error');
+  }
   </script>
 </body>
 

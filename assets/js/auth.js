@@ -260,13 +260,22 @@ const AuthService = {
     },
     
     // FIXED: Add force token refresh method
+
     async forceTokenRefresh() {
-        window.AAAI_LOGGER.info('Force refreshing token...');
+        this._log('🔄 Forcing token refresh...');
         
-        if (this.refreshToken) {
-            return await this._refreshAccessToken(this.refreshToken);
-        } else {
+        try {
+            // First try standard refresh with refresh token
+            if (this.refreshToken) {
+                const refreshed = await this._refreshAccessToken(this.refreshToken);
+                if (refreshed) return true;
+            }
+            
+            // If that fails, try silent refresh
             return await this._attemptSilentRefresh();
+        } catch (error) {
+            this._log('❌ Force token refresh failed:', error);
+            return false;
         }
     },
     
