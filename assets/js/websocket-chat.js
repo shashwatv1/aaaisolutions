@@ -156,8 +156,9 @@ const ChatService = {
         return null;
     },
     
+
     async _validateAuthenticationBeforeConnect() {
-        this._log('🔍 ROBUST: Validating authentication before WebSocket connection...');
+        this._log('🔍 FIXED: Validating authentication before WebSocket connection...');
         
         // Check if we have basic auth info
         const user = this.authService.getCurrentUser();
@@ -165,20 +166,22 @@ const ChatService = {
             throw new Error('Missing user information');
         }
         
-        // Check for authentication cookies
+        // FIXED: Only check non-httpOnly cookies that JavaScript can access
         const hasAuthCookie = this._getCookie('authenticated') === 'true';
         const hasUserInfo = !!this._getCookie('user_info');
-        const hasAccessToken = !!this._getCookie('access_token');
         
-        this._log('🍪 Cookie status:', {
+        // REMOVED: Don't try to check httpOnly access_token from JavaScript
+        // const hasAccessToken = !!this._getCookie('access_token'); // This always fails for httpOnly cookies
+        
+        this._log('🍪 FIXED: Cookie status (JavaScript-accessible only):', {
             authenticated: hasAuthCookie,
             userInfo: hasUserInfo,
-            accessToken: hasAccessToken
+            note: 'access_token is httpOnly - only server can validate it'
         });
         
-        // If we don't have proper cookies, try to refresh
-        if (!hasAuthCookie || !hasAccessToken) {
-            this._log('🔄 Missing auth cookies, attempting token refresh...');
+        // FIXED: If we don't have basic auth indicators, try to refresh
+        if (!hasAuthCookie || !hasUserInfo) {
+            this._log('🔄 FIXED: Missing basic auth indicators, attempting token refresh...');
             
             try {
                 const refreshSuccess = await this.authService.refreshTokenIfNeeded();
@@ -189,24 +192,43 @@ const ChatService = {
                 // Wait a moment for cookies to be set
                 await new Promise(resolve => setTimeout(resolve, 500));
                 
-                // Recheck cookies
+                // Recheck only the non-httpOnly cookies
                 const newHasAuthCookie = this._getCookie('authenticated') === 'true';
-                const newHasAccessToken = !!this._getCookie('access_token');
+                const newHasUserInfo = !!this._getCookie('user_info');
                 
-                if (!newHasAuthCookie || !newHasAccessToken) {
-                    throw new Error('Auth cookies still missing after refresh');
+                this._log('🍪 FIXED: Post-refresh cookie status:', {
+                    authenticated: newHasAuthCookie,
+                    userInfo: newHasUserInfo
+                });
+                
+                if (!newHasAuthCookie || !newHasUserInfo) {
+                    // Still no basic indicators, but this might be OK
+                    this._log('⚠️ FIXED: Basic auth indicators still missing after refresh');
+                    this._log('💡 FIXED: Proceeding anyway - server will validate httpOnly cookies');
+                    // Don't throw error here - let the server handle httpOnly cookie validation
+                } else {
+                    this._log('✅ FIXED: Token refresh successful, auth indicators updated');
                 }
                 
-                this._log('✅ Token refresh successful, cookies updated');
-                
             } catch (refreshError) {
-                this._error('❌ Token refresh failed:', refreshError);
-                throw new Error(`Token refresh failed: ${refreshError.message}`);
+                this._error('❌ FIXED: Token refresh failed during pre-connection validation:', refreshError);
+                // Only throw if it's a serious auth error
+                if (refreshError.message && (
+                    refreshError.message.includes('Authentication required') ||
+                    refreshError.message.includes('expired') ||
+                    refreshError.message.includes('Invalid')
+                )) {
+                    throw new Error(`Token refresh failed: ${refreshError.message}`);
+                }
+                // Otherwise, log warning but proceed
+                this._log('⚠️ FIXED: Token refresh had issues but proceeding - server will validate');
             }
         } else {
-            this._log('✅ Auth cookies present');
+            this._log('✅ FIXED: Basic auth indicators present');
         }
         
+        // FIXED: Always return true - let the WebSocket server handle httpOnly cookie validation
+        this._log('✅ FIXED: Pre-connection validation complete - server will handle httpOnly cookies');
         return true;
     },
 
@@ -222,7 +244,7 @@ const ChatService = {
             // Set overall timeout
             const overallTimeout = setTimeout(() => {
                 if (this.isConnecting) {
-                    this._error('ROBUST: Overall connection timeout');
+                    this._error('FIXED: Overall connection timeout');
                     this._cleanupConnection();
                     reject(new Error('Connection timeout'));
                 }
@@ -231,30 +253,30 @@ const ChatService = {
             try {
                 // Create WebSocket with better URL handling
                 const wsUrl = this._getWebSocketURL();
-                this._log(`ROBUST: Connecting to: ${wsUrl}`);
+                this._log(`FIXED: Connecting to: ${wsUrl}`);
                 
                 this.socket = new WebSocket(wsUrl);
                 
                 // Enhanced event setup
                 this.socket.addEventListener('open', async (event) => {
-                    this._log('✅ ROBUST: WebSocket opened successfully');
+                    this._log('✅ FIXED: WebSocket opened successfully');
                     this.isConnected = true;
                     
                     try {
-                        // ROBUST: Wait for socket to be ready + small delay for server processing
+                        // Wait for socket to be ready
                         await this._waitForSocketReady();
                         
                         // Additional delay to ensure server is ready for authentication
-                        await new Promise(resolve => setTimeout(resolve, this.options.preAuthDelay));
+                        await new Promise(resolve => setTimeout(resolve, this.options.preAuthDelay || 750));
                         
-                        // Send authentication message
+                        // FIXED: Send authentication message (server will validate httpOnly cookies)
                         await this._performEnhancedAuthentication();
                         
                         // Authentication success will be handled by message listener
                         
                     } catch (error) {
                         clearTimeout(overallTimeout);
-                        this._error('❌ ROBUST: Authentication setup failed:', error);
+                        this._error('❌ FIXED: Authentication setup failed:', error);
                         this._cleanupConnection();
                         reject(error);
                     }
@@ -263,7 +285,7 @@ const ChatService = {
                 this.socket.addEventListener('message', (event) => {
                     try {
                         const data = JSON.parse(event.data);
-                        this._log('📨 ROBUST: Received message:', data.type);
+                        this._log('📨 FIXED: Received message:', data.type);
                         
                         // Handle authentication responses
                         if (data.type === 'connection_established' || 
@@ -281,13 +303,13 @@ const ChatService = {
                             (data.type === 'error' && this._isAuthError(data))) {
                             clearTimeout(overallTimeout);
                             this._handleAuthenticationError(data);
-                            reject(new Error(data.message || 'Cookie authentication failed'));
+                            reject(new Error(data.message || 'Server-side authentication failed'));
                             return;
                         }
                         
                         // Handle token refresh recommendations
                         if (data.type === 'token_refresh_recommended') {
-                            this._log('⚠️ Server recommends token refresh');
+                            this._log('⚠️ FIXED: Server recommends token refresh');
                             // Don't fail connection, but refresh in background
                             this._refreshTokenInBackground();
                         }
@@ -296,7 +318,7 @@ const ChatService = {
                         this._onMessage(event);
                         
                     } catch (parseError) {
-                        this._error('Error parsing message:', parseError);
+                        this._error('FIXED: Error parsing message:', parseError);
                     }
                 });
                 
@@ -313,11 +335,12 @@ const ChatService = {
             } catch (error) {
                 clearTimeout(overallTimeout);
                 this.isConnecting = false;
-                this._error('ROBUST: Connection setup error:', error);
+                this._error('FIXED: Connection setup error:', error);
                 reject(error);
             }
         });
     },
+
 
     async _refreshTokenInBackground() {
         try {
@@ -385,15 +408,15 @@ const ChatService = {
         }
         
         // Log authentication state for debugging
-        this._log('🔐 ROBUST: Starting authentication process:', {
+        this._log('🔐 FIXED: Starting cookie-based authentication:', {
             userId: user.id?.substring(0, 8) + '...',
             email: user.email,
             hasAuthCookie: this._getCookie('authenticated') === 'true',
-            hasAccessToken: !!this._getCookie('access_token'),
-            hasUserInfo: !!this._getCookie('user_info')
+            hasUserInfo: !!this._getCookie('user_info'),
+            authMethod: 'httpOnly cookies (server-side validation)'
         });
         
-        // Enhanced authentication message
+        // FIXED: Authentication message for cookie-based auth (no token needed)
         const authMessage = {
             type: 'authenticate',
             userId: user.id,
@@ -408,7 +431,7 @@ const ChatService = {
             }
         };
         
-        this._log('🔐 ROBUST: Sending enhanced authentication message...');
+        this._log('🔐 FIXED: Sending cookie-based authentication message...');
         
         // Send authentication message with retry
         await this._sendMessageWithRetry(authMessage, 2);
@@ -416,7 +439,7 @@ const ChatService = {
         // Set authentication timeout
         this.authTimeout = setTimeout(() => {
             if (!this.isAuthenticated) {
-                this._error('❌ ROBUST: Authentication timeout - no response from server');
+                this._error('❌ FIXED: Authentication timeout - server did not validate httpOnly cookies');
                 if (this.socket) {
                     this.socket.close(4001, 'Authentication timeout');
                 }
@@ -573,7 +596,7 @@ const ChatService = {
      * FIXED: Handle authentication failure properly
      */
     _handleAuthenticationFailure(data) {
-        this._log('🔑 ROBUST: Handling authentication failure...');
+        this._log('🔑 FIXED: Handling authentication failure...');
         
         // Close connection
         if (this.socket) {
@@ -582,35 +605,27 @@ const ChatService = {
         
         this._cleanupConnection();
         
-        // Determine if this is a recoverable error
+        // Determine error type
         const isTokenError = data.message && (
             data.message.includes('expired') || 
             data.message.includes('invalid') ||
+            data.message.includes('httpOnly') ||
             data.code === 'AUTH_FAILED'
         );
         
         if (isTokenError) {
-            this._log('🔄 ROBUST: Token-related error, attempting recovery...');
+            this._log('🔄 FIXED: Token/cookie error detected - likely httpOnly cookie issue');
             
-            // Try token refresh and reconnect
-            setTimeout(async () => {
-                try {
-                    await this.authService.refreshTokenIfNeeded();
-                    this._log('✅ ROBUST: Token refresh successful, will retry connection');
-                } catch (refreshError) {
-                    this._error('❌ ROBUST: Token refresh failed during recovery:', refreshError);
-                    
-                    // Notify about session expiration
-                    const errorData = {
-                        error: 'Session expired - please refresh the page and log in again',
-                        requiresLogin: true,
-                        requiresPageRefresh: true,
-                        originalError: data
-                    };
-                    
-                    this._notifyErrorListeners(errorData);
-                }
-            }, 1000);
+            // Notify about authentication failure
+            const errorData = {
+                error: 'Authentication failed - please refresh the page to update your session',
+                requiresLogin: false,
+                requiresPageRefresh: true,
+                reason: 'httpOnly cookie validation failed',
+                originalError: data
+            };
+            
+            this._notifyErrorListeners(errorData);
         } else {
             // Non-recoverable authentication error
             const errorData = {
