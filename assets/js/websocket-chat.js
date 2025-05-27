@@ -403,6 +403,56 @@ const ChatService = {
         });
     },
     
+    _extractUserInfoFromCookies() {
+        try {
+            // Method 1: Use _getCookie helper if available
+            if (typeof this._getCookie === 'function') {
+                const userInfoCookie = this._getCookie('user_info');
+                if (userInfoCookie) {
+                    try {
+                        return JSON.parse(decodeURIComponent(userInfoCookie));
+                    } catch (e) {
+                        this._error('Error parsing user_info cookie:', e);
+                    }
+                }
+            }
+            
+            // Method 2: Direct document.cookie parsing
+            const cookies = document.cookie.split(';');
+            for (const cookie of cookies) {
+                const [name, value] = cookie.trim().split('=');
+                if (name === 'user_info' && value) {
+                    try {
+                        return JSON.parse(decodeURIComponent(value));
+                    } catch (e) {
+                        this._error('Error parsing user_info from cookie string:', e);
+                    }
+                }
+            }
+            
+            // Method 3: Try to get from localStorage if cookies failed
+            try {
+                const storedEmail = localStorage.getItem('aaai_user_email');
+                const storedUserId = localStorage.getItem('aaai_user_id');
+                const storedSessionId = localStorage.getItem('aaai_session_id');
+                
+                if (storedEmail && storedUserId) {
+                    return {
+                        email: storedEmail,
+                        id: storedUserId,
+                        session_id: storedSessionId
+                    };
+                }
+            } catch (e) {
+                this._error('Error accessing localStorage:', e);
+            }
+            
+            return null;
+        } catch (error) {
+            this._error('Error extracting user info from cookies:', error);
+            return null;
+        }
+    },
     /**
      * ENHANCED: Get WebSocket URL with better parameter handling
      */
