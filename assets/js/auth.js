@@ -261,20 +261,32 @@ const AuthService = {
     
     // FIXED: Add force token refresh method
 
+
     async forceTokenRefresh() {
-        this._log('🔄 Forcing token refresh...');
+        // Use AAAI_LOGGER instead of this._log
+        window.AAAI_LOGGER?.info('Forcing token refresh...');
         
         try {
             // First try standard refresh with refresh token
             if (this.refreshToken) {
                 const refreshed = await this._refreshAccessToken(this.refreshToken);
-                if (refreshed) return true;
+                if (refreshed) {
+                    window.AAAI_LOGGER?.info('Token refreshed successfully with refresh token');
+                    return true;
+                }
             }
             
             // If that fails, try silent refresh
-            return await this._attemptSilentRefresh();
+            const silentRefreshed = await this._attemptSilentRefresh();
+            if (silentRefreshed) {
+                window.AAAI_LOGGER?.info('Token refreshed successfully with silent refresh');
+                return true;
+            }
+            
+            window.AAAI_LOGGER?.warn('All token refresh methods failed');
+            return false;
         } catch (error) {
-            this._log('❌ Force token refresh failed:', error);
+            window.AAAI_LOGGER?.error('Force token refresh failed:', error);
             return false;
         }
     },
@@ -702,18 +714,58 @@ const AuthService = {
         });
     },
     
+    getTokenValidationInfo(token = null) {
+        try {
+            // Use the provided token or the stored one
+            const tokenToCheck = token || this.token;
+            
+            if (!tokenToCheck) {
+                return { valid: false, error: 'No token provided' };
+            }
+            
+            const tokenParts = tokenToCheck.split('.');
+            if (tokenParts.length !== 3) {
+                return { valid: false, error: 'Invalid token format' };
+            }
+            
+            const payload = JSON.parse(atob(tokenParts[1]));
+            const now = Math.floor(Date.now() / 1000);
+            
+            return {
+                valid: payload.exp > now,
+                expiresAt: new Date(payload.exp * 1000).toISOString(),
+                expiresIn: payload.exp - now,
+                isExpired: payload.exp <= now,
+                subject: payload.sub || payload.user_id,
+                issued: new Date(payload.iat * 1000).toISOString()
+            };
+        } catch (error) {
+            return { valid: false, error: error.message };
+        }
+    },
     // Validate token format and expiration
     _isTokenValid(token) {
         try {
-            const tokenParts = token.split('.');
-            if (tokenParts.length !== 3) return false;
+            // Use the provided token or the stored one
+            const tokenToCheck = token || this.token;
+            
+            if (!tokenToCheck) {
+                return false;
+            }
+            
+            const tokenParts = tokenToCheck.split('.');
+            if (tokenParts.length !== 3) {
+                return false;
+            }
             
             const payload = JSON.parse(atob(tokenParts[1]));
-            const now = Date.now() / 1000;
+            const now = Math.floor(Date.now() / 1000);
             
-            // Check if token is expired (with 5 minute grace period)
-            return payload.exp && (payload.exp + 300) > now;
+            // Token is valid if it expires in the future
+            // Add a 30-second buffer to account for processing time
+            return payload.exp && payload.exp > (now + 30);
         } catch (error) {
+            window.AAAI_LOGGER?.error('Token validation error:', error);
             return false;
         }
     },

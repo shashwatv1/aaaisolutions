@@ -109,26 +109,32 @@ const ChatService = {
             return this.connectionPromise;
         }
         
-        // CRITICAL FIX: Force a token refresh before WebSocket connection
-        this._log('🔄 Forcing token refresh before WebSocket connection...');
+        // Try to refresh token before WebSocket connection
+        this._log('🔄 Attempting token refresh before WebSocket connection...');
         try {
-            // Try to refresh token with different methods
-            const refreshed = await this.authService.forceTokenRefresh();
-            
-            if (!refreshed) {
-                throw new Error('Unable to refresh authentication token');
+            // Check if forceTokenRefresh exists before calling it
+            if (typeof this.authService.forceTokenRefresh === 'function') {
+                const refreshed = await this.authService.forceTokenRefresh();
+                if (refreshed) {
+                    this._log('✅ Token successfully refreshed');
+                } else {
+                    this._log('⚠️ Token refresh unsuccessful, but continuing with current token');
+                }
+            } else {
+                // Fall back to standard refresh if forceTokenRefresh doesn't exist
+                await this.authService.refreshTokenIfNeeded();
             }
             
-            // Verify token is now valid
+            // Verify token
             const token = this.authService.getToken();
-            if (!token || !this._isTokenValid(token)) {
-                throw new Error('Invalid token after refresh');
+            if (!token) {
+                throw new Error('No authentication token available');
             }
             
-            this._log('✅ Token successfully refreshed before WebSocket connection');
+            // Continue with connection even if refresh fails - the token might still be valid
         } catch (error) {
-            this._error('❌ Token refresh failed:', error);
-            throw new Error('Authentication token refresh failed - cannot connect to WebSocket');
+            this._error('❌ Token refresh error:', error);
+            // Continue anyway - don't block the connection attempt
         }
         
         // Create new connection promise
