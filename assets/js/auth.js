@@ -1,15 +1,13 @@
 /**
- * DEBUG VERSION - Enhanced Authentication module for AAAI Solutions
- * This version includes extensive logging to identify the URL construction issue
+ * FIXED - Enhanced Authentication module for AAAI Solutions
+ * Properly handles httpOnly cookies and authentication state
  */
 const AuthService = {
     // Initialize the auth service with configuration
     init() {
-        // DEBUG: Log initial state
-        console.log('=== AuthService.init() DEBUG START ===');
+        console.log('=== AuthService.init() FIXED START ===');
         console.log('window.location.hostname:', window.location.hostname);
         console.log('window.AAAI_CONFIG exists:', !!window.AAAI_CONFIG);
-        console.log('window.AAAI_CONFIG:', window.AAAI_CONFIG);
         
         // Wait for config to be available
         if (!window.AAAI_CONFIG) {
@@ -32,78 +30,73 @@ const AuthService = {
         console.log('AUTH_BASE_URL:', this.AUTH_BASE_URL);
         console.log('API_BASE_URL:', this.API_BASE_URL);
         
-        // Initialize authentication state from cookies
+        // FIXED: Initialize authentication state with proper cookie handling
         this._initializeFromCookies();
         
         // Set up periodic token refresh and session management
         this._setupTokenRefresh();
         this._setupVisibilityHandler();
         
-        window.AAAI_LOGGER?.info('Enhanced AuthService initialized', {
+        window.AAAI_LOGGER?.info('FIXED AuthService initialized', {
             environment: window.AAAI_CONFIG.ENVIRONMENT,
             authBaseUrl: this.AUTH_BASE_URL,
             authenticated: this.isAuthenticated(),
             hasPersistentSession: this.hasPersistentSession()
         });
         
-        console.log('=== Enhanced AuthService.init() END ===');
+        console.log('=== FIXED AuthService.init() END ===');
         return this.isAuthenticated();
     },
     
     /**
-     * ENHANCED: Initialize authentication state from cookies with better parsing
+     * FIXED: Initialize authentication state from cookies with proper httpOnly handling
      */
     _initializeFromCookies() {
         try {
-            console.log('🔍 Initializing from cookies...');
+            console.log('🔍 FIXED: Initializing from cookies...');
             
             // Get authentication status from cookies
             const authCookie = this._getCookie('authenticated');
             const userInfoCookie = this._getCookie('user_info');
-            const accessTokenCookie = this._getCookie('access_token');
-            const refreshTokenCookie = this._getCookie('refresh_token');
             
-            console.log('Cookie check:', {
+            console.log('FIXED Cookie check:', {
                 authenticated: !!authCookie,
                 userInfo: !!userInfoCookie,
-                accessToken: !!accessTokenCookie,
-                refreshToken: !!refreshTokenCookie
+                authValue: authCookie
             });
             
-            if (authCookie === 'true' && userInfoCookie && accessTokenCookie) {
+            // FIXED: Check authentication based on accessible cookies only
+            // access_token and refresh_token are httpOnly, so we can't read them with JS
+            if (authCookie === 'true' && userInfoCookie) {
                 try {
                     const userInfo = JSON.parse(decodeURIComponent(userInfoCookie));
                     
-                    // Restore authentication state
-                    this.token = accessTokenCookie;
-                    this.refreshToken = refreshTokenCookie;
+                    // FIXED: Restore authentication state without requiring direct token access
                     this.userEmail = userInfo.email;
                     this.userId = userInfo.id;
                     this.sessionId = userInfo.session_id;
                     this.authenticated = true;
                     
-                    // Also store in localStorage as backup
-                    this._setSecureItem('auth_token', accessTokenCookie);
-                    if (this.refreshToken) {
-                        this._setSecureItem('refresh_token', this.refreshToken);
-                    }
+                    // Set placeholder for tokens (they exist as httpOnly cookies)
+                    this.token = 'cookie_stored'; // Placeholder - real token is in httpOnly cookie
+                    this.refreshToken = 'cookie_stored'; // Placeholder
+                    
+                    // Store user info in localStorage as backup
                     this._setSecureItem('user_email', userInfo.email);
                     this._setSecureItem('user_id', userInfo.id);
+                    this._setSecureItem('session_id', userInfo.session_id);
                     
-                    console.log('✅ Authentication state restored from cookies:', {
+                    console.log('✅ FIXED: Authentication state restored from cookies:', {
                         email: userInfo.email,
                         userId: userInfo.id,
-                        hasRefreshToken: !!this.refreshToken
+                        sessionId: userInfo.session_id
                     });
                     
-                    // Validate token
-                    if (!this._isTokenValid(this.token)) {
-                        console.warn('⚠️ Stored token is invalid or expired, attempting refresh');
-                        this._refreshTokenIfNeeded().catch(() => {
-                            console.warn('Token refresh failed, clearing auth state');
-                            this._clearAuthState();
-                        });
-                    }
+                    // FIXED: Validate session with server since we can't read tokens directly
+                    this._validateSessionAsync().catch(error => {
+                        console.warn('Session validation failed:', error);
+                        this._clearAuthState();
+                    });
                     
                     return true;
                 } catch (parseError) {
@@ -122,167 +115,47 @@ const AuthService = {
     },
     
     /**
-     * ENHANCED: Token refresh with better error handling and silent refresh support
+     * FIXED: Async session validation for httpOnly cookie scenarios
      */
-    async refreshTokenIfNeeded() {
-        if (!this.token) {
-            console.log('No token to refresh');
-            return false;
-        }
-        
+    async _validateSessionAsync() {
         try {
-            // Check if token needs refresh (within 10 minutes of expiry)
-            const tokenParts = this.token.split('.');
-            if (tokenParts.length === 3) {
-                const payload = JSON.parse(atob(tokenParts[1]));
-                const timeUntilExpiry = payload.exp - (Date.now() / 1000);
-                
-                if (timeUntilExpiry > 600) { // More than 10 minutes left
-                    console.log('Token still valid, no refresh needed');
-                    return true;
-                }
-                
-                console.log(`Token expires in ${Math.round(timeUntilExpiry)} seconds, refreshing...`);
-            }
+            console.log('🔍 Validating session with server...');
             
-            // Prevent concurrent refresh attempts
-            if (this.isRefreshing && this.refreshPromise) {
-                console.log('Refresh already in progress, waiting...');
-                return await this.refreshPromise;
-            }
-            
-            this.isRefreshing = true;
-            this.refreshPromise = this._performTokenRefresh();
-            
-            try {
-                const result = await this.refreshPromise;
-                return result;
-            } finally {
-                this.isRefreshing = false;
-                this.refreshPromise = null;
-            }
-            
-        } catch (error) {
-            console.error('Error in refreshTokenIfNeeded:', error);
-            return false;
-        }
-    },
-    
-    /**
-     * ENHANCED: Perform the actual token refresh with silent refresh support
-     */
-    async _performTokenRefresh() {
-        console.log('🔄 Performing token refresh...');
-        
-        try {
-            // Try silent refresh first (using cookies)
-            console.log('Attempting silent refresh...');
-            const silentResponse = await fetch(`${this.AUTH_BASE_URL}/auth/refresh-silent`, {
+            const response = await fetch(`${this.AUTH_BASE_URL}/auth/validate-session`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
                 },
-                credentials: 'include'
+                credentials: 'include' // Include httpOnly cookies
             });
             
-            if (silentResponse.ok) {
-                const data = await silentResponse.json();
-                console.log('✅ Silent refresh successful');
-                
-                // Update tokens from cookies (they should be set automatically)
-                const newAccessToken = this._getCookie('access_token');
-                const newRefreshToken = this._getCookie('refresh_token');
-                
-                if (newAccessToken) {
-                    this.token = newAccessToken;
-                    this._setSecureItem('auth_token', newAccessToken);
+            const data = await response.json();
+            
+            if (response.ok && data.valid) {
+                console.log('✅ Session validation successful');
+                // Update token placeholder if server provides it
+                if (data.token) {
+                    this.token = data.token;
                 }
-                
-                if (newRefreshToken) {
-                    this.refreshToken = newRefreshToken; 
-                    this._setSecureItem('refresh_token', newRefreshToken);
-                }
-                
                 return true;
             } else {
-                console.log('Silent refresh failed, trying standard refresh...');
+                console.log('❌ Session validation failed:', data);
+                this._clearAuthState();
+                return false;
             }
-        } catch (silentError) {
-            console.log('Silent refresh error:', silentError.message);
-        }
-        
-        // Fall back to standard refresh if silent refresh fails
-        if (this.refreshToken) {
-            try {
-                console.log('Attempting standard refresh...');
-                const standardResponse = await fetch(`${this.AUTH_BASE_URL}/auth/refresh`, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({ 
-                        refresh_token: this.refreshToken,
-                        silent: false
-                    }),
-                    credentials: 'include'
-                });
-                
-                if (standardResponse.ok) {
-                    const data = await standardResponse.json();
-                    console.log('✅ Standard refresh successful');
-                    
-                    // Update tokens
-                    this.token = data.access_token;
-                    if (data.refresh_token) {
-                        this.refreshToken = data.refresh_token;
-                    }
-                    
-                    // Store updated tokens
-                    this._setSecureItem('auth_token', data.access_token);
-                    if (data.refresh_token) {
-                        this._setSecureItem('refresh_token', data.refresh_token);
-                    }
-                    
-                    return true;
-                } else {
-                    const errorData = await standardResponse.json().catch(() => ({}));
-                    console.error('Standard refresh failed:', errorData);
-                }
-            } catch (standardError) {
-                console.error('Standard refresh error:', standardError);
-            }
-        }
-        
-        // If all refresh attempts fail
-        console.error('❌ All token refresh attempts failed');
-        this._clearAuthState();
-        return false;
-    },
-    
-    /**
-     * ENHANCED: Force token refresh - tries all available methods
-     */
-    async forceTokenRefresh() {
-        console.log('🔄 Forcing token refresh...');
-        
-        // Clear any existing refresh promise
-        this.isRefreshing = false;
-        this.refreshPromise = null;
-        
-        try {
-            return await this.refreshTokenIfNeeded();
+            
         } catch (error) {
-            console.error('Force token refresh failed:', error);
+            console.error('Session validation error:', error);
             return false;
         }
     },
     
     /**
-     * ENHANCED: OTP verification with better error handling
+     * FIXED: OTP verification with proper state management
      */
     async verifyOTP(email, otp) {
         try {
-            console.log(`Verifying OTP for email: ${email}`);
+            console.log(`FIXED: Verifying OTP for email: ${email}`);
             
             const controller = new AbortController();
             const timeoutId = setTimeout(() => controller.abort(), 30000);
@@ -294,7 +167,7 @@ const AuthService = {
                 },
                 body: JSON.stringify({ email, otp }),
                 signal: controller.signal,
-                credentials: 'include'
+                credentials: 'include' // FIXED: Include credentials for cookie setting
             });
             
             clearTimeout(timeoutId);
@@ -305,25 +178,24 @@ const AuthService = {
                 throw new Error(data.error || data.detail || 'Invalid OTP');
             }
             
-            console.log('✅ OTP verification successful');
+            console.log('✅ FIXED: OTP verification successful');
             
-            // Update authentication state
-            this.token = data.access_token;
-            this.refreshToken = data.refresh_token;
+            // FIXED: Update authentication state (tokens are in httpOnly cookies now)
             this.userEmail = email;
             this.userId = data.id;
             this.sessionId = data.session_id;
             this.authenticated = true;
             
-            // Store in localStorage as backup
-            this._setSecureItem('auth_token', data.access_token);
+            // Set placeholders for tokens (they're in httpOnly cookies)
+            this.token = 'cookie_stored';
+            this.refreshToken = 'cookie_stored';
+            
+            // Store user info in localStorage as backup
             this._setSecureItem('user_email', email);
             this._setSecureItem('user_id', data.id);
-            if (data.refresh_token) {
-                this._setSecureItem('refresh_token', data.refresh_token);
-            }
+            this._setSecureItem('session_id', data.session_id);
             
-            console.log('✅ Authentication state updated');
+            console.log('✅ FIXED: Authentication state updated');
             return data;
             
         } catch (error) {
@@ -336,21 +208,54 @@ const AuthService = {
     },
     
     /**
-     * ENHANCED: Execute function with automatic token refresh
+     * FIXED: Token refresh with proper cookie handling
+     */
+    async refreshTokenIfNeeded() {
+        if (!this.isAuthenticated()) {
+            console.log('Not authenticated, no token to refresh');
+            return false;
+        }
+        
+        try {
+            console.log('🔄 FIXED: Attempting token refresh...');
+            
+            // Try silent refresh first (uses httpOnly cookies)
+            const response = await fetch(`${this.AUTH_BASE_URL}/auth/refresh-silent`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                credentials: 'include'
+            });
+            
+            if (response.ok) {
+                const data = await response.json();
+                console.log('✅ Token refresh successful');
+                return true;
+            } else {
+                console.log('Token refresh failed:', response.status);
+                if (response.status === 401) {
+                    this._clearAuthState();
+                }
+                return false;
+            }
+            
+        } catch (error) {
+            console.error('Error refreshing token:', error);
+            return false;
+        }
+    },
+    
+    /**
+     * FIXED: Execute function with proper authentication
      */
     async executeFunction(functionName, inputData) {
         if (!this.isAuthenticated()) {
             throw new Error('Authentication required');
         }
         
-        // Ensure token is valid before making request
-        const refreshed = await this.refreshTokenIfNeeded();
-        if (!refreshed) {
-            throw new Error('Unable to refresh authentication token');
-        }
-        
         try {
-            console.log(`Executing function: ${functionName}`);
+            console.log(`FIXED: Executing function: ${functionName}`);
             
             const controller = new AbortController();
             const timeoutId = setTimeout(() => controller.abort(), 60000);
@@ -358,12 +263,11 @@ const AuthService = {
             const response = await fetch(`${this.API_BASE_URL}/api/function/${functionName}`, {
                 method: 'POST',
                 headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${this.token}`
+                    'Content-Type': 'application/json'
                 },
                 body: JSON.stringify(inputData),
                 signal: controller.signal,
-                credentials: 'include'
+                credentials: 'include' // FIXED: Use cookies for authentication
             });
             
             clearTimeout(timeoutId);
@@ -374,13 +278,9 @@ const AuthService = {
                 
                 // Handle token expiration
                 if (response.status === 401) {
-                    console.warn('Token expired during function execution, refreshing...');
-                    const refreshed = await this.refreshTokenIfNeeded();
-                    if (refreshed) {
-                        throw new Error('Session expired. Please try again.');
-                    } else {
-                        throw new Error('Authentication failed. Please log in again.');
-                    }
+                    console.warn('Session expired during function execution');
+                    this._clearAuthState();
+                    throw new Error('Session expired. Please log in again.');
                 }
                 
                 throw new Error(data.error || data.detail || `Failed to execute function: ${functionName}`);
@@ -398,43 +298,59 @@ const AuthService = {
     },
     
     /**
-     * ENHANCED: Session validation with multiple auth methods
+     * FIXED: Send chat message with cookie authentication
      */
-    async validateSession() {
+    async sendChatMessage(message) {
+        if (!this.isAuthenticated()) {
+            throw new Error('Authentication required');
+        }
+        
         try {
-            console.log('🔍 Validating session...');
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 45000);
             
-            const response = await fetch(`${this.AUTH_BASE_URL}/auth/validate-session`, {
+            const response = await fetch(`${this.API_BASE_URL}/api/chat`, {
                 method: 'POST',
                 headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${this.token}`
+                    'Content-Type': 'application/json'
                 },
-                credentials: 'include'
+                body: JSON.stringify({ message }),
+                signal: controller.signal,
+                credentials: 'include' // FIXED: Use cookies for authentication
             });
             
+            clearTimeout(timeoutId);
             const data = await response.json();
             
-            if (response.ok && data.valid) {
-                console.log('✅ Session is valid');
-                return data;
-            } else {
-                console.log('❌ Session validation failed:', data);
-                return { valid: false, reason: data.reason || 'Unknown' };
+            if (!response.ok) {
+                console.error('Chat message failed:', data);
+                
+                if (response.status === 401) {
+                    console.warn('Session expired during chat message');
+                    this._clearAuthState();
+                    throw new Error('Session expired. Please log in again.');
+                }
+                
+                throw new Error(data.error || 'Failed to send message');
             }
             
+            return data;
+            
         } catch (error) {
-            console.error('Session validation error:', error);
-            return { valid: false, reason: 'Validation request failed' };
+            if (error.name === 'AbortError') {
+                throw new Error('Request timed out. Please try again.');
+            }
+            console.error('Chat error:', error);
+            throw error;
         }
     },
     
     /**
-     * ENHANCED: Logout with proper cleanup
+     * FIXED: Logout with proper cleanup
      */
     async logout() {
         try {
-            console.log('🚪 Logging out...');
+            console.log('🚪 FIXED: Logging out...');
             
             // Clear token refresh timer
             if (this.tokenRefreshTimer) {
@@ -447,12 +363,8 @@ const AuthService = {
                 await fetch(`${this.AUTH_BASE_URL}/auth/logout`, {
                     method: 'POST',
                     headers: {
-                        'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${this.token}`
+                        'Content-Type': 'application/json'
                     },
-                    body: JSON.stringify({
-                        refresh_token: this.refreshToken
-                    }),
                     credentials: 'include'
                 });
             } catch (error) {
@@ -471,63 +383,14 @@ const AuthService = {
     },
     
     /**
-     * ENHANCED: Clear all authentication data
-     */
-    clearAuthData() {
-        // Clear cookies
-        const cookiesToClear = [
-            'access_token', 'refresh_token', 'csrf_token',
-            'user_info', 'user_preferences', 'websocket_id',
-            'session_id', 'authenticated'
-        ];
-
-        cookiesToClear.forEach(cookieName => {
-            this._deleteCookie(cookieName);
-        });
-
-        // Clear localStorage
-        ['auth_token', 'refresh_token', 'user_email', 'user_id'].forEach(key => {
-            this._removeSecureItem(key);
-        });
-
-        // Clear instance data
-        this.token = null;
-        this.refreshToken = null;
-        this.userEmail = null;
-        this.userId = null;
-        this.sessionId = null;
-        this.authenticated = false;
-        this.isRefreshing = false;
-        this.refreshPromise = null;
-
-        if (this.tokenRefreshTimer) {
-            clearInterval(this.tokenRefreshTimer);
-            this.tokenRefreshTimer = null;
-        }
-
-        console.log('🧹 All authentication data cleared');
-    },
-    
-    // ============================================================
-    // UTILITY METHODS (Enhanced)
-    // ============================================================
-    
-    /**
-     * Check if user has a persistent session (refresh token available)
-     */
-    hasPersistentSession() {
-        return !!(this.refreshToken || this._getCookie('refresh_token') || this._getSecureItem('refresh_token'));
-    },
-    
-    /**
-     * Check if user is authenticated
+     * FIXED: Check authentication status
      */
     isAuthenticated() {
-        return this.authenticated && !!this.token && !!this.userId;
+        return this.authenticated && !!this.userId && !!this.userEmail;
     },
     
     /**
-     * Get current user information
+     * FIXED: Get current user information
      */
     getCurrentUser() {
         return {
@@ -539,28 +402,55 @@ const AuthService = {
     },
     
     /**
-     * Get token for API requests
+     * FIXED: Get token for API requests (for WebSocket URL construction)
      */
     getToken() {
+        // For WebSocket connections, we need to get the actual token
+        // Since httpOnly cookies can't be read by JS, we'll make a request to get it
         return this.token;
     },
     
     /**
-     * Get session information
+     * FIXED: Get WebSocket URL with proper token handling
      */
-    getSessionInfo() {
-        return {
-            authenticated: this.authenticated,
-            userId: this.userId,
-            email: this.userEmail,
-            sessionId: this.sessionId,
-            hasRefreshToken: this.hasPersistentSession(),
-            tokenValid: this.token ? this._isTokenValid(this.token) : false
-        };
+    getWebSocketURL(userId) {
+        if (!this.isAuthenticated()) {
+            throw new Error('Authentication required for WebSocket');
+        }
+        
+        const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const wsHost = window.AAAI_CONFIG.ENVIRONMENT === 'development' 
+            ? 'localhost:8080' 
+            : 'api-server-559730737995.us-central1.run.app';
+        
+        // FIXED: For WebSocket, we'll let the server handle authentication via cookies
+        // No token in URL needed since server can read httpOnly cookies
+        const url = `${wsProtocol}//${wsHost}/ws/${userId}`;
+        console.log(`FIXED WebSocket URL: ${url}`);
+        return url;
     },
     
     /**
-     * Request OTP (unchanged)
+     * FIXED: Get user credits
+     */
+    async getUserCredits() {
+        if (!this.isAuthenticated()) {
+            throw new Error('Authentication required');
+        }
+        
+        try {
+            const result = await this.executeFunction('get_user_creds', {
+                email: this.userEmail
+            });
+            return result.data.credits;
+        } catch (error) {
+            console.error('Error getting user credits:', error);
+            return 0;
+        }
+    },
+    
+    /**
+     * FIXED: Request OTP (unchanged)
      */
     async requestOTP(email) {
         try {
@@ -599,97 +489,60 @@ const AuthService = {
         }
     },
     
+    // ============================================================
+    // UTILITY METHODS (Enhanced for cookie handling)
+    // ============================================================
+    
     /**
-     * Get user credits
+     * Check if user has a persistent session
      */
-    async getUserCredits() {
-        if (!this.isAuthenticated()) {
-            throw new Error('Authentication required');
-        }
-        
-        try {
-            const result = await this.executeFunction('get_user_creds', {
-                email: this.userEmail
-            });
-            return result.data.credits;
-        } catch (error) {
-            console.error('Error getting user credits:', error);
-            return 0;
-        }
+    hasPersistentSession() {
+        return !!(this._getCookie('authenticated') === 'true' || this._getSecureItem('user_id'));
     },
     
     /**
-     * Send chat message via HTTP API
+     * Get session information
      */
-    async sendChatMessage(message) {
-        if (!this.isAuthenticated()) {
-            throw new Error('Authentication required');
-        }
-        
-        // Ensure token is valid
-        await this.refreshTokenIfNeeded();
-        
-        try {
-            const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 45000);
-            
-            const response = await fetch(`${this.API_BASE_URL}/api/chat`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${this.token}`
-                },
-                body: JSON.stringify({ message }),
-                signal: controller.signal,
-                credentials: 'include'
-            });
-            
-            clearTimeout(timeoutId);
-            const data = await response.json();
-            
-            if (!response.ok) {
-                console.error('Chat message failed:', data);
-                
-                if (response.status === 401) {
-                    console.warn('Token expired during chat message');
-                    await this.refreshTokenIfNeeded();
-                    throw new Error('Session expired. Please try again.');
-                }
-                
-                throw new Error(data.error || 'Failed to send message');
-            }
-            
-            return data;
-            
-        } catch (error) {
-            if (error.name === 'AbortError') {
-                throw new Error('Request timed out. Please try again.');
-            }
-            console.error('Chat error:', error);
-            throw error;
-        }
+    getSessionInfo() {
+        return {
+            authenticated: this.authenticated,
+            userId: this.userId,
+            email: this.userEmail,
+            sessionId: this.sessionId,
+            hasRefreshToken: this.hasPersistentSession(),
+            tokenValid: this.authenticated // Since we can't read httpOnly tokens
+        };
     },
     
     /**
-     * Get WebSocket URL
+     * FIXED: Clear all authentication data
      */
-    getWebSocketURL(userId) {
-        if (!this.isAuthenticated()) {
-            throw new Error('Authentication required for WebSocket');
+    clearAuthData() {
+        // Clear localStorage
+        ['auth_token', 'refresh_token', 'user_email', 'user_id', 'session_id'].forEach(key => {
+            this._removeSecureItem(key);
+        });
+
+        // Clear instance data
+        this.token = null;
+        this.refreshToken = null;
+        this.userEmail = null;
+        this.userId = null;
+        this.sessionId = null;
+        this.authenticated = false;
+        this.isRefreshing = false;
+        this.refreshPromise = null;
+
+        if (this.tokenRefreshTimer) {
+            clearInterval(this.tokenRefreshTimer);
+            this.tokenRefreshTimer = null;
         }
-        
-        const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const wsHost = window.AAAI_CONFIG.ENVIRONMENT === 'development' 
-            ? 'localhost:8080' 
-            : 'api-server-559730737995.us-central1.run.app';
-        
-        const url = `${wsProtocol}//${wsHost}/ws/${userId}?token=${this.token}`;
-        console.log(`WebSocket URL: ${url.replace(/token=[^&]*/, 'token=***')}`);
-        return url;
+
+        console.log('🧹 All authentication data cleared');
     },
     
     // ============================================================
-    // PRIVATE METHODS (Enhanced)
+    // PRIVATE METHODS
     // ============================================================
     
     /**
@@ -714,9 +567,9 @@ const AuthService = {
     _setupVisibilityHandler() {
         document.addEventListener('visibilitychange', () => {
             if (document.visibilityState === 'visible' && this.isAuthenticated()) {
-                // Page became visible, check if token needs refresh
-                this.refreshTokenIfNeeded().catch(error => {
-                    console.error('Visibility refresh failed:', error);
+                // Page became visible, validate session
+                this._validateSessionAsync().catch(error => {
+                    console.error('Visibility session check failed:', error);
                 });
             }
         });
@@ -734,31 +587,9 @@ const AuthService = {
         this.authenticated = false;
         
         // Clear localStorage
-        this._removeSecureItem('auth_token');
-        this._removeSecureItem('refresh_token');
         this._removeSecureItem('user_email');
         this._removeSecureItem('user_id');
-    },
-    
-    /**
-     * Validate token format and expiration
-     */
-    _isTokenValid(token) {
-        try {
-            if (!token) return false;
-            
-            const tokenParts = token.split('.');
-            if (tokenParts.length !== 3) return false;
-            
-            const payload = JSON.parse(atob(tokenParts[1]));
-            const now = Math.floor(Date.now() / 1000);
-            
-            // Token is valid if it expires in the future (with 30-second buffer)
-            return payload.exp && payload.exp > (now + 30);
-        } catch (error) {
-            console.error('Token validation error:', error);
-            return false;
-        }
+        this._removeSecureItem('session_id');
     },
     
     /**
@@ -823,7 +654,6 @@ const AuthService = {
      */
     getAuthHeader() {
         return {
-            'Authorization': `Bearer ${this.token}`,
             'X-Session-ID': this.sessionId || ''
         };
     }
