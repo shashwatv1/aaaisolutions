@@ -36,6 +36,54 @@ async function verifyOTP(req, res) {
         }
       );
       
+      // If successful, set authentication cookies
+      if (response.data && response.data.access_token) {
+        const secure = req.headers['x-forwarded-proto'] === 'https';
+        const sameSite = 'lax';
+        
+        // Set access token cookie
+        res.cookie('access_token', response.data.access_token, {
+          httpOnly: true,
+          secure: secure,
+          sameSite: sameSite,
+          maxAge: 3600000, // 1 hour
+          path: '/'
+        });
+        
+        // Set refresh token cookie if provided
+        if (response.data.refresh_token) {
+          res.cookie('refresh_token', response.data.refresh_token, {
+            httpOnly: true,
+            secure: secure,
+            sameSite: sameSite,
+            maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
+            path: '/'
+          });
+        }
+        
+        // Set authenticated flag
+        res.cookie('authenticated', 'true', {
+          httpOnly: false, // Accessible to JavaScript
+          secure: secure,
+          sameSite: sameSite,
+          maxAge: 3600000, // 1 hour
+          path: '/'
+        });
+        
+        // Set user info cookie
+        res.cookie('user_info', JSON.stringify({
+          id: response.data.id,
+          email: req.body.email,
+          session_id: response.data.session_id || 'default_session'
+        }), {
+          httpOnly: false, // Accessible to JavaScript
+          secure: secure,
+          sameSite: sameSite,
+          maxAge: 3600000, // 1 hour
+          path: '/'
+        });
+      }
+      
       // Return the response to the client
       res.status(200).json(response.data);
     } catch (error) {

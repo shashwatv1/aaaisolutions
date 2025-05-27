@@ -256,16 +256,19 @@ const ChatService = {
                 const elapsed = Date.now() - startTime;
                 
                 if (errorReceived) {
-                    this.socket.removeEventListener('message', errorListener);
+                    if (this.socket) {
+                        this.socket.removeEventListener('message', errorListener);
+                    }
                     return; // Already rejected
                 }
                 
                 if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
-                    this.socket.removeEventListener('message', errorListener);
+                    if (this.socket) {
+                        this.socket.removeEventListener('message', errorListener);
+                    }
                     reject(new Error('WebSocket closed during stabilization'));
                     return;
                 }
-                
                 const isReady = this._testSocketSend();
                 
                 this._log(`🔍 Socket stabilization: readyState=${this.socket.readyState}, canSend=${isReady}, elapsed=${elapsed}ms`);

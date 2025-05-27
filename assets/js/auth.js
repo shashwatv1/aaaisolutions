@@ -62,14 +62,14 @@ const AuthService = {
             const authCookie = this._getCookie('authenticated');
             const userInfoCookie = this._getCookie('user_info');
             const accessTokenCookie = this._getCookie('access_token');
-            const refreshTokenCookie = this._getCookie('refresh_token'); // FIXED: Get refresh token
+            const refreshTokenCookie = this._getCookie('refresh_token');
             
             if (authCookie === 'true' && userInfoCookie && accessTokenCookie) {
                 const userInfo = JSON.parse(userInfoCookie);
                 
                 // Restore authentication state
                 this.token = accessTokenCookie;
-                this.refreshToken = refreshTokenCookie; // FIXED: Store refresh token
+                this.refreshToken = refreshTokenCookie || this._getSecureItem('refresh_token');
                 this.userEmail = userInfo.email;
                 this.userId = userInfo.id;
                 this.sessionId = userInfo.session_id;
@@ -77,21 +77,23 @@ const AuthService = {
                 
                 // Also store in localStorage as backup
                 this._setSecureItem('auth_token', accessTokenCookie);
-                this._setSecureItem('refresh_token', refreshTokenCookie); // FIXED: Store refresh token
+                if (this.refreshToken) {
+                    this._setSecureItem('refresh_token', this.refreshToken);
+                }
                 this._setSecureItem('user_email', userInfo.email);
                 this._setSecureItem('user_id', userInfo.id);
                 
                 window.AAAI_LOGGER.info('Authentication state restored from cookies', {
                     email: userInfo.email,
                     userId: userInfo.id,
-                    hasRefreshToken: !!refreshTokenCookie
+                    hasRefreshToken: !!this.refreshToken
                 });
                 
                 return true;
             } else {
                 // Check localStorage as fallback
                 this.token = this._getSecureItem('auth_token');
-                this.refreshToken = this._getSecureItem('refresh_token'); // FIXED: Get refresh token
+                this.refreshToken = this._getSecureItem('refresh_token');
                 this.userEmail = this._getSecureItem('user_email');
                 this.userId = this._getSecureItem('user_id');
                 this.authenticated = !!(this.token && this.userId);
@@ -105,7 +107,7 @@ const AuthService = {
             if (this.token) {
                 if (!this._isTokenValid(this.token)) {
                     window.AAAI_LOGGER.warn('Stored token is invalid or expired');
-                    // Don't clear auth state immediately - try to refresh first
+                    // Force immediate refresh if we have refresh token
                     if (this.refreshToken) {
                         this._refreshAccessToken(this.refreshToken).catch(() => {
                             this._clearAuthState();
