@@ -96,5 +96,4 @@ async function getWebSocketToken(req, res) {
     }
   });
 }
-
 module.exports = getWebSocketToken;
