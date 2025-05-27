@@ -421,15 +421,35 @@ const ChatService = {
             wsHost = 'api-server-559730737995.us-central1.run.app';
         }
         
-        // ENHANCED: Add additional parameters for better authentication
+        // CRITICAL FIX: Get authentication data from cookies
+        const authCookie = this._getCookie('authenticated');
+        const userInfoCookie = this._getCookie('user_info');
+        
+        // Parse user info to extract necessary data
+        let userInfoData = {};
+        try {
+            if (userInfoCookie) {
+                userInfoData = JSON.parse(decodeURIComponent(userInfoCookie));
+            }
+        } catch (e) {
+            console.error('Error parsing user_info cookie:', e);
+        }
+        
+        // Add authentication parameters to WebSocket URL
+        // This works around WebSocket's cookie limitations
         const params = new URLSearchParams({
             t: Date.now().toString(), // Timestamp to prevent caching
-            v: '2.0' // Version identifier
+            v: '2.0', // Version identifier
+            auth: 'true', // Authentication flag
+            // Include minimal user info needed for authentication
+            email: userInfoData.email || user.email || '',
+            session_id: userInfoData.session_id || user.sessionId || ''
         });
         
         const url = `${wsProtocol}//${wsHost}/ws/${encodeURIComponent(user.id)}?${params}`;
         
-        this._log('🔗 ENHANCED: WebSocket URL generated:', url.replace(user.id, user.id.substring(0, 8) + '...'));
+        this._log('🔗 ENHANCED: WebSocket URL generated with auth params:', 
+            url.replace(user.id, user.id.substring(0, 8) + '...'));
         return url;
     },
     
