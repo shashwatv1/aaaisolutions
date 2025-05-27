@@ -4,9 +4,8 @@ const {getSecret} = require('../utils/secret-manager');
 const {handleError} = require('../utils/error-handler');
 
 /**
- * Silent token refresh using cookies only
- * This endpoint attempts to refresh tokens using only HTTP-only cookies
- * without requiring explicit refresh token in request body
+ * FIXED: Silent token refresh using cookies only
+ * Enhanced cookie parsing and debugging
  */
 async function refreshTokenSilent(req, res) {
   // Handle CORS
@@ -26,19 +25,75 @@ async function refreshTokenSilent(req, res) {
       // Get API key from Secret Manager
       const apiKey = await getSecret('api-key');
       
-      // Get refresh token from cookies only (silent refresh)
-      const refreshToken = req.cookies?.refresh_token;
+      // Enhanced cookie parsing with debugging
+      console.log('=== SILENT REFRESH DEBUG ===');
+      console.log('All cookies received:', req.cookies);
+      console.log('Cookie header:', req.headers.cookie);
+      
+      // Multiple methods to extract refresh token
+      let refreshToken = null;
+      
+      // Method 1: req.cookies (parsed by Express)
+      if (req.cookies && req.cookies.refresh_token) {
+        refreshToken = req.cookies.refresh_token;
+        console.log('Found refresh token via req.cookies');
+      }
+      
+      // Method 2: Parse cookie header manually
+      if (!refreshToken && req.headers.cookie) {
+        const cookies = req.headers.cookie.split(';');
+        for (const cookie of cookies) {
+          const [name, value] = cookie.trim().split('=');
+          if (name === 'refresh_token' && value) {
+            refreshToken = decodeURIComponent(value);
+            console.log('Found refresh token via header parsing');
+            break;
+          }
+        }
+      }
+      
+      // Method 3: Check for token in different formats
+      if (!refreshToken) {
+        // Check for refresh_token with different encodings
+        const cookieStr = req.headers.cookie || '';
+        const refreshMatch = cookieStr.match(/refresh_token=([^;]+)/);
+        if (refreshMatch) {
+          refreshToken = decodeURIComponent(refreshMatch[1]);
+          console.log('Found refresh token via regex parsing');
+        }
+      }
+      
+      console.log('Final refresh token found:', !!refreshToken);
+      console.log('Refresh token length:', refreshToken ? refreshToken.length : 0);
       
       if (!refreshToken) {
+        console.log('ERROR: No refresh token found in any format');
         res.status(401).json({ 
           error: 'No refresh token available',
           message: 'No refresh token found in cookies for silent refresh',
-          code: 'NO_REFRESH_TOKEN'
+          code: 'NO_REFRESH_TOKEN',
+          debug: {
+            cookiesReceived: !!req.cookies,
+            cookieHeader: !!req.headers.cookie,
+            parsedCookies: req.cookies ? Object.keys(req.cookies) : []
+          }
+        });
+        return;
+      }
+      
+      // Validate refresh token format
+      if (!refreshToken.startsWith('eyJ')) {
+        console.log('ERROR: Invalid refresh token format');
+        res.status(401).json({
+          error: 'Invalid refresh token format',
+          message: 'Refresh token does not appear to be a valid JWT',
+          code: 'INVALID_TOKEN_FORMAT'
         });
         return;
       }
       
       // Forward the request to the main API
+      console.log('Forwarding to main API with refresh token');
       const response = await axios.post(
         'https://api-server-559730737995.us-central1.run.app/auth/refresh',
         { 
@@ -59,6 +114,8 @@ async function refreshTokenSilent(req, res) {
       if (response.data && response.data.access_token) {
         const secure = req.headers['x-forwarded-proto'] === 'https';
         const sameSite = 'lax';
+        
+        console.log('Silent refresh successful, setting new cookies');
         
         // Set new access token cookie
         res.cookie('access_token', response.data.access_token, {
@@ -94,7 +151,7 @@ async function refreshTokenSilent(req, res) {
           res.cookie('user_info', JSON.stringify({
             id: response.data.user.id,
             email: response.data.user.email,
-            session_id: response.data.session_id
+            session_id: response.data.session_id || 'silent_refresh'
           }), {
             httpOnly: false, // Accessible to JavaScript
             secure: secure,
@@ -117,6 +174,8 @@ async function refreshTokenSilent(req, res) {
       }
       
     } catch (error) {
+      console.log('Silent refresh error:', error.message);
+      
       // Handle specific silent refresh errors
       if (error.response && error.response.status === 401) {
         // Clear all auth cookies on failed silent refresh
@@ -129,8 +188,14 @@ async function refreshTokenSilent(req, res) {
           'csrf_token'
         ];
         
+        const secure = req.headers['x-forwarded-proto'] === 'https';
+        
         cookiesToClear.forEach(cookieName => {
-          res.clearCookie(cookieName, { path: '/' });
+          res.clearCookie(cookieName, { 
+            path: '/',
+            secure: secure,
+            sameSite: 'lax'
+          });
         });
         
         res.status(401).json({
