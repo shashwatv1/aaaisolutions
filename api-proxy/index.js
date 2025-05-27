@@ -7,6 +7,7 @@ const validateSession = require('./functions/validate-session');
 const refreshToken = require('./functions/refresh-token');
 const refreshTokenSilent = require('./functions/refresh-token-silent');
 const logout = require('./functions/logout');
+const getWebSocketToken = require('./functions/get-ws-token');
 
 // Register all HTTP functions
 functions.http('requestOTP', requestOTP);
@@ -17,3 +18,4 @@ functions.http('validateSession', validateSession);
 functions.http('refreshToken', refreshToken);
 functions.http('refreshTokenSilent', refreshTokenSilent);
 functions.http('logout', logout);
+functions.http('getWebSocketToken', getWebSocketToken);

@@ -377,3 +377,52 @@ paths:
             Access-Control-Max-Age:
               type: string
               default: '3600'
+
+  /ws/token:
+    post:
+      summary: Generate WebSocket authentication token
+      operationId: getWebSocketToken
+      x-google-backend:
+        address: https://us-central1-aai-solutions-api-021201.cloudfunctions.net/getWebSocketToken
+      security:
+        - api_key: []
+      responses:
+        '200':
+          description: Token generated successfully
+          headers:
+            Access-Control-Allow-Origin:
+              type: string
+              default: 'https://aaai.solutions'
+            Access-Control-Allow-Credentials:
+              type: string
+              default: 'true'
+        '400':
+          description: Bad request
+        '401':
+          description: Unauthorized
+        '500':
+          description: Server error
+    options:
+      summary: CORS support
+      operationId: corsGetWebSocketToken
+      x-google-backend:
+        address: https://us-central1-aai-solutions-api-021201.cloudfunctions.net/getWebSocketToken
+      responses:
+        '204':
+          description: CORS preflight response
+          headers:
+            Access-Control-Allow-Origin:
+              type: string
+              default: 'https://aaai.solutions'
+            Access-Control-Allow-Methods:
+              type: string
+              default: 'POST, OPTIONS'
+            Access-Control-Allow-Headers:
+              type: string
+              default: 'Content-Type, Authorization, X-API-Key'
+            Access-Control-Allow-Credentials:
+              type: string
+              default: 'true'
+            Access-Control-Max-Age:
+              type: string
+              default: '3600'

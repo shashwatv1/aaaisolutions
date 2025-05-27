@@ -103,25 +103,17 @@ const ChatService = {
             this._log('Already connected and authenticated');
             return true;
         }
-
+    
         // If already connecting, return the existing promise
         if (this.isConnecting && this.connectionPromise) {
             this._log('Connection already in progress, waiting...');
             return this.connectionPromise;
         }
-
-        this._log('🔄 ENHANCED: Starting comprehensive WebSocket connection process...');
-
-        // ENHANCED: Multi-step authentication validation
-        try {
-            await this._performComprehensiveAuthValidation();
-        } catch (error) {
-            this._error('❌ ENHANCED: Comprehensive auth validation failed:', error);
-            throw new Error(`Authentication validation failed: ${error.message}`);
-        }
-
+    
+        this._log('🔄 FIXED: Starting token-based WebSocket connection process...');
+    
         // Create new connection promise
-        this.connectionPromise = this._performEnhancedConnection();
+        this.connectionPromise = this._performFixedConnection();
         
         try {
             const result = await this.connectionPromise;
@@ -296,7 +288,7 @@ const ChatService = {
     /**
      * ENHANCED: Perform connection with improved error handling
      */
-    async _performEnhancedConnection() {
+    async _performFixedConnection() {
         return new Promise(async (resolve, reject) => {
             this.isConnecting = true;
             this.isAuthenticated = false;
@@ -305,41 +297,41 @@ const ChatService = {
             // Set overall timeout
             const overallTimeout = setTimeout(() => {
                 if (this.isConnecting) {
-                    this._error('ENHANCED: Overall connection timeout');
+                    this._error('FIXED: Overall connection timeout');
                     this._cleanupConnection();
                     reject(new Error('Connection timeout - server may be unavailable'));
                 }
             }, this.options.connectionTimeout);
             
             try {
-                // Create WebSocket with enhanced URL
-                const wsUrl = this._getEnhancedWebSocketURL();
-                this._log(`ENHANCED: Connecting to: ${wsUrl.replace(/user_id=[^&]*/, 'user_id=***')}`);
+                // Get WebSocket URL with temporary token
+                const wsUrl = await this._getFixedWebSocketURL();
+                this._log(`FIXED: Connecting to: ${wsUrl.replace(/token=[^&]*/, 'token=***')}`);
                 
                 this.socket = new WebSocket(wsUrl);
                 
-                // ENHANCED: Comprehensive event handling
+                // Event handlers remain the same
                 this.socket.addEventListener('open', (event) => {
-                    this._log('✅ ENHANCED: WebSocket opened successfully');
+                    this._log('✅ FIXED: WebSocket opened successfully');
                     this.isConnected = true;
                     
-                    // The server should automatically validate cookies and respond
                     // Set a timeout for authentication response
                     this.authTimeout = setTimeout(() => {
                         if (!this.isAuthenticated) {
-                            this._error('❌ ENHANCED: Authentication timeout - no response from server');
+                            this._error('❌ FIXED: Authentication timeout - no response from server');
                             this._cleanupConnection();
                             reject(new Error('Authentication timeout - server did not confirm authentication'));
                         }
                     }, this.options.authTimeout);
                 });
                 
+                // Rest of the event handlers (same as before)
                 this.socket.addEventListener('message', (event) => {
                     try {
                         const data = JSON.parse(event.data);
-                        this._log('📨 ENHANCED: Received message:', data.type);
+                        this._log('📨 FIXED: Received message:', data.type);
                         
-                        // ENHANCED: Handle authentication responses
+                        // Handle authentication responses
                         if (data.type === 'connection_established' || data.type === 'authenticated') {
                             clearTimeout(overallTimeout);
                             clearTimeout(this.authTimeout);
@@ -348,31 +340,16 @@ const ChatService = {
                             return;
                         }
                         
-                        // Handle authentication errors with detailed analysis
-                        if (data.type === 'error' && this._isAuthError(data)) {
-                            clearTimeout(overallTimeout);
-                            clearTimeout(this.authTimeout);
-                            this._handleEnhancedAuthenticationError(data);
-                            reject(new Error(this._formatAuthError(data)));
-                            return;
-                        }
-                        
-                        // Handle token refresh recommendations
-                        if (data.type === 'token_refresh_recommended') {
-                            this._log('⚠️ ENHANCED: Server recommends token refresh');
-                            this._refreshTokenInBackground();
-                        }
-                        
-                        // Handle other messages normally
+                        // Handle other messages
                         this._onMessage(event);
                         
                     } catch (parseError) {
-                        this._error('ENHANCED: Error parsing message:', parseError);
+                        this._error('FIXED: Error parsing message:', parseError);
                     }
                 });
                 
                 this.socket.addEventListener('close', (event) => {
-                    this._log('🔌 ENHANCED: WebSocket closed:', { code: event.code, reason: event.reason });
+                    this._log('🔌 FIXED: WebSocket closed:', { code: event.code, reason: event.reason });
                     this._onClose(event);
                     if (this.isConnecting) {
                         clearTimeout(overallTimeout);
@@ -383,7 +360,7 @@ const ChatService = {
                 });
                 
                 this.socket.addEventListener('error', (event) => {
-                    this._error('❌ ENHANCED: WebSocket error:', event);
+                    this._error('❌ FIXED: WebSocket error:', event);
                     this._onError(event);
                     if (this.isConnecting) {
                         clearTimeout(overallTimeout);
@@ -395,9 +372,12 @@ const ChatService = {
                 
             } catch (error) {
                 clearTimeout(overallTimeout);
-                clearTimeout(this.authTimeout);
+                if (this.authTimeout) {
+                    clearTimeout(this.authTimeout);
+                    this.authTimeout = null;
+                }
                 this.isConnecting = false;
-                this._error('ENHANCED: Connection setup error:', error);
+                this._error('FIXED: Connection setup error:', error);
                 reject(error);
             }
         });
@@ -457,7 +437,7 @@ const ChatService = {
      * ENHANCED: Get WebSocket URL with better parameter handling
      */
     
-    _getEnhancedWebSocketURL() {
+    async _getFixedWebSocketURL() {
         const user = this.authService.getCurrentUser();
         if (!user || !user.id) {
             throw new Error('User ID not available for WebSocket connection');
@@ -472,66 +452,45 @@ const ChatService = {
             wsHost = 'api-server-559730737995.us-central1.run.app';
         }
         
-        // ENHANCED: Comprehensive authentication data extraction
-        // Step 1: Get user info from cookies
-        let userEmail = '';
-        let userId = '';
-        let sessionId = '';
+        // FIXED: Request a temporary token for WebSocket authentication
+        this._log('🔑 FIXED: Requesting temporary WebSocket token...');
         
-        // Try multiple methods to get the user info
+        let tempToken;
         try {
-            // Method 1: Try direct cookie parsing
-            const cookies = document.cookie.split(';');
-            for (const cookie of cookies) {
-                const [name, value] = cookie.trim().split('=');
-                
-                if (name === 'user_info' && value) {
-                    try {
-                        const userInfo = JSON.parse(decodeURIComponent(value));
-                        userEmail = userInfo.email || '';
-                        userId = userInfo.id || '';
-                        sessionId = userInfo.session_id || '';
-                        this._log('📋 Extracted user info from cookie:', { 
-                            hasEmail: !!userEmail, 
-                            hasId: !!userId 
-                        });
-                        break;
-                    } catch (e) {
-                        this._error('Failed to parse user_info cookie:', e);
-                    }
-                }
-            }
-            
-            // Method 2: Use AuthService as fallback
-            if (!userEmail || !userId) {
-                this._log('🔍 Using AuthService data as fallback');
-                userEmail = this.authService.userEmail || user.email || '';
-                userId = this.authService.userId || user.id || '';
-                sessionId = this.authService.sessionId || '';
-            }
-            
-            // Log the data we've found
-            this._log('✅ Final authentication data:', {
-                hasEmail: !!userEmail,
-                hasId: !!userId,
-                hasSessionId: !!sessionId
+            const tokenResponse = await fetch('/ws/token', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${this.authService.getAuthHeader()['X-Session-ID'] || ''}`
+                },
+                credentials: 'include' // Include cookies
             });
             
-        } catch (e) {
-            this._error('Error extracting authentication data:', e);
-            // Fallback to user parameter
-            userEmail = user.email || '';
-            userId = user.id || '';
+            if (!tokenResponse.ok) {
+                throw new Error(`Token request failed: ${tokenResponse.status}`);
+            }
+            
+            const tokenData = await tokenResponse.json();
+            if (!tokenData.success || !tokenData.token) {
+                throw new Error('Invalid token response');
+            }
+            
+            tempToken = tokenData.token;
+            this._log('✅ FIXED: Successfully obtained WebSocket token');
+            
+        } catch (error) {
+            this._error('❌ FIXED: Failed to get WebSocket token:', error);
+            throw new Error(`Failed to obtain WebSocket token: ${error.message}`);
         }
         
-        // ENHANCED: Build URL parameters with all available authentication data
+        // FIXED: Build URL with temporary token
         const params = new URLSearchParams({
             t: Date.now().toString(), // Timestamp to prevent caching
             v: '2.0', // Protocol version
-            auth: 'true', // Authentication flag
-            email: userEmail,
-            user_id: userId,
-            session_id: sessionId || ''
+            token: tempToken, // FIXED: Include the temporary token
+            email: user.email || '',
+            user_id: user.id || '',
+            session_id: user.sessionId || ''
         });
         
         // Add reconnect token if available
@@ -543,10 +502,10 @@ const ChatService = {
         // Generate the final URL
         const url = `${wsProtocol}//${wsHost}/ws/${encodeURIComponent(user.id)}?${params}`;
         
-        this._log('🔗 ENHANCED: WebSocket URL generated with comprehensive auth params');
+        this._log('🔗 FIXED: WebSocket URL generated with token-based authentication');
         return url;
     },
-    
+
     /**
      * Format authentication error with helpful information
      */
