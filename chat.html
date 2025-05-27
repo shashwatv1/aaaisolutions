@@ -1401,120 +1401,6 @@
             }
         }
         
-        
-          const reconnectBtn = document.getElementById('reconnectBtn');
-          if (reconnectBtn) {
-            reconnectBtn.addEventListener('click', async function() {
-              try {
-                // Show loading state
-                this.disabled = true;
-                this.innerHTML = '<ion-icon name="sync-outline" class="spin"></ion-icon><span>Reconnecting...</span>';
-                
-                // Try to force a page refresh of the auth token
-                if (AuthService && typeof AuthService.forceTokenRefresh === 'function') {
-                  await AuthService.forceTokenRefresh();
-                }
-                
-                // Try to reinitialize the chat service
-                if (typeof initializeChatService === 'function') {
-                  if (chatService) {
-                    try { chatService.disconnect(); } catch (e) {}
-                  }
-                  await initializeChatService();
-                }
-                
-                // Hide error
-                document.getElementById('connectionError').style.display = 'none';
-                
-                // Show success indicator
-                showStatusIndicator('connected', '✅ Reconnected successfully');
-                
-                // Restore button
-                this.disabled = false;
-                this.innerHTML = '<ion-icon name="refresh-outline"></ion-icon><span>Reconnect</span>';
-                
-              } catch (error) {
-                console.error('Reconnection failed:', error);
-                
-                // Update button
-                this.disabled = false;
-                this.innerHTML = '<ion-icon name="refresh-outline"></ion-icon><span>Try Again</span>';
-                
-                // Show reload option
-                const reloadBtn = document.createElement('button');
-                reloadBtn.className = 'btn-secondary';
-                reloadBtn.style.marginLeft = '10px';
-                reloadBtn.innerHTML = '<ion-icon name="reload-outline"></ion-icon><span>Reload Page</span>';
-                reloadBtn.onclick = function() { window.location.reload(); };
-                this.parentNode.appendChild(reloadBtn);
-              }
-            });
-          }
-          
-          // Add some animation styles
-          const style = document.createElement('style');
-          style.textContent = `
-            @keyframes spin {
-              0% { transform: rotate(0deg); }
-              100% { transform: rotate(360deg); }
-            }
-            .spin {
-              animation: spin 1.5s linear infinite;
-              display: inline-block;
-            }
-          `;
-          document.head.appendChild(style);
-        });
-        
-        // Function to show connection error UI
-        function showConnectionError(message) {
-          const errorContainer = document.getElementById('connectionError');
-          if (errorContainer) {
-            const messagePara = errorContainer.querySelector('p');
-            if (messagePara && message) {
-              messagePara.textContent = message;
-            }
-            errorContainer.style.display = 'block';
-          }
-        }
-        /**
-          * Handle chat errors with enhanced feedback
-        */
-          function handleChatError(data) {
-            console.error('💥 Chat service error:', data);
-            
-            if (data.error && typeof data.error === 'string') {
-                if (data.useHttpFallback) {
-                    // WebSocket failed but token is valid - use HTTP fallback
-                    console.log('📡 Switching to HTTP fallback mode');
-                    showStatusIndicator('disconnected', '📡 HTTP mode active');
-                    return; // Don't show error to user
-                }
-                
-                if (data.requiresLogin || data.error.includes('Session expired')) {
-                    console.log('🔑 Authentication error detected');
-                    showError('Your session has expired. Please refresh the page to reconnect.');
-                    
-                    // Optional: Auto-refresh after a delay
-                    setTimeout(() => {
-                        if (confirm('Session expired. Would you like to refresh the page now?')) {
-                            window.location.reload();
-                        }
-                    }, 3000);
-                    return;
-                }
-                
-                if (data.error.includes('WebSocket authentication failed')) {
-                    // WebSocket auth failed but continue with HTTP
-                    showStatusIndicator('disconnected', '📡 HTTP mode');
-                    return;
-                }
-            }
-            
-          // Default error handling
-            showStatusIndicator('disconnected', '⚠️ Connection error');
-          }        
-        
         /**
           * Send message with authentication check
           */
@@ -1830,7 +1716,6 @@
         // Initialize the application
         initializeApp();
     });
-    
   </script>
   <script>
     (function() {
@@ -2090,62 +1975,6 @@
       
       console.log('🔍 Enhanced debug loaded. Use debugWebSocket() or testWebSocketTiming() in console.');
     })();
-  document.getElementById('reconnectBtn').addEventListener('click', async function() {
-    try {
-      // Show loading state
-      this.disabled = true;
-      this.innerHTML = '<ion-icon name="sync-outline"></ion-icon><span>Reconnecting...</span>';
-      
-      // Force token refresh and connection restart
-      await AuthService.forceTokenRefresh();
-      
-      // Try to reinitialize chat service
-      if (chatService) chatService.disconnect();
-      await initializeChatService();
-      
-      // Hide error
-      document.getElementById('connectionError').style.display = 'none';
-      
-      // Restore button
-      this.disabled = false;
-      this.innerHTML = '<ion-icon name="refresh-outline"></ion-icon><span>Reconnect</span>';
-    } catch (error) {
-      console.error('Reconnection failed:', error);
-      // Update button
-      this.disabled = false;
-      this.innerHTML = '<ion-icon name="refresh-outline"></ion-icon><span>Try Again</span>';
-      
-      // Show more detailed error
-      const errorMsg = document.createElement('p');
-      errorMsg.style.color = '#e74c3c';
-      errorMsg.textContent = 'Reconnection failed. Please refresh the page.';
-      document.getElementById('connectionError').appendChild(errorMsg);
-    }
-  });
-  
-  // Add to handleChatError function
-  function handleChatError(data) {
-    console.error('💥 Chat service error:', data);
-    
-    if (data.requiresLogin || (data.error && data.error.includes('Session expired'))) {
-      console.log('🔑 Authentication error detected');
-      document.getElementById('connectionError').style.display = 'block';
-      
-      showError('Your session has expired. Please refresh the page to reconnect.');
-      
-      // Optional: Auto-refresh after a delay
-      /*
-      setTimeout(() => {
-        if (confirm('Session expired. Would you like to refresh the page now?')) {
-          window.location.reload();
-        }
-      }, 3000);
-      */
-    }
-    
-    // Show status indicator
-    showStatusIndicator('disconnected', '⚠️ Connection error');
-  }
   </script>
 </body>
 
