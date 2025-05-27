@@ -456,6 +456,7 @@ const ChatService = {
     /**
      * ENHANCED: Get WebSocket URL with better parameter handling
      */
+    
     _getEnhancedWebSocketURL() {
         const user = this.authService.getCurrentUser();
         if (!user || !user.id) {
@@ -471,35 +472,78 @@ const ChatService = {
             wsHost = 'api-server-559730737995.us-central1.run.app';
         }
         
-        // CRITICAL FIX: Get authentication data from cookies
-        const authCookie = this._getCookie('authenticated');
-        const userInfoCookie = this._getCookie('user_info');
+        // ENHANCED: Comprehensive authentication data extraction
+        // Step 1: Get user info from cookies
+        let userEmail = '';
+        let userId = '';
+        let sessionId = '';
         
-        // Parse user info to extract necessary data
-        let userInfoData = {};
+        // Try multiple methods to get the user info
         try {
-            if (userInfoCookie) {
-                userInfoData = JSON.parse(decodeURIComponent(userInfoCookie));
+            // Method 1: Try direct cookie parsing
+            const cookies = document.cookie.split(';');
+            for (const cookie of cookies) {
+                const [name, value] = cookie.trim().split('=');
+                
+                if (name === 'user_info' && value) {
+                    try {
+                        const userInfo = JSON.parse(decodeURIComponent(value));
+                        userEmail = userInfo.email || '';
+                        userId = userInfo.id || '';
+                        sessionId = userInfo.session_id || '';
+                        this._log('📋 Extracted user info from cookie:', { 
+                            hasEmail: !!userEmail, 
+                            hasId: !!userId 
+                        });
+                        break;
+                    } catch (e) {
+                        this._error('Failed to parse user_info cookie:', e);
+                    }
+                }
             }
+            
+            // Method 2: Use AuthService as fallback
+            if (!userEmail || !userId) {
+                this._log('🔍 Using AuthService data as fallback');
+                userEmail = this.authService.userEmail || user.email || '';
+                userId = this.authService.userId || user.id || '';
+                sessionId = this.authService.sessionId || '';
+            }
+            
+            // Log the data we've found
+            this._log('✅ Final authentication data:', {
+                hasEmail: !!userEmail,
+                hasId: !!userId,
+                hasSessionId: !!sessionId
+            });
+            
         } catch (e) {
-            console.error('Error parsing user_info cookie:', e);
+            this._error('Error extracting authentication data:', e);
+            // Fallback to user parameter
+            userEmail = user.email || '';
+            userId = user.id || '';
         }
         
-        // Add authentication parameters to WebSocket URL
-        // This works around WebSocket's cookie limitations
+        // ENHANCED: Build URL parameters with all available authentication data
         const params = new URLSearchParams({
             t: Date.now().toString(), // Timestamp to prevent caching
-            v: '2.0', // Version identifier
+            v: '2.0', // Protocol version
             auth: 'true', // Authentication flag
-            // Include minimal user info needed for authentication
-            email: userInfoData.email || user.email || '',
-            session_id: userInfoData.session_id || user.sessionId || ''
+            email: userEmail,
+            user_id: userId,
+            session_id: sessionId || ''
         });
         
+        // Add reconnect token if available
+        const reconnectToken = this._getReconnectToken();
+        if (reconnectToken) {
+            params.append('reconnect_token', reconnectToken);
+        }
+        
+        // Generate the final URL
         const url = `${wsProtocol}//${wsHost}/ws/${encodeURIComponent(user.id)}?${params}`;
         
-        this._log('🔗 ENHANCED: WebSocket URL generated with auth params:', 
-            url.replace(user.id, user.id.substring(0, 8) + '...'));
+        this._log('🔗 ENHANCED: WebSocket URL generated with comprehensive auth params');
         return url;
     },
     
