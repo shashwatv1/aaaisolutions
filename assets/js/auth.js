@@ -31,7 +31,7 @@ const AuthService = {
         console.log('API_BASE_URL:', this.API_BASE_URL);
         
         // FIXED: Initialize authentication state with proper cookie handling
-        this._initializeFromCookies();
+        const authRestored = this._initializeFromCookies();
         
         // Set up periodic token refresh and session management
         this._setupTokenRefresh();
@@ -41,7 +41,8 @@ const AuthService = {
             environment: window.AAAI_CONFIG.ENVIRONMENT,
             authBaseUrl: this.AUTH_BASE_URL,
             authenticated: this.isAuthenticated(),
-            hasPersistentSession: this.hasPersistentSession()
+            hasPersistentSession: this.hasPersistentSession(),
+            authRestored: authRestored
         });
         
         console.log('=== FIXED AuthService.init() END ===');
@@ -62,7 +63,8 @@ const AuthService = {
             console.log('FIXED Cookie check:', {
                 authenticated: !!authCookie,
                 userInfo: !!userInfoCookie,
-                authValue: authCookie
+                authValue: authCookie,
+                userInfoValue: userInfoCookie ? userInfoCookie.substring(0, 50) + '...' : null
             });
             
             // FIXED: Check authentication based on accessible cookies only
@@ -70,6 +72,13 @@ const AuthService = {
             if (authCookie === 'true' && userInfoCookie) {
                 try {
                     const userInfo = JSON.parse(decodeURIComponent(userInfoCookie));
+                    
+                    // FIXED: Validate user info structure
+                    if (!userInfo.email || !userInfo.id) {
+                        console.warn('Invalid user info structure in cookie:', userInfo);
+                        this._clearAuthState();
+                        return false;
+                    }
                     
                     // FIXED: Restore authentication state without requiring direct token access
                     this.userEmail = userInfo.email;
@@ -93,18 +102,48 @@ const AuthService = {
                     });
                     
                     // FIXED: Validate session with server since we can't read tokens directly
-                    this._validateSessionAsync().catch(error => {
-                        console.warn('Session validation failed:', error);
-                        this._clearAuthState();
-                    });
+                    // Do this asynchronously to not block initialization
+                    setTimeout(() => {
+                        this._validateSessionAsync().catch(error => {
+                            console.warn('Session validation failed:', error);
+                        });
+                    }, 100);
                     
                     return true;
                 } catch (parseError) {
                     console.error('Failed to parse user info cookie:', parseError);
+                    this._clearAuthState();
                 }
             }
             
-            console.log('⚠️ No valid cookie-based authentication found');
+            // FIXED: Try to restore from localStorage as fallback
+            const storedEmail = this._getSecureItem('user_email');
+            const storedUserId = this._getSecureItem('user_id');
+            const storedSessionId = this._getSecureItem('session_id');
+            
+            if (storedEmail && storedUserId && authCookie === 'true') {
+                console.log('⚠️ Restoring authentication from localStorage fallback');
+                
+                this.userEmail = storedEmail;
+                this.userId = storedUserId;
+                this.sessionId = storedSessionId;
+                this.authenticated = true;
+                this.token = 'cookie_stored';
+                this.refreshToken = 'cookie_stored';
+                
+                // Validate this fallback state
+                setTimeout(() => {
+                    this._validateSessionAsync().catch(error => {
+                        console.warn('Fallback session validation failed:', error);
+                        this._clearAuthState();
+                    });
+                }, 100);
+                
+                return true;
+            }
+            
+            console.log('⚠️ No valid cookie-based or localStorage authentication found');
+            this._clearAuthState();
             return false;
             
         } catch (error) {
@@ -121,22 +160,42 @@ const AuthService = {
         try {
             console.log('🔍 Validating session with server...');
             
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+            
             const response = await fetch(`${this.AUTH_BASE_URL}/auth/validate-session`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
                 },
-                credentials: 'include' // Include httpOnly cookies
+                credentials: 'include', // Include httpOnly cookies
+                signal: controller.signal
             });
             
+            clearTimeout(timeoutId);
             const data = await response.json();
             
             if (response.ok && data.valid) {
                 console.log('✅ Session validation successful');
+                
+                // Update user info if server provides it
+                if (data.user_info) {
+                    this.userEmail = data.user_info.email || this.userEmail;
+                    this.userId = data.user_info.id || this.userId;
+                    this.sessionId = data.user_info.session_id || this.sessionId;
+                    
+                    // Update localStorage backup
+                    this._setSecureItem('user_email', this.userEmail);
+                    this._setSecureItem('user_id', this.userId);
+                    this._setSecureItem('session_id', this.sessionId);
+                }
+                
                 // Update token placeholder if server provides it
                 if (data.token) {
                     this.token = data.token;
                 }
+                
+                this.authenticated = true;
                 return true;
             } else {
                 console.log('❌ Session validation failed:', data);
@@ -145,7 +204,11 @@ const AuthService = {
             }
             
         } catch (error) {
-            console.error('Session validation error:', error);
+            if (error.name === 'AbortError') {
+                console.warn('Session validation timed out');
+            } else {
+                console.error('Session validation error:', error);
+            }
             return false;
         }
     },
@@ -220,28 +283,52 @@ const AuthService = {
             console.log('🔄 FIXED: Attempting token refresh...');
             
             // Try silent refresh first (uses httpOnly cookies)
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 15000);
+            
             const response = await fetch(`${this.AUTH_BASE_URL}/auth/refresh-silent`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
                 },
-                credentials: 'include'
+                credentials: 'include',
+                signal: controller.signal
             });
+            
+            clearTimeout(timeoutId);
             
             if (response.ok) {
                 const data = await response.json();
                 console.log('✅ Token refresh successful');
+                
+                // Update authentication state if user info is provided
+                if (data.user) {
+                    this.userEmail = data.user.email || this.userEmail;
+                    this.userId = data.user.id || this.userId;
+                    this.sessionId = data.session_id || this.sessionId;
+                    
+                    // Update localStorage backup
+                    this._setSecureItem('user_email', this.userEmail);
+                    this._setSecureItem('user_id', this.userId);
+                    this._setSecureItem('session_id', this.sessionId);
+                }
+                
                 return true;
             } else {
                 console.log('Token refresh failed:', response.status);
                 if (response.status === 401) {
+                    console.log('Token refresh returned 401, clearing auth state');
                     this._clearAuthState();
                 }
                 return false;
             }
             
         } catch (error) {
-            console.error('Error refreshing token:', error);
+            if (error.name === 'AbortError') {
+                console.warn('Token refresh timed out');
+            } else {
+                console.error('Error refreshing token:', error);
+            }
             return false;
         }
     },
@@ -360,15 +447,21 @@ const AuthService = {
             
             // Attempt server-side logout
             try {
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 10000);
+                
                 await fetch(`${this.AUTH_BASE_URL}/auth/logout`, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json'
                     },
-                    credentials: 'include'
+                    credentials: 'include',
+                    signal: controller.signal
                 });
+                
+                clearTimeout(timeoutId);
             } catch (error) {
-                console.warn('Server-side logout failed:', error);
+                console.warn('Server-side logout failed or timed out:', error);
             }
             
             // Clear local auth data

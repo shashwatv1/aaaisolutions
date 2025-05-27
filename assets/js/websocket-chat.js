@@ -47,8 +47,7 @@ const ChatService = {
         this.authService = authService;
         this.options = { ...this.options, ...options };
         
-        // Bind methods to maintain context
-        this._onOpen = this._onOpen.bind(this);
+        // FIXED: Only bind methods that actually exist
         this._onMessage = this._onMessage.bind(this);
         this._onClose = this._onClose.bind(this);
         this._onError = this._onError.bind(this);
@@ -161,7 +160,7 @@ const ChatService = {
                 
                 this.socket = new WebSocket(wsUrl);
                 
-                // Enhanced event setup
+                // FIXED: Enhanced event setup with proper error handling
                 this.socket.addEventListener('open', async (event) => {
                     this._log('✅ WebSocket opened, starting cookie-based authentication...');
                     this.isConnected = true;
