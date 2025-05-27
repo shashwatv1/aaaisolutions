@@ -120,7 +120,6 @@ paths:
         '204':
           description: CORS preflight response
 
-
   /auth/refresh:
     post:
       summary: Refresh access token using refresh token
