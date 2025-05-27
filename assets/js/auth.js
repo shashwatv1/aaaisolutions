@@ -1,6 +1,6 @@
 /**
- * ROBUST Authentication module for AAAI Solutions
- * Enhanced cookie handling and session restoration
+ * ENHANCED Authentication Service for AAAI Solutions
+ * Fixes cookie authentication issues and improves session management
  */
 const AuthService = {
     // Core state
@@ -15,10 +15,16 @@ const AuthService = {
     tokenRefreshTimer: null,
     refreshPromise: null,
     isRefreshing: false,
+    
+    // Enhanced state tracking
+    lastTokenRefresh: null,
+    sessionValidationCache: null,
+    sessionValidationExpiry: null,
+    cookieMonitoringInterval: null,
 
-    // Initialize the auth service with configuration
+    // Initialize the auth service with enhanced configuration
     init() {
-        console.log('=== ROBUST AuthService.init() START ===');
+        console.log('=== ENHANCED AuthService.init() START ===');
         console.log('window.location.hostname:', window.location.hostname);
         console.log('window.AAAI_CONFIG exists:', !!window.AAAI_CONFIG);
         
@@ -43,14 +49,15 @@ const AuthService = {
         console.log('AUTH_BASE_URL:', this.AUTH_BASE_URL);
         console.log('API_BASE_URL:', this.API_BASE_URL);
         
-        // Initialize authentication state with comprehensive approach
-        const authRestored = this._initializeAuthState();
+        // Initialize authentication state with enhanced approach
+        const authRestored = this._initializeEnhancedAuthState();
         
-        // Set up periodic token refresh and session management
-        this._setupTokenRefresh();
+        // Set up enhanced session management
+        this._setupEnhancedTokenRefresh();
         this._setupVisibilityHandler();
+        this._setupCookieMonitoring();
         
-        window.AAAI_LOGGER?.info('ROBUST AuthService initialized', {
+        window.AAAI_LOGGER?.info('ENHANCED AuthService initialized', {
             environment: window.AAAI_CONFIG.ENVIRONMENT,
             authBaseUrl: this.AUTH_BASE_URL,
             authenticated: this.isAuthenticated(),
@@ -58,7 +65,7 @@ const AuthService = {
             authRestored: authRestored
         });
         
-        console.log('=== ROBUST AuthService.init() END ===');
+        console.log('=== ENHANCED AuthService.init() END ===');
         console.log('Final auth state:', {
             authenticated: this.authenticated,
             userEmail: this.userEmail,
@@ -70,16 +77,16 @@ const AuthService = {
     },
     
     /**
-     * ROBUST: Comprehensive authentication state initialization
+     * ENHANCED: Comprehensive authentication state initialization
      */
-    _initializeAuthState() {
-        console.log('🔍 ROBUST: Initializing authentication state...');
+    _initializeEnhancedAuthState() {
+        console.log('🔍 ENHANCED: Initializing authentication state...');
         
         try {
-            // Step 1: Check cookies first
-            const cookieAuth = this._restoreFromCookies();
+            // Step 1: Check cookies first with enhanced validation
+            const cookieAuth = this._restoreFromEnhancedCookies();
             if (cookieAuth) {
-                console.log('✅ Authentication restored from cookies');
+                console.log('✅ Authentication restored from enhanced cookies');
                 return true;
             }
             
@@ -90,12 +97,12 @@ const AuthService = {
                 return true;
             }
             
-            // Step 3: Check if we have partial authentication data
+            // Step 3: Check for partial authentication data
             const partialAuth = this._attemptPartialRestore();
             if (partialAuth) {
-                console.log('⚠️ Partial authentication restored, validating...');
-                // Validate in background
-                setTimeout(() => this._validateAndRepair(), 100);
+                console.log('⚠️ Partial authentication restored, will validate in background');
+                // Validate in background without blocking
+                setTimeout(() => this._validateAndRepairAsync(), 100);
                 return true;
             }
             
@@ -104,31 +111,36 @@ const AuthService = {
             return false;
             
         } catch (error) {
-            console.error('Error during auth initialization:', error);
+            console.error('Error during enhanced auth initialization:', error);
             this._clearAuthState();
             return false;
         }
     },
     
     /**
-     * Restore authentication from cookies
+     * ENHANCED: Restore authentication from cookies with validation
      */
-    _restoreFromCookies() {
+    _restoreFromEnhancedCookies() {
         try {
-            console.log('🍪 Checking cookies for authentication...');
+            console.log('🍪 ENHANCED: Checking cookies for authentication...');
             
             const authCookie = this._getCookie('authenticated');
             const userInfoCookie = this._getCookie('user_info');
             
-            console.log('Cookie status:', {
+            // Additional cookie validation
+            const hasAccessToken = this._cookieExists('access_token');
+            const hasRefreshToken = this._cookieExists('refresh_token');
+            
+            console.log('ENHANCED Cookie status:', {
                 authenticated: authCookie,
                 hasUserInfo: !!userInfoCookie,
+                hasAccessToken: hasAccessToken,
+                hasRefreshToken: hasRefreshToken,
                 userInfoLength: userInfoCookie ? userInfoCookie.length : 0
             });
             
             if (authCookie === 'true' && userInfoCookie) {
                 try {
-                    // More robust user info parsing
                     let userInfo;
                     try {
                         userInfo = JSON.parse(decodeURIComponent(userInfoCookie));
@@ -138,172 +150,290 @@ const AuthService = {
                     }
                     
                     if (this._validateUserInfo(userInfo)) {
+                        // Enhanced validation - check if we have the httpOnly tokens
+                        if (!hasAccessToken && !hasRefreshToken) {
+                            console.warn('⚠️ ENHANCED: User info valid but no auth tokens detected');
+                            // Still proceed but mark for validation
+                            this._setAuthState(userInfo);
+                            this._scheduleTokenValidation();
+                            return true;
+                        }
+                        
                         this._setAuthState(userInfo);
                         return true;
                     }
                 } catch (parseError) {
                     console.error('Failed to parse user info cookie:', parseError);
                 }
+            } else if (authCookie === 'true' && !userInfoCookie) {
+                console.warn('⚠️ ENHANCED: authenticated=true but no user_info cookie');
+                // Try to reconstruct from localStorage
+                return this._attemptUserInfoReconstruction();
             }
             
             return false;
         } catch (error) {
-            console.error('Error restoring from cookies:', error);
+            console.error('Error in enhanced cookie restoration:', error);
             return false;
         }
     },
     
     /**
-     * Restore authentication from localStorage
+     * Check if a cookie exists (works for httpOnly cookies too)
      */
-    _restoreFromLocalStorage() {
+    _cookieExists(name) {
         try {
-            console.log('💾 Checking localStorage for authentication...');
+            // For httpOnly cookies, we can't read the value but we can detect presence
+            // by checking if the cookie name appears in document.cookie
+            const cookieString = document.cookie;
+            return cookieString.includes(`${name}=`);
+        } catch (error) {
+            return false;
+        }
+    },
+    
+    /**
+     * Attempt to reconstruct user info from other sources
+     */
+    _attemptUserInfoReconstruction() {
+        try {
+            console.log('🔧 ENHANCED: Attempting user info reconstruction...');
             
             const storedEmail = this._getSecureItem('user_email');
             const storedUserId = this._getSecureItem('user_id');
             const storedSessionId = this._getSecureItem('session_id');
-            const authCookie = this._getCookie('authenticated');
             
-            console.log('LocalStorage status:', {
-                email: !!storedEmail,
-                userId: !!storedUserId,
-                sessionId: !!storedSessionId,
-                authCookie: authCookie
-            });
-            
-            if (storedEmail && storedUserId && authCookie === 'true') {
-                const userInfo = {
+            if (storedEmail && storedUserId) {
+                const reconstructedUserInfo = {
                     email: storedEmail,
                     id: storedUserId,
-                    session_id: storedSessionId
+                    session_id: storedSessionId || 'reconstructed_session'
                 };
                 
-                if (this._validateUserInfo(userInfo)) {
-                    this._setAuthState(userInfo);
+                if (this._validateUserInfo(reconstructedUserInfo)) {
+                    console.log('✅ User info reconstructed from localStorage');
+                    this._setAuthState(reconstructedUserInfo);
+                    
+                    // Update the user_info cookie
+                    this._setCookie('user_info', JSON.stringify(reconstructedUserInfo), 1);
+                    
                     return true;
                 }
             }
             
             return false;
         } catch (error) {
-            console.error('Error restoring from localStorage:', error);
+            console.error('Error in user info reconstruction:', error);
             return false;
         }
     },
     
     /**
-     * Attempt partial authentication restore
+     * Schedule token validation for background execution
      */
-    _attemptPartialRestore() {
+    _scheduleTokenValidation() {
+        setTimeout(async () => {
+            try {
+                console.log('🔍 ENHANCED: Background token validation...');
+                const isValid = await this._validateSessionAsync();
+                if (!isValid) {
+                    console.log('⚠️ Background validation failed, attempting refresh...');
+                    await this.refreshTokenIfNeeded();
+                }
+            } catch (error) {
+                console.warn('Background token validation failed:', error);
+            }
+        }, 2000); // 2 second delay
+    },
+    
+    /**
+     * Set up enhanced cookie monitoring
+     */
+    _setupCookieMonitoring() {
+        // Monitor cookie changes every 30 seconds
+        this.cookieMonitoringInterval = setInterval(() => {
+            this._monitorCookieHealth();
+        }, 30000);
+    },
+    
+    /**
+     * Monitor cookie health and auto-correct issues
+     */
+    _monitorCookieHealth() {
+        if (!this.isAuthenticated()) return;
+        
         try {
-            console.log('🔧 Attempting partial authentication restore...');
-            
-            // Check if we have any authentication indicators
             const authCookie = this._getCookie('authenticated');
-            const hasAnyStorage = this._getSecureItem('user_email') || this._getSecureItem('user_id');
+            const userInfoCookie = this._getCookie('user_info');
+            const hasAccessToken = this._cookieExists('access_token');
             
-            if (authCookie === 'true' || hasAnyStorage) {
-                console.log('Found partial auth data, will attempt validation');
-                // Set minimal state to trigger validation
-                this.authenticated = true;
+            // Check for inconsistencies
+            if (this.authenticated && authCookie !== 'true') {
+                console.warn('⚠️ ENHANCED: authenticated state mismatch, correcting...');
+                this._setCookie('authenticated', 'true', 1);
+            }
+            
+            if (this.authenticated && !userInfoCookie && this.userEmail && this.userId) {
+                console.warn('⚠️ ENHANCED: missing user_info cookie, restoring...');
+                const userInfo = {
+                    email: this.userEmail,
+                    id: this.userId,
+                    session_id: this.sessionId
+                };
+                this._setCookie('user_info', JSON.stringify(userInfo), 1);
+            }
+            
+            if (this.authenticated && !hasAccessToken) {
+                console.warn('⚠️ ENHANCED: access_token cookie missing, may need refresh');
+                this._scheduleTokenValidation();
+            }
+            
+        } catch (error) {
+            console.error('Error in cookie health monitoring:', error);
+        }
+    },
+    
+    /**
+     * Enhanced token refresh with better error handling
+     */
+    async refreshTokenIfNeeded() {
+        if (!this.isAuthenticated()) {
+            console.log('Not authenticated, no token to refresh');
+            return false;
+        }
+        
+        // Check if we recently refreshed (within last 5 minutes)
+        if (this.lastTokenRefresh && (Date.now() - this.lastTokenRefresh) < 300000) {
+            console.log('Recently refreshed token, skipping');
+            return true;
+        }
+        
+        // Prevent concurrent refresh attempts
+        if (this.isRefreshing) {
+            console.log('Token refresh already in progress, waiting...');
+            return this.refreshPromise;
+        }
+        
+        this.isRefreshing = true;
+        this.refreshPromise = this._performEnhancedTokenRefresh();
+        
+        try {
+            const result = await this.refreshPromise;
+            return result;
+        } finally {
+            this.isRefreshing = false;
+            this.refreshPromise = null;
+        }
+    },
+    
+    /**
+     * ENHANCED: Perform token refresh with comprehensive error handling
+     */
+    async _performEnhancedTokenRefresh() {
+        try {
+            console.log('🔄 ENHANCED: Attempting comprehensive token refresh...');
+            
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 15000);
+            
+            // Try silent refresh first (uses httpOnly cookies)
+            let response;
+            try {
+                response = await fetch(`${this.AUTH_BASE_URL}/auth/refresh-silent`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    credentials: 'include', // Critical for sending httpOnly cookies
+                    signal: controller.signal
+                });
+            } catch (fetchError) {
+                console.log('Silent refresh failed, trying standard refresh...');
+                
+                // Fallback to standard refresh
+                response = await fetch(`${this.AUTH_BASE_URL}/auth/refresh`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    credentials: 'include',
+                    signal: controller.signal,
+                    body: JSON.stringify({
+                        silent: false
+                    })
+                });
+            }
+            
+            clearTimeout(timeoutId);
+            
+            if (response.ok) {
+                const data = await response.json();
+                console.log('✅ ENHANCED: Token refresh successful');
+                
+                // Update last refresh time
+                this.lastTokenRefresh = Date.now();
+                
+                // Update authentication state if provided
+                if (data.user) {
+                    this.userEmail = data.user.email || this.userEmail;
+                    this.userId = data.user.id || this.userId;
+                    this.sessionId = data.session_id || this.sessionId;
+                    this._syncToLocalStorage();
+                    
+                    // Update user_info cookie
+                    const userInfo = {
+                        email: this.userEmail,
+                        id: this.userId,
+                        session_id: this.sessionId
+                    };
+                    this._setCookie('user_info', JSON.stringify(userInfo), 1);
+                }
+                
+                // Ensure authenticated cookie is set
+                this._setCookie('authenticated', 'true', 1);
+                
+                // Clear any cached validation
+                this.sessionValidationCache = null;
+                this.sessionValidationExpiry = null;
+                
                 return true;
-            }
-            
-            return false;
-        } catch (error) {
-            console.error('Error in partial restore:', error);
-            return false;
-        }
-    },
-    
-    /**
-     * Validate user info structure
-     */
-    _validateUserInfo(userInfo) {
-        if (!userInfo || typeof userInfo !== 'object') {
-            console.warn('Invalid user info: not an object');
-            return false;
-        }
-        
-        if (!userInfo.email || typeof userInfo.email !== 'string') {
-            console.warn('Invalid user info: missing or invalid email');
-            return false;
-        }
-        
-        if (!userInfo.id || typeof userInfo.id !== 'string') {
-            console.warn('Invalid user info: missing or invalid id');
-            return false;
-        }
-        
-        return true;
-    },
-    
-    /**
-     * Set authentication state from user info
-     */
-    _setAuthState(userInfo) {
-        console.log('🔐 Setting authentication state:', {
-            email: userInfo.email,
-            id: userInfo.id,
-            session_id: userInfo.session_id
-        });
-        
-        this.authenticated = true;
-        this.userEmail = userInfo.email;
-        this.userId = userInfo.id;
-        this.sessionId = userInfo.session_id;
-        this.token = 'cookie_stored';
-        this.refreshToken = 'cookie_stored';
-        
-        // Sync to localStorage
-        this._syncToLocalStorage();
-    },
-    
-    /**
-     * Sync authentication state to localStorage
-     */
-    _syncToLocalStorage() {
-        try {
-            if (this.userEmail) this._setSecureItem('user_email', this.userEmail);
-            if (this.userId) this._setSecureItem('user_id', this.userId);
-            if (this.sessionId) this._setSecureItem('session_id', this.sessionId);
-        } catch (error) {
-            console.warn('Failed to sync to localStorage:', error);
-        }
-    },
-    
-    /**
-     * Validate and repair authentication state
-     */
-    async _validateAndRepair() {
-        try {
-            console.log('🔧 Validating and repairing authentication state...');
-            
-            const isValid = await this._validateSessionAsync();
-            if (!isValid) {
-                console.log('❌ Session validation failed, clearing state');
-                this._clearAuthState();
             } else {
-                console.log('✅ Session validation successful');
+                const errorData = await response.json().catch(() => ({}));
+                console.log('❌ ENHANCED: Token refresh failed:', response.status, errorData);
+                
+                if (response.status === 401) {
+                    console.log('Token refresh returned 401, clearing auth state');
+                    this._clearAuthState();
+                }
+                return false;
             }
             
-            return isValid;
         } catch (error) {
-            console.error('Error during validation and repair:', error);
+            if (error.name === 'AbortError') {
+                console.warn('Token refresh timed out');
+            } else {
+                console.error('Enhanced token refresh error:', error);
+            }
             return false;
         }
     },
     
     /**
-     * ENHANCED: Async session validation
+     * ENHANCED: Session validation with caching
      */
     async _validateSessionAsync() {
         try {
-            console.log('🔍 Validating session with server...');
+            // Check cache first
+            if (this.sessionValidationCache && this.sessionValidationExpiry && 
+                Date.now() < this.sessionValidationExpiry) {
+                console.log('🔍 Using cached session validation result');
+                return this.sessionValidationCache;
+            }
+            
+            console.log('🔍 ENHANCED: Validating session with server...');
             
             const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 second timeout
+            const timeoutId = setTimeout(() => controller.abort(), 15000);
             
             const response = await fetch(`${this.AUTH_BASE_URL}/auth/validate-session`, {
                 method: 'POST',
@@ -317,26 +447,31 @@ const AuthService = {
             clearTimeout(timeoutId);
             const data = await response.json();
             
-            console.log('Session validation response:', {
+            console.log('ENHANCED Session validation response:', {
                 ok: response.ok,
                 status: response.status,
                 valid: data.valid,
+                source: data.source,
                 reason: data.reason
             });
             
-            if (response.ok && data.valid) {
-                console.log('✅ Session validation successful');
+            const isValid = response.ok && data.valid;
+            
+            // Cache the result for 5 minutes
+            this.sessionValidationCache = isValid;
+            this.sessionValidationExpiry = Date.now() + 300000;
+            
+            if (isValid) {
+                console.log('✅ ENHANCED: Session validation successful');
                 
                 // Update authentication state with server response
                 if (data.user_info) {
-                    console.log('Updating user info from server:', data.user_info);
+                    console.log('Updating user info from server validation:', data.user_info);
                     
-                    // Merge with existing state
                     this.userEmail = data.user_info.email || this.userEmail;
                     this.userId = data.user_info.id || this.userId;
                     this.sessionId = data.user_info.session_id || this.sessionId;
                     
-                    // Ensure we have the minimum required info
                     if (!this.userEmail || !this.userId) {
                         console.warn('Server response missing required user info');
                         return false;
@@ -344,11 +479,20 @@ const AuthService = {
                     
                     this.authenticated = true;
                     this._syncToLocalStorage();
+                    
+                    // Ensure cookies are properly set
+                    this._setCookie('authenticated', 'true', 1);
+                    const userInfo = {
+                        email: this.userEmail,
+                        id: this.userId,
+                        session_id: this.sessionId
+                    };
+                    this._setCookie('user_info', JSON.stringify(userInfo), 1);
                 }
                 
                 return true;
             } else {
-                console.log('❌ Session validation failed:', data);
+                console.log('❌ ENHANCED: Session validation failed:', data);
                 return false;
             }
             
@@ -356,18 +500,18 @@ const AuthService = {
             if (error.name === 'AbortError') {
                 console.warn('Session validation timed out');
             } else {
-                console.error('Session validation error:', error);
+                console.error('Enhanced session validation error:', error);
             }
             return false;
         }
     },
     
     /**
-     * OTP verification with enhanced state management
+     * Enhanced OTP verification with better state management
      */
     async verifyOTP(email, otp) {
         try {
-            console.log(`ROBUST: Verifying OTP for email: ${email}`);
+            console.log(`ENHANCED: Verifying OTP for email: ${email}`);
             
             const controller = new AbortController();
             const timeoutId = setTimeout(() => controller.abort(), 30000);
@@ -390,7 +534,7 @@ const AuthService = {
                 throw new Error(data.error || data.detail || 'Invalid OTP');
             }
             
-            console.log('✅ OTP verification successful');
+            console.log('✅ ENHANCED: OTP verification successful');
             
             // Set authentication state
             const userInfo = {
@@ -401,97 +545,27 @@ const AuthService = {
             
             this._setAuthState(userInfo);
             
-            console.log('✅ Authentication state updated after OTP verification');
+            // Clear validation cache
+            this.sessionValidationCache = null;
+            this.sessionValidationExpiry = null;
+            
+            // Record successful authentication
+            this.lastTokenRefresh = Date.now();
+            
+            console.log('✅ ENHANCED: Authentication state updated after OTP verification');
             return data;
             
         } catch (error) {
             if (error.name === 'AbortError') {
                 throw new Error('Request timed out. Please check your connection and try again.');
             }
-            console.error('OTP Verification error:', error);
+            console.error('Enhanced OTP Verification error:', error);
             throw new Error(`OTP verification failed: ${error.message}`);
         }
     },
     
     /**
-     * Enhanced token refresh
-     */
-    async refreshTokenIfNeeded() {
-        if (!this.isAuthenticated()) {
-            console.log('Not authenticated, no token to refresh');
-            return false;
-        }
-        
-        // Prevent concurrent refresh attempts
-        if (this.isRefreshing) {
-            console.log('Token refresh already in progress, waiting...');
-            return this.refreshPromise;
-        }
-        
-        this.isRefreshing = true;
-        this.refreshPromise = this._performTokenRefresh();
-        
-        try {
-            const result = await this.refreshPromise;
-            return result;
-        } finally {
-            this.isRefreshing = false;
-            this.refreshPromise = null;
-        }
-    },
-    
-    async _performTokenRefresh() {
-        try {
-            console.log('🔄 ROBUST: Attempting token refresh...');
-            
-            const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 15000);
-            
-            const response = await fetch(`${this.AUTH_BASE_URL}/auth/refresh-silent`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                credentials: 'include',
-                signal: controller.signal
-            });
-            
-            clearTimeout(timeoutId);
-            
-            if (response.ok) {
-                const data = await response.json();
-                console.log('✅ Token refresh successful');
-                
-                // Update authentication state if provided
-                if (data.user) {
-                    this.userEmail = data.user.email || this.userEmail;
-                    this.userId = data.user.id || this.userId;
-                    this.sessionId = data.session_id || this.sessionId;
-                    this._syncToLocalStorage();
-                }
-                
-                return true;
-            } else {
-                console.log('Token refresh failed:', response.status);
-                if (response.status === 401) {
-                    console.log('Token refresh returned 401, clearing auth state');
-                    this._clearAuthState();
-                }
-                return false;
-            }
-            
-        } catch (error) {
-            if (error.name === 'AbortError') {
-                console.warn('Token refresh timed out');
-            } else {
-                console.error('Error refreshing token:', error);
-            }
-            return false;
-        }
-    },
-    
-    /**
-     * Execute function with enhanced error handling
+     * Enhanced execute function with better error handling
      */
     async executeFunction(functionName, inputData) {
         if (!this.isAuthenticated()) {
@@ -499,7 +573,13 @@ const AuthService = {
         }
         
         try {
-            console.log(`ROBUST: Executing function: ${functionName}`);
+            console.log(`ENHANCED: Executing function: ${functionName}`);
+            
+            // Try to refresh token if it's been a while
+            if (this.lastTokenRefresh && (Date.now() - this.lastTokenRefresh) > 600000) { // 10 minutes
+                console.log('Token is getting old, refreshing before function call...');
+                await this.refreshTokenIfNeeded();
+            }
             
             const controller = new AbortController();
             const timeoutId = setTimeout(() => controller.abort(), 60000);
@@ -518,7 +598,7 @@ const AuthService = {
             const data = await response.json();
             
             if (!response.ok) {
-                console.error(`Function execution failed:`, data);
+                console.error(`Enhanced function execution failed:`, data);
                 
                 if (response.status === 401) {
                     console.warn('Session expired during function execution');
@@ -535,13 +615,13 @@ const AuthService = {
             if (error.name === 'AbortError') {
                 throw new Error('Request timed out. Please try again.');
             }
-            console.error(`Function execution error (${functionName}):`, error);
+            console.error(`Enhanced function execution error (${functionName}):`, error);
             throw error;
         }
     },
     
     /**
-     * Send chat message with enhanced error handling
+     * Enhanced send chat message
      */
     async sendChatMessage(message) {
         if (!this.isAuthenticated()) {
@@ -566,7 +646,7 @@ const AuthService = {
             const data = await response.json();
             
             if (!response.ok) {
-                console.error('Chat message failed:', data);
+                console.error('Enhanced chat message failed:', data);
                 
                 if (response.status === 401) {
                     console.warn('Session expired during chat message');
@@ -583,22 +663,27 @@ const AuthService = {
             if (error.name === 'AbortError') {
                 throw new Error('Request timed out. Please try again.');
             }
-            console.error('Chat error:', error);
+            console.error('Enhanced chat error:', error);
             throw error;
         }
     },
     
     /**
-     * Logout with comprehensive cleanup
+     * Enhanced logout with comprehensive cleanup
      */
     async logout() {
         try {
-            console.log('🚪 ROBUST: Logging out...');
+            console.log('🚪 ENHANCED: Logging out...');
             
             // Clear timers
             if (this.tokenRefreshTimer) {
                 clearInterval(this.tokenRefreshTimer);
                 this.tokenRefreshTimer = null;
+            }
+            
+            if (this.cookieMonitoringInterval) {
+                clearInterval(this.cookieMonitoringInterval);
+                this.cookieMonitoringInterval = null;
             }
             
             // Attempt server-side logout
@@ -616,6 +701,7 @@ const AuthService = {
                 });
                 
                 clearTimeout(timeoutId);
+                console.log('✅ Server-side logout completed');
             } catch (error) {
                 console.warn('Server-side logout failed or timed out:', error);
             }
@@ -623,16 +709,16 @@ const AuthService = {
             // Clear all authentication data
             this.clearAuthData();
             
-            console.log('✅ Logout successful');
+            console.log('✅ Enhanced logout successful');
         } catch (error) {
-            console.error('Logout error:', error);
+            console.error('Enhanced logout error:', error);
             // Still clear local data even if server logout fails
             this.clearAuthData();
         }
     },
     
     /**
-     * Check authentication status
+     * Enhanced authentication check
      */
     isAuthenticated() {
         const isAuth = this.authenticated && !!this.userId && !!this.userEmail;
@@ -668,7 +754,7 @@ const AuthService = {
     },
     
     /**
-     * Get WebSocket URL
+     * Enhanced WebSocket URL generation
      */
     getWebSocketURL(userId) {
         if (!this.isAuthenticated()) {
@@ -681,7 +767,7 @@ const AuthService = {
             : 'api-server-559730737995.us-central1.run.app';
         
         const url = `${wsProtocol}//${wsHost}/ws/${userId}`;
-        console.log(`ROBUST WebSocket URL: ${url}`);
+        console.log(`ENHANCED WebSocket URL: ${url}`);
         return url;
     },
     
@@ -709,7 +795,7 @@ const AuthService = {
      */
     async requestOTP(email) {
         try {
-            console.log(`Requesting OTP for email: ${email}`);
+            console.log(`ENHANCED: Requesting OTP for email: ${email}`);
             
             const controller = new AbortController();
             const timeoutId = setTimeout(() => controller.abort(), 30000);
@@ -728,37 +814,40 @@ const AuthService = {
             const responseData = await response.json();
             
             if (!response.ok) {
-                console.error('OTP request failed:', responseData);
+                console.error('Enhanced OTP request failed:', responseData);
                 throw new Error(responseData.error || responseData.detail || 'Failed to request OTP');
             }
             
-            console.log('✅ OTP request successful');
+            console.log('✅ Enhanced OTP request successful');
             return responseData;
             
         } catch (error) {
             if (error.name === 'AbortError') {
                 throw new Error('Request timed out. Please check your connection and try again.');
             }
-            console.error('OTP Request error:', error);
+            console.error('Enhanced OTP Request error:', error);
             throw new Error(`OTP request failed: ${error.message}`);
         }
     },
     
     // ============================================================
-    // UTILITY METHODS
+    // ENHANCED UTILITY METHODS
     // ============================================================
     
     /**
-     * Check if user has a persistent session
+     * Check if user has a persistent session with enhanced validation
      */
     hasPersistentSession() {
-        return !!(this._getCookie('authenticated') === 'true' || 
-                 this._getSecureItem('user_id') || 
-                 this._getCookie('user_info'));
+        const hasAuthCookie = this._getCookie('authenticated') === 'true';
+        const hasUserInfo = !!this._getCookie('user_info');
+        const hasStoredUser = !!this._getSecureItem('user_id');
+        const hasAccessToken = this._cookieExists('access_token');
+        
+        return hasAuthCookie || hasUserInfo || hasStoredUser || hasAccessToken;
     },
     
     /**
-     * Get session information
+     * Get enhanced session information
      */
     getSessionInfo() {
         return {
@@ -767,12 +856,20 @@ const AuthService = {
             email: this.userEmail,
             sessionId: this.sessionId,
             hasRefreshToken: this.hasPersistentSession(),
-            tokenValid: this.authenticated
+            tokenValid: this.authenticated,
+            lastTokenRefresh: this.lastTokenRefresh,
+            sessionValidationCached: !!this.sessionValidationCache,
+            cookieHealth: {
+                authenticated: this._getCookie('authenticated') === 'true',
+                userInfo: !!this._getCookie('user_info'),
+                accessToken: this._cookieExists('access_token'),
+                refreshToken: this._cookieExists('refresh_token')
+            }
         };
     },
     
     /**
-     * Clear all authentication data
+     * Enhanced clear all authentication data
      */
     clearAuthData() {
         // Clear localStorage
@@ -789,64 +886,101 @@ const AuthService = {
         this.authenticated = false;
         this.isRefreshing = false;
         this.refreshPromise = null;
+        this.lastTokenRefresh = null;
+        this.sessionValidationCache = null;
+        this.sessionValidationExpiry = null;
 
+        // Clear timers
         if (this.tokenRefreshTimer) {
             clearInterval(this.tokenRefreshTimer);
             this.tokenRefreshTimer = null;
         }
+        
+        if (this.cookieMonitoringInterval) {
+            clearInterval(this.cookieMonitoringInterval);
+            this.cookieMonitoringInterval = null;
+        }
 
-        console.log('🧹 All authentication data cleared');
+        // Clear JavaScript-accessible cookies
+        this._deleteCookie('authenticated');
+        this._deleteCookie('user_info');
+
+        console.log('🧹 ENHANCED: All authentication data cleared');
     },
     
     // ============================================================
-    // PRIVATE METHODS
+    // ENHANCED PRIVATE METHODS
     // ============================================================
     
     /**
-     * Set up automatic token refresh
+     * Set authentication state from user info
      */
-    _setupTokenRefresh() {
-        // Check token every 5 minutes
+    _setAuthState(userInfo) {
+        console.log('🔐 ENHANCED: Setting authentication state:', {
+            email: userInfo.email,
+            id: userInfo.id,
+            session_id: userInfo.session_id
+        });
+        
+        this.authenticated = true;
+        this.userEmail = userInfo.email;
+        this.userId = userInfo.id;
+        this.sessionId = userInfo.session_id;
+        this.token = 'cookie_stored';
+        this.refreshToken = 'cookie_stored';
+        
+        // Sync to localStorage
+        this._syncToLocalStorage();
+        
+        // Ensure cookies are properly set
+        this._setCookie('authenticated', 'true', 1);
+        this._setCookie('user_info', JSON.stringify(userInfo), 1);
+    },
+    
+    /**
+     * Validate and repair authentication state asynchronously
+     */
+    async _validateAndRepairAsync() {
+        try {
+            console.log('🔧 ENHANCED: Background validation and repair...');
+            
+            const isValid = await this._validateSessionAsync();
+            if (!isValid) {
+                console.log('❌ Background validation failed, attempting repair...');
+                
+                // Try to refresh tokens
+                const refreshSuccess = await this.refreshTokenIfNeeded();
+                if (!refreshSuccess) {
+                    console.log('❌ Token refresh failed, clearing state');
+                    this._clearAuthState();
+                } else {
+                    console.log('✅ Authentication repaired via token refresh');
+                }
+            } else {
+                console.log('✅ Background validation successful');
+            }
+            
+            return isValid;
+        } catch (error) {
+            console.error('Error during background validation and repair:', error);
+            return false;
+        }
+    },
+    
+    /**
+     * Set up enhanced automatic token refresh
+     */
+    _setupEnhancedTokenRefresh() {
+        // Check token every 3 minutes instead of 5
         this.tokenRefreshTimer = setInterval(() => {
             if (this.isAuthenticated()) {
                 this.refreshTokenIfNeeded().catch(error => {
-                    console.error('Scheduled token refresh failed:', error);
+                    console.error('Scheduled enhanced token refresh failed:', error);
                 });
             }
-        }, 300000); // 5 minutes
+        }, 180000); // 3 minutes
         
-        console.log('🔄 Token refresh scheduler started');
-    },
-    
-    /**
-     * Set up page visibility change handler
-     */
-    _setupVisibilityHandler() {
-        document.addEventListener('visibilitychange', () => {
-            if (document.visibilityState === 'visible' && this.isAuthenticated()) {
-                // Page became visible, validate session
-                this._validateSessionAsync().catch(error => {
-                    console.error('Visibility session check failed:', error);
-                });
-            }
-        });
-    },
-    
-    /**
-     * Clear authentication state
-     */
-    _clearAuthState() {
-        this.token = null;
-        this.refreshToken = null;
-        this.userEmail = null;
-        this.userId = null;
-        this.sessionId = null;
-        this.authenticated = false;
-        
-        // Clear localStorage
-        this._removeSecureItem('user_email');
-        this._removeSecureItem('user_id');
-        this._removeSecureItem('session_id');
+        console.log('🔄 Enhanced token refresh scheduler started');
     },
     
     /**
@@ -861,7 +995,7 @@ const AuthService = {
                 return decodeURIComponent(cookieValue);
             }
         } catch (error) {
-            console.warn(`Error reading cookie ${name}:`, error);
+            console.warn(`Enhanced error reading cookie ${name}:`, error);
         }
         return null;
     },
@@ -874,6 +1008,138 @@ const AuthService = {
     
     _deleteCookie(name) {
         document.cookie = `${name}=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;`;
+    },
+    
+    /**
+     * Sync authentication state to localStorage
+     */
+    _syncToLocalStorage() {
+        try {
+            if (this.userEmail) this._setSecureItem('user_email', this.userEmail);
+            if (this.userId) this._setSecureItem('user_id', this.userId);
+            if (this.sessionId) this._setSecureItem('session_id', this.sessionId);
+        } catch (error) {
+            console.warn('Failed to sync to localStorage:', error);
+        }
+    },
+    
+    /**
+     * Restore authentication from localStorage
+     */
+    _restoreFromLocalStorage() {
+        try {
+            console.log('💾 ENHANCED: Checking localStorage for authentication...');
+            
+            const storedEmail = this._getSecureItem('user_email');
+            const storedUserId = this._getSecureItem('user_id');
+            const storedSessionId = this._getSecureItem('session_id');
+            const authCookie = this._getCookie('authenticated');
+            
+            console.log('ENHANCED LocalStorage status:', {
+                email: !!storedEmail,
+                userId: !!storedUserId,
+                sessionId: !!storedSessionId,
+                authCookie: authCookie
+            });
+            
+            if (storedEmail && storedUserId && authCookie === 'true') {
+                const userInfo = {
+                    email: storedEmail,
+                    id: storedUserId,
+                    session_id: storedSessionId
+                };
+                
+                if (this._validateUserInfo(userInfo)) {
+                    this._setAuthState(userInfo);
+                    return true;
+                }
+            }
+            
+            return false;
+        } catch (error) {
+            console.error('Error in enhanced localStorage restoration:', error);
+            return false;
+        }
+    },
+    
+    /**
+     * Attempt partial authentication restore
+     */
+    _attemptPartialRestore() {
+        try {
+            console.log('🔧 ENHANCED: Attempting partial authentication restore...');
+            
+            const authCookie = this._getCookie('authenticated');
+            const hasAnyStorage = this._getSecureItem('user_email') || this._getSecureItem('user_id');
+            const hasAnyToken = this._cookieExists('access_token') || this._cookieExists('refresh_token');
+            
+            if (authCookie === 'true' || hasAnyStorage || hasAnyToken) {
+                console.log('Found enhanced partial auth data, will validate in background');
+                this.authenticated = true;
+                return true;
+            }
+            
+            return false;
+        } catch (error) {
+            console.error('Error in enhanced partial restore:', error);
+            return false;
+        }
+    },
+    
+    /**
+     * Validate user info structure
+     */
+    _validateUserInfo(userInfo) {
+        if (!userInfo || typeof userInfo !== 'object') {
+            console.warn('Invalid user info: not an object');
+            return false;
+        }
+        
+        if (!userInfo.email || typeof userInfo.email !== 'string') {
+            console.warn('Invalid user info: missing or invalid email');
+            return false;
+        }
+        
+        if (!userInfo.id || typeof userInfo.id !== 'string') {
+            console.warn('Invalid user info: missing or invalid id');
+            return false;
+        }
+        
+        return true;
+    },
+    
+    /**
+     * Clear authentication state
+     */
+    _clearAuthState() {
+        this.token = null;
+        this.refreshToken = null;
+        this.userEmail = null;
+        this.userId = null;
+        this.sessionId = null;
+        this.authenticated = false;
+        this.lastTokenRefresh = null;
+        this.sessionValidationCache = null;
+        this.sessionValidationExpiry = null;
+        
+        // Clear localStorage
+        this._removeSecureItem('user_email');
+        this._removeSecureItem('user_id');
+        this._removeSecureItem('session_id');
+    },
+    
+    /**
+     * Set up page visibility change handler
+     */
+    _setupVisibilityHandler() {
+        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'visible' && this.isAuthenticated()) {
+                // Page became visible, validate session
+                this._validateSessionAsync().catch(error => {
+                    console.error('Visibility session check failed:', error);
+                });
+            }
+        });
     },
     
     /**
