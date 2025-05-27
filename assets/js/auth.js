@@ -298,32 +298,32 @@ const AuthService = {
             
             window.AAAI_LOGGER.info('OTP verification successful');
             
-            // Update authentication state with refresh token support
-            this.token = data.access_token;
-            this.refreshToken = data.refresh_token; // FIXED: Store refresh token
+            // Update authentication state with refresh token supportthis.token = data.access_token;
             this.userEmail = email;
             this.userId = data.id;
             this.sessionId = data.session_id;
             this.authenticated = true;
-            
-            // Store in localStorage and cookies
+
+            // Store in localStorage as backup
             this._setSecureItem('auth_token', data.access_token);
-            this._setSecureItem('refresh_token', data.refresh_token); // FIXED: Store refresh token
             this._setSecureItem('user_email', email);
             this._setSecureItem('user_id', data.id);
-            
-            // Set cookies with appropriate expiry
+
+            // Set authentication cookies manually
             this._setCookie('access_token', data.access_token, 1); // 1 day
-            this._setCookie('refresh_token', data.refresh_token, 7); // 7 days
-            this._setCookie('authenticated', 'true', 7);
+            this._setCookie('authenticated', 'true', 1);
             this._setCookie('user_info', JSON.stringify({
-                email: email,
                 id: data.id,
+                email: email,
                 session_id: data.session_id
-            }), 7);
-            
-            window.AAAI_LOGGER.info('Authentication state updated with refresh token support');
-            
+            }), 1);
+
+            if (data.refresh_token) {
+                this._setCookie('refresh_token', data.refresh_token, 30); // 30 days
+            }
+
+            window.AAAI_LOGGER.info('Authentication state updated with session cookies');
+
             return data;
             
         } catch (error) {

@@ -119,3 +119,79 @@ paths:
       responses:
         '204':
           description: CORS preflight response
+
+
+  /auth/refresh:
+    post:
+      summary: Refresh access token using refresh token
+      operationId: refreshToken
+      x-google-backend:
+        address: https://us-central1-aai-solutions-api-021201.cloudfunctions.net/refreshToken
+      responses:
+        '200':
+          description: Token refreshed successfully
+        '400':
+          description: Bad request
+        '401':
+          description: Invalid refresh token
+        '500':
+          description: Server error
+    options:
+      summary: CORS support
+      operationId: corsRefreshToken
+      x-google-backend:
+        address: https://us-central1-aai-solutions-api-021201.cloudfunctions.net/refreshToken
+      responses:
+        '204':
+          description: CORS preflight response
+
+  /auth/refresh-silent:
+    post:
+      summary: Silent token refresh using cookies
+      operationId: refreshTokenSilent
+      x-google-backend:
+        address: https://us-central1-aai-solutions-api-021201.cloudfunctions.net/refreshTokenSilent
+      responses:
+        '200':
+          description: Token refreshed silently
+        '400':
+          description: Bad request
+        '401':
+          description: Invalid refresh token
+        '500':
+          description: Server error
+    options:
+      summary: CORS support
+      operationId: corsRefreshTokenSilent
+      x-google-backend:
+        address: https://us-central1-aai-solutions-api-021201.cloudfunctions.net/refreshTokenSilent
+      responses:
+        '204':
+          description: CORS preflight response
+
+  /auth/logout:
+    post:
+      summary: Logout and invalidate tokens
+      operationId: logout
+      x-google-backend:
+        address: https://us-central1-aai-solutions-api-021201.cloudfunctions.net/logout
+      security:
+        - api_key: []
+      responses:
+        '200':
+          description: Logout successful
+        '400':
+          description: Bad request
+        '401':
+          description: Unauthorized
+        '500':
+          description: Server error
+    options:
+      summary: CORS support
+      operationId: corsLogout
+      x-google-backend:
+        address: https://us-central1-aai-solutions-api-021201.cloudfunctions.net/logout
+      responses:
+        '204':
+          description: CORS preflight response
+          
