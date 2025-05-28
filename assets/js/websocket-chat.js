@@ -1,5 +1,7 @@
 /**
- * FIXED WebSocket Chat Service - Pure Cookie-Based Authentication
+ * FIXED WebSocket Chat Service - Cross-Origin Authentication Support
+ * This version handles the cross-origin cookie issue by passing authentication
+ * parameters in the WebSocket URL when cookies aren't available
  */
 const ChatService = {
     // Core state
@@ -34,7 +36,8 @@ const ChatService = {
         messageQueueLimit: 20,
         socketReadyTimeout: 2000,
         preAuthDelay: 500,
-        debug: false
+        debug: false,
+        useFallbackAuth: true  // Enable URL parameter authentication
     },
     
     /**
@@ -57,7 +60,7 @@ const ChatService = {
         // Setup event handlers
         this._setupEventHandlers();
         
-        this._log('FIXED ChatService initialized for pure cookie authentication');
+        this._log('FIXED ChatService initialized with cross-origin authentication support');
         return this;
     },
     
@@ -102,7 +105,7 @@ const ChatService = {
     },
     
     /**
-     * FIXED: Connect with pure cookie-based authentication
+     * FIXED: Connect with cross-origin authentication support
      */
     async connect() {
         if (!this.authService.isAuthenticated()) {
@@ -120,7 +123,7 @@ const ChatService = {
             return this.connectionPromise;
         }
 
-        this._log('🔄 Starting FIXED WebSocket connection...');
+        this._log('🔄 Starting FIXED WebSocket connection with cross-origin support...');
 
         // FIXED: Simplified pre-connection check
         try {
@@ -165,6 +168,13 @@ const ChatService = {
             email: user.email
         });
         
+        // For cross-origin connections, we'll use URL parameters regardless
+        if (this._isCrossOrigin()) {
+            this._log('🌐 Cross-origin connection detected, will use URL parameter authentication');
+            // Don't fail validation for cross-origin - we'll handle it in the URL
+            return true;
+        }
+        
         // If missing basic indicators, try refresh once
         if (!hasAuthCookie || !hasUserInfo) {
             this._log('🔄 Missing basic auth indicators, attempting refresh...');
@@ -189,7 +199,18 @@ const ChatService = {
     },
     
     /**
-     * FIXED: Simplified connection process
+     * Check if this is a cross-origin connection
+     */
+    _isCrossOrigin() {
+        const currentHost = window.location.hostname;
+        const wsHost = 'api-server-559730737995.us-central1.run.app';
+        
+        // If hosts don't match, it's cross-origin
+        return currentHost !== wsHost;
+    },
+    
+    /**
+     * FIXED: Simplified connection process with URL parameter authentication
      */
     async _performConnection() {
         return new Promise(async (resolve, reject) => {
@@ -207,9 +228,9 @@ const ChatService = {
             }, this.options.connectionTimeout);
             
             try {
-                // FIXED: Create clean WebSocket URL
-                const wsUrl = this._getCleanWebSocketURL();
-                this._log(`FIXED: Connecting to: ${wsUrl}`);
+                // FIXED: Create WebSocket URL with authentication parameters
+                const wsUrl = await this._getAuthenticatedWebSocketURL();
+                this._log(`FIXED: Connecting to: ${wsUrl.replace(/session_id=[^&]+/, 'session_id=***')}`);
                 
                 this.socket = new WebSocket(wsUrl);
                 
@@ -222,13 +243,13 @@ const ChatService = {
                         // Wait for socket readiness
                         await this._waitForSocketReady();
                         
-                        // FIXED: No explicit authentication needed - server validates cookies automatically
-                        this._log('🔐 FIXED: Waiting for server-side cookie validation...');
+                        // FIXED: Server will validate using URL parameters
+                        this._log('🔐 FIXED: Waiting for server-side authentication...');
                         
                         // Set auth timeout
                         this.authTimeout = setTimeout(() => {
                             if (!this.isAuthenticated) {
-                                this._error('❌ Server cookie validation timeout');
+                                this._error('❌ Server authentication timeout');
                                 this.socket.close(4001, 'Authentication timeout');
                             }
                         }, this.options.authTimeout);
@@ -259,10 +280,10 @@ const ChatService = {
                         // Handle authentication errors
                         if (data.type === 'auth_error' || 
                             data.type === 'authentication_failed' || 
-                            (data.type === 'error' && this._isAuthError(data))) {
+                            data.type === 'error' && data.code === 'NO_AUTH') {
                             clearTimeout(overallTimeout);
                             this._handleAuthenticationError(data);
-                            reject(new Error(data.message || 'Cookie authentication failed'));
+                            reject(new Error(data.message || 'Authentication failed'));
                             return;
                         }
                         
@@ -294,9 +315,9 @@ const ChatService = {
     },
     
     /**
-     * FIXED: Get clean WebSocket URL without any parameters
+     * FIXED: Get authenticated WebSocket URL with proper parameters
      */
-    _getCleanWebSocketURL() {
+    async _getAuthenticatedWebSocketURL() {
         const user = this.authService.getCurrentUser();
         if (!user || !user.id) {
             throw new Error('User ID not available for WebSocket connection');
@@ -311,10 +332,44 @@ const ChatService = {
             wsHost = 'api-server-559730737995.us-central1.run.app';
         }
         
-        // FIXED: Clean URL - no query parameters, cookies handle authentication
-        const url = `${wsProtocol}//${wsHost}/ws/${encodeURIComponent(user.id)}`;
+        // Base URL
+        let url = `${wsProtocol}//${wsHost}/ws/${encodeURIComponent(user.id)}`;
         
-        this._log('🔗 FIXED: Clean WebSocket URL:', url.replace(user.id, user.id.substring(0, 8) + '...'));
+        // FIXED: Add authentication parameters for cross-origin connections
+        if (this._isCrossOrigin() || this.options.useFallbackAuth) {
+            const params = new URLSearchParams();
+            
+            // Add authentication parameters
+            params.append('auth', 'true');
+            params.append('email', user.email);
+            params.append('user_id', user.id);
+            params.append('session_id', user.sessionId || 'websocket_session');
+            
+            // Add timestamp for cache busting
+            params.append('t', Date.now().toString());
+            
+            // Try to get a fresh token if available
+            try {
+                // First check if we need to refresh
+                const sessionInfo = this.authService.getSessionInfo();
+                if (!sessionInfo.tokenValid || !sessionInfo.hasRefreshToken) {
+                    this._log('🔄 Token invalid or missing, attempting refresh before WebSocket connection...');
+                    await this.authService.refreshTokenIfNeeded();
+                    await new Promise(resolve => setTimeout(resolve, 500));
+                }
+                
+                // If we have a session validation cache, use it
+                if (sessionInfo.sessionValidationCached) {
+                    params.append('validated', 'true');
+                }
+            } catch (error) {
+                this._log('⚠️ Failed to refresh token before WebSocket connection:', error.message);
+            }
+            
+            url += '?' + params.toString();
+        }
+        
+        this._log('🔗 FIXED: Authenticated WebSocket URL ready');
         return url;
     },
     
@@ -372,18 +427,6 @@ const ChatService = {
     },
     
     /**
-     * Check if error is authentication-related
-     */
-    _isAuthError(data) {
-        if (data.code === 'AUTH_FAILED') return true;
-        if (data.message && data.message.toLowerCase().includes('authentication')) return true;
-        if (data.message && data.message.toLowerCase().includes('token')) return true;
-        if (data.message && data.message.toLowerCase().includes('expired')) return true;
-        if (data.message && data.message.toLowerCase().includes('cookie')) return true;
-        return false;
-    },
-    
-    /**
      * Handle WebSocket message
      */
     _onMessage(event) {
@@ -416,7 +459,7 @@ const ChatService = {
      * Handle successful authentication
      */
     _handleAuthenticationSuccess(data) {
-        this._log('✅ FIXED: Cookie authentication successful!');
+        this._log('✅ FIXED: Authentication successful!');
         
         // Clear auth timeout
         if (this.authTimeout) {
@@ -450,7 +493,7 @@ const ChatService = {
      * Handle authentication failure
      */
     _handleAuthenticationError(data) {
-        this._error('❌ FIXED: Cookie authentication failed:', data.message || data.error);
+        this._error('❌ FIXED: Authentication failed:', data.message || data.error);
         
         // Clear auth timeout
         if (this.authTimeout) {
@@ -472,24 +515,13 @@ const ChatService = {
         this._cleanupConnection();
         
         // Notify about authentication failure
-        if (data.message && (data.message.includes('expired') || data.message.includes('invalid'))) {
-            const errorData = {
-                error: 'Your session has expired. Please refresh the page.',
-                requiresLogin: false,
-                requiresPageRefresh: true,
-                reason: 'cookie_validation_failed',
-                originalError: data
-            };
-            this._notifyErrorListeners(errorData);
-        } else {
-            const errorData = {
-                error: 'Authentication failed. Please refresh the page.',
-                requiresLogin: true,
-                requiresPageRefresh: true,
-                originalError: data
-            };
-            this._notifyErrorListeners(errorData);
-        }
+        const errorData = {
+            error: data.message || 'Authentication failed. Please refresh the page.',
+            requiresLogin: true,
+            requiresPageRefresh: true,
+            originalError: data
+        };
+        this._notifyErrorListeners(errorData);
     },
     
     /**
@@ -873,7 +905,8 @@ const ChatService = {
             queuedMessages: this.messageQueue.length,
             readyState: this.socket ? this.socket.readyState : null,
             authServiceValid: this.authService ? this.authService.isAuthenticated() : false,
-            lastError: null
+            lastError: null,
+            crossOrigin: this._isCrossOrigin()
         };
     },
     
