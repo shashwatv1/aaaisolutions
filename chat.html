@@ -57,18 +57,18 @@
       background: linear-gradient(180deg, var(--rich-black-fogra-29) 0%, var(--space-cadet) 100%);
       padding-top: 80px;
       display: flex;
+      width: 100%;
     }
 
     /* Chat Layout Container */
     .chat-layout {
-      max-width: 1400px;
-      margin: 20px auto;
+      margin: 20px 0;
       display: flex;
       height: calc(100vh - 140px);
       gap: 0;
       position: relative;
       width: 100%;
-      padding: 0 20px;
+      padding: 0;
     }
 
     /* Chat Sidebar */
@@ -273,6 +273,139 @@
     .chat-item-menu:hover {
       opacity: 1;
       background: rgba(255, 255, 255, 0.1);
+    }
+
+    /* Chat Context Menu */
+    .chat-context-menu {
+      position: absolute;
+      background: linear-gradient(135deg, var(--independence) 0%, var(--space-cadet) 100%);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 8px;
+      padding: 8px 0;
+      min-width: 160px;
+      box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
+      z-index: 1000;
+      display: none;
+      backdrop-filter: blur(10px);
+    }
+
+    .chat-context-menu.show {
+      display: block;
+    }
+
+    .chat-context-menu-item {
+      background: transparent;
+      border: none;
+      color: var(--white);
+      padding: 10px 16px;
+      width: 100%;
+      text-align: left;
+      cursor: pointer;
+      font-size: 0.9rem;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      transition: background-color 0.2s ease;
+    }
+
+    .chat-context-menu-item:hover {
+      background: rgba(255, 255, 255, 0.1);
+    }
+
+    .chat-context-menu-item.danger {
+      color: #e74c3c;
+    }
+
+    .chat-context-menu-item.danger:hover {
+      background: rgba(231, 76, 60, 0.1);
+    }
+
+    /* Delete Confirmation Modal */
+    .delete-modal-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0, 0, 0, 0.7);
+      display: none;
+      justify-content: center;
+      align-items: center;
+      z-index: 2000;
+      backdrop-filter: blur(5px);
+    }
+
+    .delete-modal {
+      background: linear-gradient(135deg, var(--independence) 0%, var(--space-cadet) 100%);
+      border-radius: var(--radius-15);
+      padding: 30px;
+      max-width: 400px;
+      width: 90%;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      text-align: center;
+    }
+
+    .delete-modal-icon {
+      font-size: 3rem;
+      color: #e74c3c;
+      margin-bottom: 20px;
+    }
+
+    .delete-modal-title {
+      color: var(--white);
+      font-size: 1.3rem;
+      margin-bottom: 10px;
+      font-weight: 600;
+    }
+
+    .delete-modal-message {
+      color: rgba(255, 255, 255, 0.8);
+      margin-bottom: 25px;
+      line-height: 1.5;
+    }
+
+    .delete-modal-actions {
+      display: flex;
+      gap: 15px;
+      justify-content: center;
+    }
+
+    .btn-cancel {
+      background: transparent;
+      border: 1px solid rgba(255, 255, 255, 0.3);
+      color: var(--white);
+      padding: 12px 24px;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: all 0.3s ease;
+      font-weight: 500;
+    }
+
+    .btn-cancel:hover {
+      background: rgba(255, 255, 255, 0.1);
+      border-color: rgba(255, 255, 255, 0.5);
+    }
+
+    .btn-delete {
+      background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%);
+      color: white;
+      border: none;
+      padding: 12px 24px;
+      border-radius: 8px;
+      cursor: pointer;
+      font-weight: 600;
+      transition: all 0.3s ease;
+    }
+
+    .btn-delete:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 5px 15px rgba(231, 76, 60, 0.4);
+    }
+
+    .btn-delete:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+      transform: none;
     }
 
     /* Chat Container */
@@ -775,7 +908,7 @@
     /* Responsive design */
     @media (max-width: 1024px) {
       .chat-layout {
-        padding: 0 10px;
+        padding: 0;
       }
       
       .chat-sidebar {
@@ -789,10 +922,10 @@
       }
       
       .chat-layout {
-        margin: 10px auto;
+        margin: 10px 0;
         height: calc(100vh - 80px);
         flex-direction: column;
-        padding: 0 10px;
+        padding: 0;
       }
 
       .chat-sidebar {
@@ -1013,6 +1146,37 @@
     </div>
   </main>
 
+  <!-- Chat Context Menu -->
+  <div class="chat-context-menu" id="chatContextMenu">
+    <button class="chat-context-menu-item" id="renameChatBtn">
+      <ion-icon name="create-outline"></ion-icon>
+      <span>Rename Chat</span>
+    </button>
+    <button class="chat-context-menu-item danger" id="deleteChatBtn">
+      <ion-icon name="trash-outline"></ion-icon>
+      <span>Delete Chat</span>
+    </button>
+  </div>
+
+  <!-- Delete Confirmation Modal -->
+  <div class="delete-modal-overlay" id="deleteModalOverlay">
+    <div class="delete-modal">
+      <div class="delete-modal-icon">
+        <ion-icon name="warning-outline"></ion-icon>
+      </div>
+      <h3 class="delete-modal-title">Delete Chat?</h3>
+      <p class="delete-modal-message" id="deleteModalMessage">
+        This will permanently delete the chat and all its messages. This action cannot be undone.
+      </p>
+      <div class="delete-modal-actions">
+        <button class="btn-cancel" id="cancelDeleteBtn">Cancel</button>
+        <button class="btn-delete" id="confirmDeleteBtn">
+          <span>Delete Chat</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
   <!-- Footer -->
   <footer class="footer">
     <div class="container">
@@ -1049,6 +1213,7 @@
         let isConnecting = false;
         let messageQueue = [];
         let sidebarCollapsed = false;
+        let contextMenuChatId = null;
         
         // DOM elements
         const elements = {
@@ -1060,6 +1225,17 @@
             newChatBtn: document.getElementById('newChatBtn'),
             chatList: document.getElementById('chatList'),
             loadingChats: document.getElementById('loadingChats'),
+            
+            // Context Menu elements
+            chatContextMenu: document.getElementById('chatContextMenu'),
+            renameChatBtn: document.getElementById('renameChatBtn'),
+            deleteChatBtn: document.getElementById('deleteChatBtn'),
+            
+            // Delete Modal elements
+            deleteModalOverlay: document.getElementById('deleteModalOverlay'),
+            deleteModalMessage: document.getElementById('deleteModalMessage'),
+            cancelDeleteBtn: document.getElementById('cancelDeleteBtn'),
+            confirmDeleteBtn: document.getElementById('confirmDeleteBtn'),
             
             // Chat elements
             chatContainer: document.getElementById('chatContainer'),
