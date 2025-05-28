@@ -31,7 +31,7 @@ const ChatService = {
     options: {
         reconnectInterval: 3000,
         maxReconnectAttempts: 3,
-        heartbeatInterval: 45000,  // Match server heartbeat_interval
+        heartbeatInterval: 60000,  // FIXED: Match server heartbeat_interval (60 seconds)
         connectionTimeout: 15000,   // Increased timeout
         debug: true  // Enable for debugging
     },
@@ -304,14 +304,18 @@ const ChatService = {
         this._cleanup();
         this._notifyStatusChange('disconnected');
         
-        // Auto-reconnect logic (avoid reconnecting on normal closure)
+        // FIXED: More intelligent reconnection logic
         const shouldReconnect = event.code !== 1000 && // Normal closure
                               event.code !== 1001 && // Going away
                               event.code !== 4001 && // Authentication failed
                               this.reconnectAttempts < this.options.maxReconnectAttempts &&
                               this.authService.isAuthenticated();
         
-        if (shouldReconnect) {
+        // FIXED: Special handling for code 1006 (abnormal closure) - always try to reconnect once
+        const isAbnormalClosure = event.code === 1006;
+        
+        if (shouldReconnect || (isAbnormalClosure && this.reconnectAttempts === 0)) {
+            this._log(`🔄 Connection lost (code ${event.code}), attempting reconnect...`);
             this._scheduleReconnect();
         } else if (event.code === 4001) {
             this._error('❌ Authentication failed - please login again');
@@ -319,6 +323,8 @@ const ChatService = {
                 type: 'auth_failed',
                 message: 'Authentication failed, please login again'
             });
+        } else {
+            this._log(`🔌 Connection closed permanently (code ${event.code}): ${event.reason}`);
         }
     },
     
@@ -479,7 +485,9 @@ const ChatService = {
     
     _scheduleReconnect() {
         this.reconnectAttempts++;
-        const delay = this.options.reconnectInterval * this.reconnectAttempts;
+        // FIXED: Shorter delay for first reconnection attempt
+        let delay = this.reconnectAttempts === 1 ? 1000 : (this.options.reconnectInterval * this.reconnectAttempts);
+        delay = Math.min(delay, 10000); // Cap at 10 seconds max
         
         this._log(`🔄 Reconnecting in ${delay}ms (attempt ${this.reconnectAttempts}/${this.options.maxReconnectAttempts})`);
         this._notifyStatusChange('reconnecting');

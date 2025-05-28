@@ -1153,12 +1153,12 @@
                 
                 // Initialize chat service with our integrated client
                 chatService = ChatService.init(AuthService, {
-                    debug: window.AAAI_CONFIG.ENABLE_DEBUG,
-                    reconnectInterval: 3000,
-                    maxReconnectAttempts: 5,
-                    heartbeatInterval: 45000,  // Match server heartbeat_interval
-                    connectionTimeout: 15000   // Increased timeout
-                });
+                  debug: window.AAAI_CONFIG.ENABLE_DEBUG,
+                  reconnectInterval: 3000,
+                  maxReconnectAttempts: 5,
+                  heartbeatInterval: 60000,  // FIXED: Match server heartbeat_interval (60 seconds)
+                  connectionTimeout: 15000   // Increased timeout
+              });
                 
                 // Setup listeners for our integrated system
                 chatService.onMessage(handleIncomingMessage);
