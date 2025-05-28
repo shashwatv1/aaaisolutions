@@ -20,7 +20,7 @@
     }
   </script>
   
-  <!-- Chat-specific styles -->
+  <!-- Enhanced Chat-specific styles -->
   <style>
     /* Environment indicator */
     .env-indicator {
@@ -56,21 +56,242 @@
       min-height: 100vh;
       background: linear-gradient(180deg, var(--rich-black-fogra-29) 0%, var(--space-cadet) 100%);
       padding-top: 80px;
+      display: flex;
     }
 
-    /* Chat container styles */
-    .chat-container {
-      max-width: 1000px;
+    /* Chat Layout Container */
+    .chat-layout {
+      max-width: 1400px;
       margin: 20px auto;
+      display: flex;
+      height: calc(100vh - 140px);
+      gap: 0;
+      position: relative;
+      width: 100%;
+      padding: 0 20px;
+    }
+
+    /* Chat Sidebar */
+    .chat-sidebar {
+      width: 300px;
+      background: linear-gradient(135deg, var(--space-cadet) 0%, var(--independence) 100%);
+      border-radius: var(--radius-15) 0 0 var(--radius-15);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-right: none;
+      display: flex;
+      flex-direction: column;
+      transition: all 0.3s ease;
+      overflow: hidden;
+    }
+
+    .chat-sidebar.collapsed {
+      width: 60px;
+    }
+
+    .chat-sidebar.collapsed .sidebar-content {
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    .chat-sidebar.collapsed .sidebar-header .project-name {
+      display: none;
+    }
+
+    .chat-sidebar.collapsed .sidebar-header .collapse-btn {
+      justify-self: center;
+    }
+
+    /* Sidebar Header */
+    .sidebar-header {
+      padding: 20px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      min-height: 70px;
+    }
+
+    .project-name {
+      color: var(--white);
+      font-size: 1.1rem;
+      font-weight: 600;
+      margin: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      flex: 1;
+    }
+
+    .collapse-btn {
+      background: transparent;
+      border: 1px solid rgba(255, 255, 255, 0.3);
+      color: var(--white);
+      padding: 8px;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: all 0.3s ease;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 32px;
+      height: 32px;
+    }
+
+    .collapse-btn:hover {
+      background: rgba(255, 255, 255, 0.1);
+      border-color: rgba(255, 255, 255, 0.5);
+    }
+
+    /* Sidebar Content */
+    .sidebar-content {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      transition: opacity 0.3s ease;
+      overflow: hidden;
+    }
+
+    /* New Chat Button */
+    .new-chat-container {
+      padding: 15px 20px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    }
+
+    .new-chat-btn {
+      width: 100%;
+      background: linear-gradient(135deg, var(--orange-soda) 0%, var(--klein-blue) 100%);
+      color: var(--white);
+      border: none;
+      padding: 12px 16px;
+      border-radius: 8px;
+      cursor: pointer;
+      font-weight: 600;
+      font-size: 0.9rem;
+      transition: all 0.3s ease;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+    }
+
+    .new-chat-btn:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 5px 15px rgba(255, 126, 95, 0.4);
+    }
+
+    /* Chat List */
+    .chat-list-container {
+      flex: 1;
+      overflow-y: auto;
+      padding: 10px 0;
+    }
+
+    .chat-list-header {
+      padding: 10px 20px;
+      color: rgba(255, 255, 255, 0.6);
+      font-size: 0.85rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .chat-list {
+      padding: 0 10px;
+    }
+
+    .chat-item {
+      background: transparent;
+      border: none;
+      color: rgba(255, 255, 255, 0.8);
+      padding: 12px 15px;
+      margin-bottom: 4px;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: all 0.3s ease;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      width: 100%;
+      text-align: left;
+      position: relative;
+    }
+
+    .chat-item:hover {
+      background: rgba(255, 255, 255, 0.1);
+      color: var(--white);
+    }
+
+    .chat-item.active {
+      background: linear-gradient(135deg, var(--klein-blue) 0%, var(--indigo) 100%);
+      color: var(--white);
+    }
+
+    .chat-item-icon {
+      font-size: 1rem;
+      opacity: 0.7;
+      min-width: 16px;
+    }
+
+    .chat-item-content {
+      flex: 1;
+      overflow: hidden;
+    }
+
+    .chat-item-name {
+      font-size: 0.9rem;
+      font-weight: 500;
+      margin-bottom: 2px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .chat-item-preview {
+      font-size: 0.75rem;
+      opacity: 0.7;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .chat-item-menu {
+      background: transparent;
+      border: none;
+      color: inherit;
+      font-size: 1rem;
+      cursor: pointer;
+      padding: 4px;
+      border-radius: 4px;
+      opacity: 0;
+      transition: all 0.3s ease;
+    }
+
+    .chat-item:hover .chat-item-menu {
+      opacity: 0.7;
+    }
+
+    .chat-item-menu:hover {
+      opacity: 1;
+      background: rgba(255, 255, 255, 0.1);
+    }
+
+    /* Chat Container */
+    .chat-container {
+      flex: 1;
       background-color: var(--independence);
-      border-radius: var(--radius-15);
+      border-radius: 0 var(--radius-15) var(--radius-15) 0;
       overflow: hidden;
       box-shadow: 0 15px 35px rgba(0, 0, 0, 0.3);
       position: relative;
       border: 1px solid rgba(255, 255, 255, 0.1);
-      height: calc(100vh - 140px);
+      border-left: none;
       display: flex;
       flex-direction: column;
+    }
+
+    .chat-container.sidebar-collapsed {
+      border-radius: var(--radius-15);
+      border-left: 1px solid rgba(255, 255, 255, 0.1);
     }
     
     /* Status indicators */
@@ -145,17 +366,17 @@
       border-color: rgba(255, 255, 255, 0.5);
     }
     
-    .project-info {
+    .chat-info {
       color: var(--white);
     }
     
-    .project-title {
+    .chat-title {
       font-size: 1.3rem;
       margin: 0 0 5px 0;
       font-weight: 600;
     }
     
-    .project-subtitle {
+    .chat-subtitle {
       font-size: 0.85rem;
       color: rgba(255, 255, 255, 0.7);
       margin: 0;
@@ -218,7 +439,7 @@
       50% { opacity: 0.5; }
     }
     
-    .project-menu-btn {
+    .chat-menu-btn {
       background: transparent;
       border: 1px solid rgba(255, 255, 255, 0.3);
       color: var(--white);
@@ -229,7 +450,7 @@
       font-size: 1.2rem;
     }
     
-    .project-menu-btn:hover {
+    .chat-menu-btn:hover {
       background: rgba(255, 255, 255, 0.1);
       border-color: rgba(255, 255, 255, 0.5);
     }
@@ -406,42 +627,6 @@
       }
     }
     
-    /* Message history section */
-    .message-history-header {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      padding: 10px 15px;
-      background-color: rgba(0, 0, 0, 0.2);
-      border-radius: 5px;
-      margin-bottom: 15px;
-    }
-    
-    .message-history-title {
-      font-size: 0.9rem;
-      color: rgba(255, 255, 255, 0.7);
-    }
-    
-    .message-history-actions {
-      display: flex;
-      gap: 10px;
-    }
-    
-    .message-history-button {
-      background: transparent;
-      border: none;
-      color: white;
-      cursor: pointer;
-      font-size: 0.8rem;
-      padding: 5px;
-      border-radius: 3px;
-      transition: background-color 0.3s ease;
-    }
-    
-    .message-history-button:hover {
-      background: rgba(255, 255, 255, 0.1);
-    }
-    
     /* Chat footer */
     .chat-footer {
       display: flex;
@@ -505,43 +690,46 @@
       transform: none;
       background: linear-gradient(135deg, #6c7b7f 0%, #95a5a6 100%);
     }
-    
-    .chat-send-btn:disabled::after {
-      content: '';
-      position: absolute;
-      top: 0;
-      left: -100%;
-      width: 100%;
-      height: 100%;
-      background: linear-gradient(90deg, 
-        transparent, 
-        rgba(255, 255, 255, 0.1), 
-        transparent);
-      animation: loading-shimmer 1.5s infinite;
+
+    /* Loading states */
+    .loading-chats {
+      padding: 20px;
+      text-align: center;
+      color: rgba(255, 255, 255, 0.6);
+      font-size: 0.85rem;
     }
-    
-    @keyframes loading-shimmer {
-      to {
-        left: 100%;
-      }
+
+    .loading-spinner {
+      width: 20px;
+      height: 20px;
+      border: 2px solid rgba(255, 255, 255, 0.3);
+      border-top: 2px solid var(--orange-soda);
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+      margin: 0 auto 10px;
     }
-    
-    .chat-send-btn:disabled span {
-      opacity: 0.7;
+
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
     }
-    
-    .chat-send-btn:disabled ion-icon {
-      opacity: 0.7;
-      animation: pulse-icon 1.5s ease-in-out infinite;
+
+    /* Empty chat state */
+    .empty-chat-list {
+      padding: 30px 20px;
+      text-align: center;
+      color: rgba(255, 255, 255, 0.5);
     }
-    
-    @keyframes pulse-icon {
-      0%, 100% {
-        opacity: 0.7;
-      }
-      50% {
-        opacity: 0.3;
-      }
+
+    .empty-chat-list ion-icon {
+      font-size: 2rem;
+      margin-bottom: 10px;
+      opacity: 0.5;
+    }
+
+    .empty-chat-list p {
+      font-size: 0.85rem;
+      margin: 0;
     }
 
     /* UI Components Styling */
@@ -583,193 +771,51 @@
     .chat-button-danger {
       background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%);
     }
-    
-    /* Card Component */
-    .chat-component-card {
-      width: 100%;
-      max-width: 300px;
-      background: linear-gradient(135deg, var(--independence) 0%, var(--cadet-blue-crayola) 100%);
-      border-radius: 12px;
-      overflow: hidden;
-      margin: 15px 0;
-      box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
-      border: 1px solid rgba(255, 255, 255, 0.1);
-    }
-    
-    .chat-card-image {
-      width: 100%;
-      height: 160px;
-      overflow: hidden;
-    }
-    
-    .chat-card-image img {
-      width: 100%;
-      height: 100%;
-      object-fit: cover;
-      transition: transform 0.3s ease;
-    }
-    
-    .chat-card-image:hover img {
-      transform: scale(1.05);
-    }
-    
-    .chat-card-content {
-      padding: 20px;
-    }
-    
-    .chat-card-title {
-      font-size: 1.2rem;
-      margin: 0 0 8px 0;
-      color: white;
-      font-weight: 600;
-    }
-    
-    .chat-card-subtitle {
-      font-size: 0.9rem;
-      color: rgba(255, 255, 255, 0.8);
-      margin: 0 0 20px 0;
-      line-height: 1.5;
-    }
-    
-    .chat-card-buttons {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 10px;
-    }
-    
-    /* Quick Replies */
-    .chat-component-quick-replies {
-      width: 100%;
-      margin: 15px 0;
-    }
-    
-    .chat-quick-replies-title {
-      font-size: 0.9rem;
-      color: rgba(255, 255, 255, 0.8);
-      margin-bottom: 12px;
-      font-weight: 500;
-    }
-    
-    .chat-quick-replies-options {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 8px;
-    }
-    
-    .chat-quick-reply-button {
-      padding: 8px 16px;
-      border-radius: 20px;
-      font-size: 0.85rem;
-      border: 1px solid rgba(255, 255, 255, 0.3);
-      background-color: transparent;
-      color: white;
-      cursor: pointer;
-      transition: all 0.3s ease;
-      backdrop-filter: blur(5px);
-    }
-    
-    .chat-quick-reply-button:hover {
-      background: rgba(255, 255, 255, 0.1);
-      border-color: var(--orange-soda);
-      transform: translateY(-1px);
-    }
-    
-    /* Contact List */
-    .chat-component-contact-list {
-      width: 100%;
-      margin: 15px 0;
-    }
-    
-    .chat-contact-item {
-      display: flex;
-      align-items: center;
-      padding: 15px;
-      border-radius: 10px;
-      background: rgba(255, 255, 255, 0.05);
-      margin-bottom: 8px;
-      transition: all 0.3s ease;
-      border: 1px solid rgba(255, 255, 255, 0.1);
-    }
-    
-    .chat-contact-item:hover {
-      background: rgba(255, 255, 255, 0.1);
-      transform: translateX(5px);
-    }
-    
-    .chat-contact-icon {
-      width: 35px;
-      height: 35px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      margin-right: 15px;
-      color: var(--orange-soda);
-      font-size: 1.2rem;
-    }
-    
-    .chat-contact-content {
-      flex: 1;
-    }
-    
-    .chat-contact-title {
-      font-size: 0.85rem;
-      color: rgba(255, 255, 255, 0.7);
-      margin-bottom: 3px;
-    }
-    
-    .chat-contact-value {
-      font-size: 1rem;
-      color: white;
-      font-weight: 500;
-    }
-    
-    .chat-contact-copy {
-      background: transparent;
-      border: 1px solid rgba(255, 255, 255, 0.3);
-      color: white;
-      padding: 8px 12px;
-      border-radius: 6px;
-      cursor: pointer;
-      position: relative;
-      transition: all 0.3s ease;
-    }
-    
-    .chat-contact-copy:hover {
-      background: rgba(255, 255, 255, 0.1);
-      border-color: var(--orange-soda);
-    }
-    
-    .chat-contact-copy::after {
-      content: 'Copied!';
-      position: absolute;
-      top: -35px;
-      left: 50%;
-      transform: translateX(-50%);
-      background: linear-gradient(135deg, #2ecc71 0%, #27ae60 100%);
-      color: white;
-      padding: 5px 10px;
-      border-radius: 5px;
-      font-size: 0.8rem;
-      opacity: 0;
-      transition: opacity 0.3s ease;
-      pointer-events: none;
-      white-space: nowrap;
-    }
-    
-    .chat-contact-copy.copied::after {
-      opacity: 1;
-    }
 
     /* Responsive design */
+    @media (max-width: 1024px) {
+      .chat-layout {
+        padding: 0 10px;
+      }
+      
+      .chat-sidebar {
+        width: 280px;
+      }
+    }
+
     @media (max-width: 768px) {
       .main-content {
         padding-top: 60px;
       }
       
-      .chat-container {
-        margin: 10px;
+      .chat-layout {
+        margin: 10px auto;
         height: calc(100vh - 80px);
-        border-radius: var(--radius-10);
+        flex-direction: column;
+        padding: 0 10px;
+      }
+
+      .chat-sidebar {
+        width: 100%;
+        height: 200px;
+        border-radius: var(--radius-10) var(--radius-10) 0 0;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        border-right: 1px solid rgba(255, 255, 255, 0.1);
+      }
+
+      .chat-sidebar.collapsed {
+        height: 60px;
+      }
+
+      .chat-container {
+        border-radius: 0 0 var(--radius-10) var(--radius-10);
+        border-left: 1px solid rgba(255, 255, 255, 0.1);
+        border-top: none;
+      }
+
+      .chat-container.sidebar-collapsed {
+        border-radius: 0 0 var(--radius-10) var(--radius-10);
+        border-top: 1px solid rgba(255, 255, 255, 0.1);
       }
       
       .chat-header {
@@ -805,12 +851,24 @@
         max-width: 90%;
       }
       
-      .project-title {
+      .chat-title {
         font-size: 1.1rem;
       }
       
       .back-btn span {
         display: none;
+      }
+
+      .project-name {
+        font-size: 1rem;
+      }
+
+      .chat-list-container {
+        padding: 5px 0;
+      }
+
+      .new-chat-container {
+        padding: 10px 15px;
       }
     }
   </style>
@@ -846,84 +904,111 @@
   </header>
 
   <main class="main-content">
-    <!-- Chat Container -->
-    <div class="chat-container">
-      <!-- Status Indicators -->
-      <div class="status-indicator status-connected">✓ Connected</div>
-      <div class="status-indicator status-disconnected">✗ Disconnected</div>
-      <div class="status-indicator status-reconnecting">⟳ Reconnecting...</div>
-      
-      <!-- Chat Header -->
-      <div class="chat-header">
-        <div class="chat-header-left">
-          <button class="back-btn" id="backBtn" title="Back to Project">
-            <ion-icon name="arrow-back-outline"></ion-icon>
-            <span>Projects</span>
-          </button>
-          <div class="project-info">
-            <h3 class="project-title" id="projectTitle">Loading Project...</h3>
-            <p class="project-subtitle" id="projectSubtitle">Intelligent AI Assistant</p>
-            <span class="chat-env-info" id="chatEnvInfo"></span>
-          </div>
-        </div>
-        
-        <div class="chat-header-right">
-          <div class="connection-status" id="connectionStatus">
-            <div class="connection-dot" id="connectionDot"></div>
-            <span id="connectionText">Disconnected</span>
-          </div>
-          <div class="user-info">
-            <span class="credits-badge" id="creditsDisplay">Credits: 0</span>
-            <span id="userEmail">user@example.com</span>
-          </div>
-          <button class="project-menu-btn" id="projectMenuBtn" title="Project Options">
-            <ion-icon name="ellipsis-vertical-outline"></ion-icon>
+    <!-- Chat Layout Container -->
+    <div class="chat-layout">
+      <!-- Chat Sidebar -->
+      <div class="chat-sidebar" id="chatSidebar">
+        <!-- Sidebar Header -->
+        <div class="sidebar-header">
+          <h3 class="project-name" id="sidebarProjectName">Loading...</h3>
+          <button class="collapse-btn" id="sidebarCollapseBtn" title="Collapse Sidebar">
+            <ion-icon name="chevron-back-outline" id="collapseIcon"></ion-icon>
           </button>
         </div>
-      </div>
-      
-      <div id="connectionError" style="display:none; text-align:center; padding:20px; background:rgba(231,76,60,0.1); border-radius:10px; margin:10px;">
-        <p>Connection error: Your session may have expired.</p>
-        <button id="reconnectBtn" class="chat-send-btn" style="margin:10px auto; display:inline-block;">
-          <ion-icon name="refresh-outline"></ion-icon>
-          <span>Reconnect</span>
-        </button>
+
+        <!-- Sidebar Content -->
+        <div class="sidebar-content">
+          <!-- New Chat Button -->
+          <div class="new-chat-container">
+            <button class="new-chat-btn" id="newChatBtn">
+              <ion-icon name="add-outline"></ion-icon>
+              <span>New Chat</span>
+            </button>
+          </div>
+
+          <!-- Chat List -->
+          <div class="chat-list-container">
+            <div class="chat-list-header">Recent Chats</div>
+            <div class="chat-list" id="chatList">
+              <!-- Loading state -->
+              <div class="loading-chats" id="loadingChats">
+                <div class="loading-spinner"></div>
+                <div>Loading chats...</div>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
 
-      <!-- Chat Body -->
-      <div class="chat-body" id="chatBody">
-        <!-- Message history header -->
-        <div class="message-history-header" id="historyHeader" style="display: none;">
-          <div class="message-history-title">Previous Conversations</div>
-          <div class="message-history-actions">
-            <button class="message-history-button" id="clearHistoryBtn" title="Clear History">
-              <ion-icon name="trash-outline"></ion-icon>
+      <!-- Chat Container -->
+      <div class="chat-container" id="chatContainer">
+        <!-- Status Indicators -->
+        <div class="status-indicator status-connected">✓ Connected</div>
+        <div class="status-indicator status-disconnected">✗ Disconnected</div>
+        <div class="status-indicator status-reconnecting">⟳ Reconnecting...</div>
+        
+        <!-- Chat Header -->
+        <div class="chat-header">
+          <div class="chat-header-left">
+            <button class="back-btn" id="backBtn" title="Back to Project">
+              <ion-icon name="arrow-back-outline"></ion-icon>
+              <span>Projects</span>
+            </button>
+            <div class="chat-info">
+              <h3 class="chat-title" id="chatTitle">New Chat</h3>
+              <p class="chat-subtitle" id="chatSubtitle">Start your conversation</p>
+              <span class="chat-env-info" id="chatEnvInfo"></span>
+            </div>
+          </div>
+          
+          <div class="chat-header-right">
+            <div class="connection-status" id="connectionStatus">
+              <div class="connection-dot" id="connectionDot"></div>
+              <span id="connectionText">Disconnected</span>
+            </div>
+            <div class="user-info">
+              <span class="credits-badge" id="creditsDisplay">Credits: 0</span>
+              <span id="userEmail">user@example.com</span>
+            </div>
+            <button class="chat-menu-btn" id="chatMenuBtn" title="Chat Options">
+              <ion-icon name="ellipsis-vertical-outline"></ion-icon>
             </button>
           </div>
         </div>
         
-        <!-- Welcome message -->
-        <div class="welcome-message" id="welcomeMessage">
-          <div class="welcome-icon">🤖</div>
-          <h3>Welcome to Your AI Project!</h3>
-          <p>Start a conversation with your intelligent assistant. Ask questions, get insights, or explore ideas together.</p>
-          <div class="welcome-suggestions">
-            <button class="suggestion-btn" onclick="sendSuggestion('What can you help me with?')">What can you help me with?</button>
-            <button class="suggestion-btn" onclick="sendSuggestion('Tell me about this project')">About this project</button>
-            <button class="suggestion-btn" onclick="sendSuggestion('Give me some creative ideas')">Creative ideas</button>
+        <div id="connectionError" style="display:none; text-align:center; padding:20px; background:rgba(231,76,60,0.1); border-radius:10px; margin:10px;">
+          <p>Connection error: Your session may have expired.</p>
+          <button id="reconnectBtn" class="chat-send-btn" style="margin:10px auto; display:inline-block;">
+            <ion-icon name="refresh-outline"></ion-icon>
+            <span>Reconnect</span>
+          </button>
+        </div>
+
+        <!-- Chat Body -->
+        <div class="chat-body" id="chatBody">
+          <!-- Welcome message -->
+          <div class="welcome-message" id="welcomeMessage">
+            <div class="welcome-icon">🤖</div>
+            <h3>Start a New Conversation!</h3>
+            <p>This is a fresh chat session. Ask questions, get insights, or explore ideas with your AI assistant.</p>
+            <div class="welcome-suggestions">
+              <button class="suggestion-btn" onclick="sendSuggestion('What can you help me with?')">What can you help me with?</button>
+              <button class="suggestion-btn" onclick="sendSuggestion('Tell me about this project')">About this project</button>
+              <button class="suggestion-btn" onclick="sendSuggestion('Give me some creative ideas')">Creative ideas</button>
+            </div>
           </div>
+          
+          <!-- Messages will be inserted here -->
         </div>
         
-        <!-- Messages will be inserted here -->
-      </div>
-      
-      <!-- Chat Footer -->
-      <div class="chat-footer">
-        <textarea class="chat-input" id="messageInput" placeholder="Type your message here..." maxlength="1000" rows="1"></textarea>
-        <button class="chat-send-btn" id="sendMessageBtn">
-          <ion-icon name="send"></ion-icon>
-          <span>Send</span>
-        </button>
+        <!-- Chat Footer -->
+        <div class="chat-footer">
+          <textarea class="chat-input" id="messageInput" placeholder="Type your message here..." maxlength="1000" rows="1"></textarea>
+          <button class="chat-send-btn" id="sendMessageBtn">
+            <ion-icon name="send"></ion-icon>
+            <span>Send</span>
+          </button>
+        </div>
       </div>
     </div>
   </main>
@@ -952,20 +1037,34 @@
   <script type="module" src="https://unpkg.com/ionicons@5.5.2/dist/ionicons/ionicons.esm.js"></script>
   <script nomodule src="https://unpkg.com/ionicons@5.5.2/dist/ionicons/ionicons.js"></script>
   
-  <!-- Chat application script -->
-   <script> 
+  <!-- Enhanced Chat Application Script -->
+  <script> 
       document.addEventListener('DOMContentLoaded', function() {
         // Application state
         let chatService = null;
         let currentProject = null;
+        let currentChat = null;
+        let chats = [];
         let uiRenderer = null;
         let isConnecting = false;
         let messageQueue = [];
+        let sidebarCollapsed = false;
         
         // DOM elements
         const elements = {
-            projectTitle: document.getElementById('projectTitle'),
-            projectSubtitle: document.getElementById('projectSubtitle'),
+            // Sidebar elements
+            chatSidebar: document.getElementById('chatSidebar'),
+            sidebarProjectName: document.getElementById('sidebarProjectName'),
+            sidebarCollapseBtn: document.getElementById('sidebarCollapseBtn'),
+            collapseIcon: document.getElementById('collapseIcon'),
+            newChatBtn: document.getElementById('newChatBtn'),
+            chatList: document.getElementById('chatList'),
+            loadingChats: document.getElementById('loadingChats'),
+            
+            // Chat elements
+            chatContainer: document.getElementById('chatContainer'),
+            chatTitle: document.getElementById('chatTitle'),
+            chatSubtitle: document.getElementById('chatSubtitle'),
             userEmail: document.getElementById('userEmail'),
             creditsDisplay: document.getElementById('creditsDisplay'),
             connectionDot: document.getElementById('connectionDot'),
@@ -983,11 +1082,11 @@
         };
         
         /**
-         * Initialize the chat application
+         * Initialize the enhanced chat application
          */
         async function initializeApp() {
             try {
-                console.log('🚀 Starting chat application with Python server integration...');
+                console.log('🚀 Starting enhanced chat application...');
                 
                 // Initialize environment
                 initializeEnvironment();
@@ -1016,13 +1115,16 @@
                 // Load project
                 await loadProject(projectId);
                 
-                // Initialize chat
+                // Load chats for this project
+                await loadProjectChats(projectId);
+                
+                // Initialize chat service
                 await initializeChat();
                 
                 // Setup event listeners
                 setupEventListeners();
                 
-                console.log('✅ Chat application initialized with WebSocket integration');
+                console.log('✅ Enhanced chat application initialized');
                 
             } catch (error) {
                 console.error('❌ Failed to initialize:', error);
@@ -1039,7 +1141,7 @@
                 window.AAAI_CONFIG = {
                     ENVIRONMENT: 'production',
                     ENABLE_WEBSOCKETS: true,
-                    ENABLE_DEBUG: true  // Enable debug for testing
+                    ENABLE_DEBUG: true
                 };
             }
             
@@ -1120,18 +1222,234 @@
             }
             
             // Update UI
-            if (elements.projectTitle) {
-                elements.projectTitle.textContent = currentProject.name;
-            }
-            if (elements.projectSubtitle) {
-                elements.projectSubtitle.textContent = currentProject.description;
+            if (elements.sidebarProjectName) {
+                elements.sidebarProjectName.textContent = currentProject.name;
             }
             
             document.title = `${currentProject.name} - AAAI Solutions`;
         }
         
         /**
-         * Initialize chat service with Python server integration
+         * Load chats for the current project
+         */
+        async function loadProjectChats(projectId) {
+            try {
+                showChatListLoading(true);
+                
+                // Try to load from API - you'll need to implement this function
+                // const result = await AuthService.executeFunction('list_project_chats', {
+                //     project_id: projectId
+                // });
+                
+                // Mock data for now - replace with actual API call
+                await new Promise(resolve => setTimeout(resolve, 1000));
+                
+                chats = [
+                    {
+                        id: 'chat_1',
+                        name: 'Initial Conversation',
+                        created_at: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
+                        updated_at: new Date(Date.now() - 5 * 60 * 1000).toISOString(),
+                        message_count: 8,
+                        last_message_preview: 'That sounds like a great approach...'
+                    },
+                    {
+                        id: 'chat_2',
+                        name: 'Feature Planning',
+                        created_at: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
+                        updated_at: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
+                        message_count: 15,
+                        last_message_preview: 'Let me help you break this down...'
+                    },
+                    {
+                        id: 'chat_3',
+                        name: 'Technical Discussion',
+                        created_at: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString(),
+                        updated_at: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
+                        message_count: 23,
+                        last_message_preview: 'Here are some best practices...'
+                    }
+                ];
+                
+                renderChatList();
+                
+                // Auto-select the first chat or create a new one
+                const chatId = getChatIdFromURL();
+                if (chatId && chats.find(c => c.id === chatId)) {
+                    selectChat(chatId);
+                } else if (chats.length > 0) {
+                    selectChat(chats[0].id);
+                } else {
+                    createNewChat();
+                }
+                
+            } catch (error) {
+                console.error('Failed to load chats:', error);
+                showChatListError();
+            } finally {
+                showChatListLoading(false);
+            }
+        }
+        
+        /**
+         * Render the chat list in the sidebar
+         */
+        function renderChatList() {
+            if (chats.length === 0) {
+                elements.chatList.innerHTML = `
+                    <div class="empty-chat-list">
+                        <ion-icon name="chatbubbles-outline"></ion-icon>
+                        <p>No chats yet.<br>Create your first chat!</p>
+                    </div>
+                `;
+                return;
+            }
+            
+            elements.chatList.innerHTML = chats.map(chat => `
+                <button class="chat-item" data-chat-id="${chat.id}" onclick="selectChat('${chat.id}')">
+                    <ion-icon name="chatbubble-outline" class="chat-item-icon"></ion-icon>
+                    <div class="chat-item-content">
+                        <div class="chat-item-name">${escapeHtml(chat.name)}</div>
+                        <div class="chat-item-preview">${escapeHtml(chat.last_message_preview || 'No messages yet')}</div>
+                    </div>
+                    <button class="chat-item-menu" onclick="event.stopPropagation(); showChatMenu('${chat.id}', event)">
+                        <ion-icon name="ellipsis-horizontal-outline"></ion-icon>
+                    </button>
+                </button>
+            `).join('');
+        }
+        
+        /**
+         * Select and switch to a specific chat
+         */
+        async function selectChat(chatId) {
+            try {
+                const chat = chats.find(c => c.id === chatId);
+                if (!chat) {
+                    console.error('Chat not found:', chatId);
+                    return;
+                }
+                
+                // Update current chat
+                currentChat = chat;
+                
+                // Update URL without page reload
+                const url = new URL(window.location);
+                url.searchParams.set('chat', chatId);
+                window.history.replaceState({}, '', url);
+                
+                // Update UI
+                updateChatHeader(chat);
+                updateChatListSelection(chatId);
+                
+                // Clear current messages
+                clearChatBody();
+                
+                // Load chat messages
+                await loadChatMessages(chatId);
+                
+                console.log('✅ Selected chat:', chat.name);
+                
+            } catch (error) {
+                console.error('Error selecting chat:', error);
+                showError('Failed to load chat');
+            }
+        }
+        
+        /**
+         * Create a new chat
+         */
+        async function createNewChat() {
+            try {
+                // Generate new chat
+                const newChat = {
+                    id: `chat_${Date.now()}`,
+                    name: `Chat ${chats.length + 1}`,
+                    created_at: new Date().toISOString(),
+                    updated_at: new Date().toISOString(),
+                    message_count: 0,
+                    last_message_preview: null
+                };
+                
+                // In a real app, you'd save this to the backend:
+                // await AuthService.executeFunction('create_chat', {
+                //     project_id: currentProject.id,
+                //     name: newChat.name
+                // });
+                
+                // Add to local list
+                chats.unshift(newChat);
+                
+                // Re-render chat list
+                renderChatList();
+                
+                // Select the new chat
+                await selectChat(newChat.id);
+                
+                console.log('✅ Created new chat:', newChat.name);
+                
+            } catch (error) {
+                console.error('Error creating new chat:', error);
+                showError('Failed to create new chat');
+            }
+        }
+        
+        /**
+         * Load messages for a specific chat
+         */
+        async function loadChatMessages(chatId) {
+            try {
+                // Show loading state
+                showWelcomeMessage();
+                
+                // In a real app, load from backend:
+                // const result = await AuthService.executeFunction('get_chat_messages', {
+                //     chat_id: chatId
+                // });
+                
+                // Mock messages for demonstration
+                if (chatId !== chats[0]?.id || chats.find(c => c.id === chatId)?.message_count === 0) {
+                    // New chat or empty chat - show welcome
+                    showWelcomeMessage();
+                } else {
+                    // Load existing messages (mock)
+                    hideWelcomeMessage();
+                    
+                    const mockMessages = [
+                        {
+                            id: 'msg_1',
+                            text: 'Hello! How can I help you today?',
+                            sender: 'bot',
+                            timestamp: new Date(Date.now() - 60 * 60 * 1000).toISOString()
+                        },
+                        {
+                            id: 'msg_2',
+                            text: 'I need help with project planning.',
+                            sender: 'user',
+                            timestamp: new Date(Date.now() - 58 * 60 * 1000).toISOString()
+                        },
+                        {
+                            id: 'msg_3',
+                            text: 'I\'d be happy to help you with project planning! Let me know what specific aspects you\'d like to focus on.',
+                            sender: 'bot',
+                            timestamp: new Date(Date.now() - 55 * 60 * 1000).toISOString()
+                        }
+                    ];
+                    
+                    // Add messages to UI
+                    mockMessages.forEach(msg => {
+                        addMessage(msg.text, msg.sender, msg.timestamp);
+                    });
+                }
+                
+            } catch (error) {
+                console.error('Error loading chat messages:', error);
+                showError('Failed to load chat messages');
+            }
+        }
+        
+        /**
+         * Initialize chat service
          */
         async function initializeChat() {
             if (!window.AAAI_CONFIG.ENABLE_WEBSOCKETS) {
@@ -1140,7 +1458,6 @@
                 return;
             }
             
-            // Check if ChatService is available
             if (!window.ChatService) {
                 console.error('❌ ChatService not available');
                 updateConnectionStatus('disconnected');
@@ -1149,25 +1466,21 @@
             }
             
             try {
-                console.log('🔌 Initializing ChatService with Python server...');
+                console.log('🔌 Initializing ChatService...');
                 
-                // Initialize chat service with our integrated client
                 chatService = ChatService.init(AuthService, {
-                  debug: window.AAAI_CONFIG.ENABLE_DEBUG,
-                  reconnectInterval: 3000,
-                  maxReconnectAttempts: 5,
-                  heartbeatInterval: 60000,  // FIXED: Match server heartbeat_interval (60 seconds)
-                  connectionTimeout: 15000   // Increased timeout
-              });
+                    debug: window.AAAI_CONFIG.ENABLE_DEBUG,
+                    reconnectInterval: 3000,
+                    maxReconnectAttempts: 5,
+                    heartbeatInterval: 60000,
+                    connectionTimeout: 15000
+                });
                 
-                // Setup listeners for our integrated system
                 chatService.onMessage(handleIncomingMessage);
                 chatService.onStatusChange(handleConnectionStatusChange);
                 chatService.onError(handleChatError);
                 
                 console.log('📡 Attempting WebSocket connection...');
-                
-                // Try to connect
                 await chatService.connect();
                 console.log('✅ WebSocket connected successfully');
                 
@@ -1179,70 +1492,61 @@
         }
         
         /**
-         * Setup event listeners
+         * Setup all event listeners
          */
         function setupEventListeners() {
+            // Sidebar collapse/expand
+            elements.sidebarCollapseBtn?.addEventListener('click', toggleSidebar);
+            
+            // New chat button
+            elements.newChatBtn?.addEventListener('click', createNewChat);
+            
             // Back button
-            if (elements.backBtn) {
-                elements.backBtn.addEventListener('click', () => {
-                    window.location.href = 'project.html';
-                });
-            }
+            elements.backBtn?.addEventListener('click', () => {
+                window.location.href = 'project.html';
+            });
             
-            // Send button
-            if (elements.sendMessageBtn) {
-                elements.sendMessageBtn.addEventListener('click', sendMessage);
-            }
+            // Send button and message input
+            elements.sendMessageBtn?.addEventListener('click', sendMessage);
+            elements.messageInput?.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    sendMessage();
+                }
+            });
             
-            // Message input
-            if (elements.messageInput) {
-                elements.messageInput.addEventListener('keydown', (e) => {
-                    if (e.key === 'Enter' && !e.shiftKey) {
-                        e.preventDefault();
-                        sendMessage();
-                    }
-                });
-                
-                // Auto-resize
-                elements.messageInput.addEventListener('input', function() {
-                    this.style.height = 'auto';
-                    this.style.height = Math.min(this.scrollHeight, 120) + 'px';
-                });
-            }
+            // Auto-resize message input
+            elements.messageInput?.addEventListener('input', function() {
+                this.style.height = 'auto';
+                this.style.height = Math.min(this.scrollHeight, 120) + 'px';
+            });
             
             // Reconnect button
-            if (elements.reconnectBtn) {
-                elements.reconnectBtn.addEventListener('click', async () => {
-                    console.log('🔄 Manual reconnect requested');
-                    if (elements.connectionError) {
-                        elements.connectionError.style.display = 'none';
+            elements.reconnectBtn?.addEventListener('click', async () => {
+                console.log('🔄 Manual reconnect requested');
+                elements.connectionError.style.display = 'none';
+                
+                if (chatService) {
+                    try {
+                        showStatusIndicator('reconnecting', '🔄 Reconnecting...');
+                        await chatService.forceReconnect();
+                        console.log('✅ Manual reconnect successful');
+                    } catch (error) {
+                        console.error('❌ Manual reconnect failed:', error);
+                        showError('Reconnection failed. Please refresh.');
                     }
-                    
-                    if (chatService) {
-                        try {
-                            showStatusIndicator('reconnecting', '🔄 Reconnecting...');
-                            await chatService.forceReconnect();
-                            console.log('✅ Manual reconnect successful');
-                        } catch (error) {
-                            console.error('❌ Manual reconnect failed:', error);
-                            showError('Reconnection failed. Please refresh.');
-                        }
-                    } else {
-                        // Try to reinitialize
-                        await initializeChat();
-                    }
-                });
-            }
+                } else {
+                    await initializeChat();
+                }
+            });
             
-            // Page visibility - reconnect when page becomes visible
+            // Page visibility handling
             document.addEventListener('visibilitychange', () => {
                 if (document.visibilityState === 'visible' && 
                     AuthService.isAuthenticated() && 
                     chatService) {
                     
                     const status = chatService.getStatus();
-                    console.log('👁️ Page visible, chat status:', status);
-                    
                     if (!status.connected && !status.connecting) {
                         console.log('🔄 Attempting reconnect on page focus');
                         setTimeout(() => {
@@ -1252,7 +1556,7 @@
                 }
             });
             
-            // Window beforeunload - clean disconnect
+            // Proper cleanup on page unload
             window.addEventListener('beforeunload', () => {
                 if (chatService) {
                     chatService.disconnect();
@@ -1261,7 +1565,24 @@
         }
         
         /**
-         * Send message - Updated for integrated system
+         * Toggle sidebar collapse/expand
+         */
+        function toggleSidebar() {
+            sidebarCollapsed = !sidebarCollapsed;
+            
+            if (sidebarCollapsed) {
+                elements.chatSidebar.classList.add('collapsed');
+                elements.chatContainer.classList.add('sidebar-collapsed');
+                elements.collapseIcon.name = 'chevron-forward-outline';
+            } else {
+                elements.chatSidebar.classList.remove('collapsed');
+                elements.chatContainer.classList.remove('sidebar-collapsed');
+                elements.collapseIcon.name = 'chevron-back-outline';
+            }
+        }
+        
+        /**
+         * Send a message in the current chat
          */
         async function sendMessage() {
             const text = elements.messageInput.value.trim();
@@ -1269,7 +1590,12 @@
                 return;
             }
             
-            console.log('📤 Sending message:', text.substring(0, 50) + '...');
+            if (!currentChat) {
+                showError('No chat selected');
+                return;
+            }
+            
+            console.log('📤 Sending message to chat:', currentChat.id);
             
             // Clear input and disable send button
             elements.messageInput.value = '';
@@ -1282,31 +1608,29 @@
             // Add user message to UI
             const userMsg = addMessage(text, 'user');
             
+            // Update chat in list
+            updateChatAfterMessage(currentChat.id, text);
+            
             try {
-                // Check if WebSocket is available and connected
+                // Send via WebSocket or HTTP
                 if (chatService && chatService.getStatus().authenticated) {
                     console.log('📡 Sending via WebSocket');
                     await chatService.sendMessage(text);
                     showTypingIndicator();
                 } else {
-                    console.log('🌐 Falling back to HTTP');
-                    // Fallback to HTTP
+                    console.log('🌐 Sending via HTTP');
                     await sendMessageHTTP(text, userMsg);
                 }
             } catch (error) {
                 console.error('❌ Failed to send message:', error);
                 
-                // Remove user message on error
                 if (userMsg) {
                     userMsg.remove();
                 }
                 
-                // Restore message in input
                 elements.messageInput.value = text;
-                
                 showError(`Failed to send message: ${error.message}`);
             } finally {
-                // Re-enable send button
                 elements.sendMessageBtn.disabled = false;
                 elements.messageInput.focus();
             }
@@ -1351,25 +1675,22 @@
         }
         
         /**
-         * Handle incoming WebSocket messages - Updated for Python server
+         * Handle incoming WebSocket messages
          */
         function handleIncomingMessage(data) {
             console.log('📨 Received message:', data.type);
             
             switch (data.type) {
                 case 'session_established':
-                    // This is sent when WebSocket connection is fully established
                     console.log('🎯 Session established:', data.session_id);
                     showStatusIndicator('connected', '✅ Connected');
                     hideTypingIndicator();
                     break;
                     
                 case 'message_queued':
-                    // Server confirmed message was queued for processing
                     console.log('📬 Message queued:', data.message_id);
                     showStatusIndicator('connected', '📬 Message queued');
                     
-                    // Keep typing indicator for a bit longer
                     setTimeout(() => {
                         const typing = document.querySelector('.typing-indicator');
                         if (typing) {
@@ -1378,48 +1699,6 @@
                     }, 500);
                     break;
                     
-                case 'message_status':
-                    // Status update about a message
-                    console.log('📊 Message status:', data.status, data.messageId);
-                    if (data.status === 'queued') {
-                        showStatusIndicator('connected', '📬 Message queued for processing');
-                    }
-                    break;
-                    
-                case 'server_error':
-                    console.error('🚨 Server error:', data.message);
-                    hideTypingIndicator();
-                    
-                    let errorMessage = data.message || 'Server error occurred';
-                    if (data.retry_after) {
-                        errorMessage += ` (retry in ${data.retry_after}s)`;
-                    }
-                    
-                    addMessage(errorMessage, 'bot');
-                    elements.sendMessageBtn.disabled = false;
-                    break;
-                    
-                case 'server_shutdown':
-                    console.warn('🚨 Server shutdown:', data.message);
-                    hideTypingIndicator();
-                    addMessage(`Server maintenance: ${data.message}`, 'system');
-                    
-                    if (data.reconnectRecommended) {
-                        setTimeout(() => {
-                            if (chatService) {
-                                chatService.forceReconnect().catch(console.error);
-                            }
-                        }, 5000);
-                    }
-                    break;
-                    
-                case 'session_terminating':
-                    console.warn('⚠️ Session terminating:', data.reason);
-                    hideTypingIndicator();
-                    addMessage(`Session ending: ${data.reason}`, 'system');
-                    break;
-                    
-                // Handle legacy message types for backward compatibility
                 case 'message':
                     hideTypingIndicator();
                     
@@ -1437,16 +1716,9 @@
                     elements.sendMessageBtn.disabled = false;
                     break;
                     
-                case 'history_loaded':
-                    if (data.messages && data.messages.length > 0) {
-                        loadHistory(data.messages);
-                    }
-                    break;
-                    
                 case 'error':
                     console.error('❌ Chat error:', data.message);
                     hideTypingIndicator();
-                    
                     addMessage(data.message || 'An error occurred', 'bot');
                     elements.sendMessageBtn.disabled = false;
                     break;
@@ -1458,26 +1730,22 @@
         }
         
         /**
-         * Handle connection status changes - Updated for integrated system
+         * Handle connection status changes
          */
         function handleConnectionStatusChange(status, fullStatus) {
-            console.log('📊 Connection status changed:', status, fullStatus);
+            console.log('📊 Connection status changed:', status);
             updateConnectionStatus(status);
             
             switch (status) {
                 case 'connected':
                     showStatusIndicator('connected', '✅ WebSocket Connected');
-                    if (elements.connectionError) {
-                        elements.connectionError.style.display = 'none';
-                    }
+                    elements.connectionError.style.display = 'none';
                     isConnecting = false;
-                    
-                    // Process any queued messages
                     processMessageQueue();
                     break;
                     
                 case 'connecting':
-                    showStatusIndicator('connecting', '⚡ Connecting to WebSocket...');
+                    showStatusIndicator('connecting', '⚡ Connecting...');
                     isConnecting = true;
                     break;
                     
@@ -1487,11 +1755,10 @@
                     break;
                     
                 case 'disconnected':
-                    showStatusIndicator('disconnected', '📡 HTTP Mode (WebSocket Unavailable)');
+                    showStatusIndicator('disconnected', '📡 HTTP Mode');
                     isConnecting = false;
                     
-                    // Show reconnect option if there were previous connections
-                    if (fullStatus.reconnectAttempts > 0 && elements.connectionError) {
+                    if (fullStatus.reconnectAttempts > 0) {
                         elements.connectionError.style.display = 'block';
                     }
                     break;
@@ -1499,7 +1766,7 @@
         }
         
         /**
-         * Handle chat errors - Updated for integrated system
+         * Handle chat errors
          */
         function handleChatError(error) {
             console.error('❌ Chat error:', error);
@@ -1516,13 +1783,7 @@
                     
                 case 'max_reconnect_attempts':
                     showError('Unable to reconnect to chat server. Please refresh the page.');
-                    if (elements.connectionError) {
-                        elements.connectionError.style.display = 'block';
-                    }
-                    break;
-                    
-                case 'server_error':
-                    showError(`Server error: ${error.message}`);
+                    elements.connectionError.style.display = 'block';
                     break;
                     
                 default:
@@ -1540,28 +1801,58 @@
             }
         }
         
-        /**
-         * Process queued messages when connection is restored
-         */
-        function processMessageQueue() {
-            if (messageQueue.length === 0) return;
-            
-            console.log(`📤 Processing ${messageQueue.length} queued messages`);
-            
-            const messages = [...messageQueue];
-            messageQueue = [];
-            
-            messages.forEach(async (msg) => {
-                try {
-                    await chatService.sendMessage(msg.text);
-                } catch (error) {
-                    console.error('❌ Failed to send queued message:', error);
-                    messageQueue.push(msg); // Re-queue on failure
-                }
+        // UI Helper Functions
+        
+        function updateChatHeader(chat) {
+            elements.chatTitle.textContent = chat.name;
+            elements.chatSubtitle.textContent = 
+                chat.message_count > 0 
+                    ? `${chat.message_count} messages`
+                    : 'Start your conversation';
+        }
+        
+        function updateChatListSelection(selectedChatId) {
+            document.querySelectorAll('.chat-item').forEach(item => {
+                item.classList.toggle('active', item.dataset.chatId === selectedChatId);
             });
         }
         
-        // Utility functions - Updated for better integration
+        function updateChatAfterMessage(chatId, lastMessage) {
+            const chat = chats.find(c => c.id === chatId);
+            if (chat) {
+                chat.message_count++;
+                chat.last_message_preview = lastMessage.substring(0, 50) + (lastMessage.length > 50 ? '...' : '');
+                chat.updated_at = new Date().toISOString();
+                renderChatList();
+                updateChatListSelection(chatId);
+            }
+        }
+        
+        function clearChatBody() {
+            elements.chatBody.innerHTML = '';
+        }
+        
+        function showWelcomeMessage() {
+            elements.welcomeMessage.style.display = 'block';
+        }
+        
+        function hideWelcomeMessage() {
+            elements.welcomeMessage.style.display = 'none';
+        }
+        
+        function showChatListLoading(show) {
+            elements.loadingChats.style.display = show ? 'block' : 'none';
+        }
+        
+        function showChatListError() {
+            elements.chatList.innerHTML = `
+                <div class="empty-chat-list">
+                    <ion-icon name="warning-outline" style="color: #e74c3c;"></ion-icon>
+                    <p>Failed to load chats.<br>Please refresh.</p>
+                </div>
+            `;
+        }
+        
         function addMessage(text, type, timestamp = null, components = null) {
             hideWelcomeMessage();
             
@@ -1602,7 +1893,7 @@
         }
         
         function showTypingIndicator() {
-            hideTypingIndicator(); // Remove existing
+            hideTypingIndicator();
             
             const typing = document.createElement('div');
             typing.className = 'typing-indicator';
@@ -1622,12 +1913,6 @@
             const existing = document.querySelector('.typing-indicator');
             if (existing) {
                 existing.remove();
-            }
-        }
-        
-        function hideWelcomeMessage() {
-            if (elements.welcomeMessage) {
-                elements.welcomeMessage.style.display = 'none';
             }
         }
         
@@ -1654,7 +1939,6 @@
         }
         
         function showStatusIndicator(status, message) {
-            // Hide all status indicators first
             [elements.connectedStatus, elements.disconnectedStatus, elements.reconnectingStatus]
                 .forEach(el => {
                     if (el) el.classList.remove('visible');
@@ -1678,7 +1962,6 @@
                 indicator.textContent = message;
                 indicator.classList.add('visible');
                 
-                // Auto-hide success messages after 3 seconds
                 if (status === 'connected') {
                     setTimeout(() => {
                         indicator.classList.remove('visible');
@@ -1688,7 +1971,7 @@
         }
         
         function showError(message, duration = 5000) {
-            console.error('🚨 Showing error:', message);
+            console.error('🚨 Error:', message);
             
             const error = document.createElement('div');
             error.style.cssText = `
@@ -1705,26 +1988,35 @@
                 box-shadow: 0 5px 15px rgba(231, 76, 60, 0.3);
                 max-width: 400px;
                 text-align: center;
-                animation: slideInFromTop 0.3s ease-out;
             `;
             error.textContent = message;
             document.body.appendChild(error);
             
-            setTimeout(() => {
-                error.style.animation = 'slideOutToTop 0.3s ease-in';
-                setTimeout(() => error.remove(), 300);
-            }, duration);
+            setTimeout(() => error.remove(), duration);
         }
         
-        function loadHistory(messages) {
-            console.log('📚 Loading message history:', messages.length);
-            messages.reverse().forEach(msg => {
-                if (msg.sender === 'user') {
-                    addMessage(msg.text, 'user', msg.timestamp);
-                } else if (msg.sender === 'bot') {
-                    addMessage(msg.text, 'bot', msg.timestamp, msg.components);
+        function processMessageQueue() {
+            if (messageQueue.length === 0) return;
+            
+            console.log(`📤 Processing ${messageQueue.length} queued messages`);
+            
+            const messages = [...messageQueue];
+            messageQueue = [];
+            
+            messages.forEach(async (msg) => {
+                try {
+                    await chatService.sendMessage(msg.text);
+                } catch (error) {
+                    console.error('❌ Failed to send queued message:', error);
+                    messageQueue.push(msg);
                 }
             });
+        }
+        
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
         }
         
         function getProjectId() {
@@ -1732,15 +2024,22 @@
             return params.get('project');
         }
         
-        function redirectToLogin() {
+        function getChatIdFromURL() {
+            const params = new URLSearchParams(window.location.search);
+            return params.get('chat');
+        }
+        
+        function redirectToLogin(reason) {
+            console.log('Redirecting to login:', reason);
             window.location.href = 'login.html';
         }
         
         function redirectToProjects() {
+            console.log('Redirecting to projects');
             window.location.href = 'project.html';
         }
         
-        // Global function for suggestions
+        // Global functions
         window.sendSuggestion = function(text) {
             if (elements.messageInput) {
                 elements.messageInput.value = text;
@@ -1748,176 +2047,30 @@
             }
         };
         
-        // Debug functions for troubleshooting
-        window.ChatDebug = {
-            getStatus: () => chatService ? chatService.getStatus() : null,
-            getDebugInfo: () => chatService ? chatService.getDebugInfo() : null,
-            connect: () => chatService ? chatService.connect() : null,
-            disconnect: () => chatService ? chatService.disconnect() : null,
-            forceReconnect: () => chatService ? chatService.forceReconnect() : null,
-            sendTest: () => chatService ? chatService.sendMessage('Test message from debug') : null,
-            showQueue: () => messageQueue,
-            clearQueue: () => { messageQueue = []; },
-            reinitialize: initializeChat
+        window.selectChat = selectChat;
+        
+        window.showChatMenu = function(chatId, event) {
+            // TODO: Implement chat context menu
+            console.log('Show chat menu for:', chatId);
         };
         
-        // Add CSS for animations
-        const style = document.createElement('style');
-        style.textContent = `
-            @keyframes slideInFromTop {
-                from { transform: translate(-50%, -100%); opacity: 0; }
-                to { transform: translate(-50%, 0); opacity: 1; }
-            }
-            @keyframes slideOutToTop {
-                from { transform: translate(-50%, 0); opacity: 1; }
-                to { transform: translate(-50%, -100%); opacity: 0; }
-            }
-            .message-system {
-                background-color: #fff3cd !important;
-                color: #856404 !important;
-                border: 1px solid #ffeaa7 !important;
-                text-align: center !important;
-                font-style: italic !important;
-            }
-        `;
-        document.head.appendChild(style);
+        // Debug functions
+        window.ChatDebug = {
+            getStatus: () => chatService ? chatService.getStatus() : null,
+            getChats: () => chats,
+            getCurrentChat: () => currentChat,
+            getCurrentProject: () => currentProject,
+            createNewChat: createNewChat,
+            selectChat: selectChat,
+            toggleSidebar: toggleSidebar,
+            reinitialize: initializeChat
+        };
         
         console.log('🔍 Debug functions available in window.ChatDebug');
         
         // Start the app
         initializeApp();
     });
-  </script>
-  <script>
-    (function() {
-      'use strict';
-      
-      console.log('🔍 FIXED: Simple WebSocket Debug Script Loaded');
-      
-      // Track WebSocket lifecycle events without interfering
-      const wsEvents = [];
-      let wsConnectionStartTime = null;
-      
-      // FIXED: Override WebSocket to track but not modify
-      const originalWebSocket = window.WebSocket;
-      window.WebSocket = function(url, protocols) {
-          // FIXED: Don't add any query parameters - use clean URL
-          console.log('🔌 FIXED: Creating clean WebSocket:', url);
-          wsConnectionStartTime = Date.now();
-          
-          const ws = new originalWebSocket(url, protocols);
-          
-          // Track events without modification
-          ['open', 'message', 'close', 'error'].forEach(eventType => {
-              ws.addEventListener(eventType, function(event) {
-                  const eventTime = Date.now();
-                  const elapsed = wsConnectionStartTime ? eventTime - wsConnectionStartTime : 0;
-                  
-                  const eventData = {
-                      type: eventType,
-                      timestamp: new Date().toISOString(),
-                      elapsed: elapsed,
-                      readyState: ws.readyState,
-                      code: event.code,
-                      reason: event.reason
-                  };
-                  
-                  wsEvents.push(eventData);
-                  
-                  // Enhanced logging
-                  if (eventType === 'open') {
-                      console.log(`✅ FIXED: WebSocket OPENED in ${elapsed}ms`);
-                      console.log(`   ReadyState: ${ws.readyState} (${getReadyStateName(ws.readyState)})`);
-                  } else if (eventType === 'close') {
-                      console.log(`🔌 FIXED: WebSocket CLOSED: Code ${event.code} - ${event.reason || 'No reason'}`);
-                      console.log(`   Total connection time: ${elapsed}ms`);
-                  } else if (eventType === 'error') {
-                      console.error(`❌ FIXED: WebSocket ERROR after ${elapsed}ms:`, event);
-                  } else if (eventType === 'message') {
-                      try {
-                          const data = JSON.parse(event.data);
-                          if (data.type === 'auth_success' || data.type === 'authenticated' || data.type === 'connection_established') {
-                              console.log(`🔐 FIXED: Authentication SUCCESS after ${elapsed}ms`);
-                          } else if (data.type === 'auth_error' || data.type === 'authentication_failed') {
-                              console.error(`🔐 FIXED: Authentication FAILED after ${elapsed}ms:`, data);
-                          } else {
-                              console.log(`📨 FIXED: Message received (${data.type}) after ${elapsed}ms`);
-                          }
-                      } catch (e) {
-                          console.log(`📨 FIXED: Non-JSON message received after ${elapsed}ms`);
-                      }
-                  }
-              });
-          });
-          
-          // Track outgoing messages without modification
-          const originalSend = ws.send;
-          ws.send = function(data) {
-              try {
-                  const parsed = JSON.parse(data);
-                  const elapsed = wsConnectionStartTime ? Date.now() - wsConnectionStartTime : 0;
-                  console.log(`📤 FIXED: Sending message (${parsed.type}) after ${elapsed}ms`);
-              } catch (e) {
-                  console.log(`📤 FIXED: Sending raw data after ${Date.now() - wsConnectionStartTime}ms`);
-              }
-              
-              return originalSend.call(this, data);
-          };
-          
-          return ws;
-      };
-      
-      function getReadyStateName(readyState) {
-          const states = {
-              0: 'CONNECTING',
-              1: 'OPEN', 
-              2: 'CLOSING',
-              3: 'CLOSED'
-          };
-          return states[readyState] || 'UNKNOWN';
-      }
-      
-      // FIXED: Debug functions
-      window.debugWebSocket = function() {
-          console.log('🔍 === FIXED WebSocket Debug Information ===');
-          
-          if (typeof AuthService !== 'undefined') {
-              const sessionInfo = AuthService.getSessionInfo();
-              console.log('🔑 Auth Status:', {
-                  authenticated: sessionInfo.authenticated,
-                  userId: sessionInfo.userId,
-                  email: sessionInfo.email,
-                  tokenValid: sessionInfo.tokenValid,
-                  hasRefreshToken: sessionInfo.hasRefreshToken
-              });
-          }
-          
-          if (typeof ChatService !== 'undefined' && ChatService.getStatus) {
-              console.log('💬 Chat Service Status:', ChatService.getStatus());
-          }
-          
-          console.log('📊 WebSocket Events (' + wsEvents.length + ' total):');
-          wsEvents.slice(-10).forEach((event, index) => {
-              console.log(`  ${index + 1}. [${event.elapsed}ms] ${event.type.toUpperCase()}`, {
-                  readyState: event.readyState,
-                  code: event.code,
-                  reason: event.reason
-              });
-          });
-          
-          console.log('🔍 === End FIXED Debug Information ===');
-      };
-      
-      // Auto-run debug info after page load
-      setTimeout(() => {
-          if (typeof window.debugWebSocket === 'function') {
-              console.log('🔍 FIXED: Auto-running WebSocket debug...');
-              window.debugWebSocket();
-          }
-      }, 3000);
-      
-      console.log('🔍 FIXED debug loaded. Use debugWebSocket() in console.');
-    })();
   </script>
 </body>
 
