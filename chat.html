@@ -953,13 +953,14 @@
   <script nomodule src="https://unpkg.com/ionicons@5.5.2/dist/ionicons/ionicons.js"></script>
   
   <!-- Chat application script -->
-  <script>
-    
+   <script> 
       document.addEventListener('DOMContentLoaded', function() {
         // Application state
         let chatService = null;
         let currentProject = null;
         let uiRenderer = null;
+        let isConnecting = false;
+        let messageQueue = [];
         
         // DOM elements
         const elements = {
@@ -986,7 +987,7 @@
          */
         async function initializeApp() {
             try {
-                console.log('🚀 Starting chat application...');
+                console.log('🚀 Starting chat application with Python server integration...');
                 
                 // Initialize environment
                 initializeEnvironment();
@@ -1021,7 +1022,7 @@
                 // Setup event listeners
                 setupEventListeners();
                 
-                console.log('✅ Chat application initialized');
+                console.log('✅ Chat application initialized with WebSocket integration');
                 
             } catch (error) {
                 console.error('❌ Failed to initialize:', error);
@@ -1038,7 +1039,7 @@
                 window.AAAI_CONFIG = {
                     ENVIRONMENT: 'production',
                     ENABLE_WEBSOCKETS: true,
-                    ENABLE_DEBUG: false
+                    ENABLE_DEBUG: true  // Enable debug for testing
                 };
             }
             
@@ -1130,36 +1131,50 @@
         }
         
         /**
-         * Initialize chat service
+         * Initialize chat service with Python server integration
          */
         async function initializeChat() {
             if (!window.AAAI_CONFIG.ENABLE_WEBSOCKETS) {
+                console.warn('⚠️ WebSockets disabled in config');
                 updateConnectionStatus('disconnected');
                 return;
             }
             
+            // Check if ChatService is available
+            if (!window.ChatService) {
+                console.error('❌ ChatService not available');
+                updateConnectionStatus('disconnected');
+                showError('WebSocket service unavailable. Using HTTP mode.');
+                return;
+            }
+            
             try {
-                // Initialize chat service
+                console.log('🔌 Initializing ChatService with Python server...');
+                
+                // Initialize chat service with our integrated client
                 chatService = ChatService.init(AuthService, {
                     debug: window.AAAI_CONFIG.ENABLE_DEBUG,
                     reconnectInterval: 3000,
-                    maxReconnectAttempts: 3,
-                    heartbeatInterval: 45000,
-                    connectionTimeout: 10000
+                    maxReconnectAttempts: 5,
+                    heartbeatInterval: 45000,  // Match server heartbeat_interval
+                    connectionTimeout: 15000   // Increased timeout
                 });
                 
-                // Setup listeners
-                chatService.onMessage(handleMessage);
-                chatService.onStatusChange(handleStatusChange);
-                chatService.onError(handleError);
+                // Setup listeners for our integrated system
+                chatService.onMessage(handleIncomingMessage);
+                chatService.onStatusChange(handleConnectionStatusChange);
+                chatService.onError(handleChatError);
+                
+                console.log('📡 Attempting WebSocket connection...');
                 
                 // Try to connect
                 await chatService.connect();
+                console.log('✅ WebSocket connected successfully');
                 
             } catch (error) {
-                console.error('Failed to connect WebSocket:', error);
+                console.error('❌ Failed to connect WebSocket:', error);
                 updateConnectionStatus('disconnected');
-                showError('Using HTTP mode. WebSocket unavailable.');
+                showError(`WebSocket connection failed: ${error.message}. Using HTTP mode.`);
             }
         }
         
@@ -1198,75 +1213,113 @@
             // Reconnect button
             if (elements.reconnectBtn) {
                 elements.reconnectBtn.addEventListener('click', async () => {
-                    elements.connectionError.style.display = 'none';
+                    console.log('🔄 Manual reconnect requested');
+                    if (elements.connectionError) {
+                        elements.connectionError.style.display = 'none';
+                    }
+                    
                     if (chatService) {
                         try {
+                            showStatusIndicator('reconnecting', '🔄 Reconnecting...');
                             await chatService.forceReconnect();
+                            console.log('✅ Manual reconnect successful');
                         } catch (error) {
+                            console.error('❌ Manual reconnect failed:', error);
                             showError('Reconnection failed. Please refresh.');
                         }
+                    } else {
+                        // Try to reinitialize
+                        await initializeChat();
                     }
                 });
             }
             
-            // Page visibility
+            // Page visibility - reconnect when page becomes visible
             document.addEventListener('visibilitychange', () => {
                 if (document.visibilityState === 'visible' && 
                     AuthService.isAuthenticated() && 
-                    chatService && 
-                    !chatService.getStatus().connected) {
-                    setTimeout(() => {
-                        chatService.connect().catch(console.error);
-                    }, 1000);
+                    chatService) {
+                    
+                    const status = chatService.getStatus();
+                    console.log('👁️ Page visible, chat status:', status);
+                    
+                    if (!status.connected && !status.connecting) {
+                        console.log('🔄 Attempting reconnect on page focus');
+                        setTimeout(() => {
+                            chatService.connect().catch(console.error);
+                        }, 1000);
+                    }
+                }
+            });
+            
+            // Window beforeunload - clean disconnect
+            window.addEventListener('beforeunload', () => {
+                if (chatService) {
+                    chatService.disconnect();
                 }
             });
         }
         
         /**
-         * Send message
+         * Send message - Updated for integrated system
          */
         async function sendMessage() {
             const text = elements.messageInput.value.trim();
-            if (!text || elements.sendMessageBtn.disabled) return;
+            if (!text || elements.sendMessageBtn.disabled) {
+                return;
+            }
             
-            // Clear input
+            console.log('📤 Sending message:', text.substring(0, 50) + '...');
+            
+            // Clear input and disable send button
             elements.messageInput.value = '';
             elements.messageInput.style.height = 'auto';
             elements.sendMessageBtn.disabled = true;
             
-            // Hide welcome
+            // Hide welcome message
             hideWelcomeMessage();
             
-            // Add user message
+            // Add user message to UI
             const userMsg = addMessage(text, 'user');
             
             try {
-                // Try WebSocket first
+                // Check if WebSocket is available and connected
                 if (chatService && chatService.getStatus().authenticated) {
+                    console.log('📡 Sending via WebSocket');
                     await chatService.sendMessage(text);
                     showTypingIndicator();
                 } else {
+                    console.log('🌐 Falling back to HTTP');
                     // Fallback to HTTP
                     await sendMessageHTTP(text, userMsg);
                 }
             } catch (error) {
-                console.error('Failed to send message:', error);
-                userMsg.remove();
+                console.error('❌ Failed to send message:', error);
+                
+                // Remove user message on error
+                if (userMsg) {
+                    userMsg.remove();
+                }
+                
+                // Restore message in input
                 elements.messageInput.value = text;
-                showError('Failed to send message. Please try again.');
+                
+                showError(`Failed to send message: ${error.message}`);
             } finally {
+                // Re-enable send button
                 elements.sendMessageBtn.disabled = false;
                 elements.messageInput.focus();
             }
         }
         
         /**
-         * Send message via HTTP
+         * Send message via HTTP fallback
          */
         async function sendMessageHTTP(text, userMsg) {
             const typing = showTypingIndicator();
             
             try {
+                console.log('🌐 Sending HTTP message');
                 const response = await AuthService.sendChatMessage(text);
                 
                 if (typing) typing.remove();
@@ -1278,6 +1331,8 @@
                         response.data.bot_message.timestamp,
                         response.data.bot_message.components
                     );
+                } else {
+                    addMessage('Message sent via HTTP. Response processing...', 'bot');
                 }
             } catch (error) {
                 if (typing) typing.remove();
@@ -1286,6 +1341,8 @@
                 let errorMsg = 'Sorry, an error occurred.';
                 if (error.message.includes('expired')) {
                     errorMsg = 'Session expired. Please refresh.';
+                } else if (error.message.includes('network')) {
+                    errorMsg = 'Network error. Please check your connection.';
                 }
                 
                 addMessage(errorMsg, 'bot');
@@ -1294,19 +1351,77 @@
         }
         
         /**
-         * Handle incoming messages
+         * Handle incoming WebSocket messages - Updated for Python server
          */
-        function handleMessage(data) {
-            console.log('Message:', data.type);
+        function handleIncomingMessage(data) {
+            console.log('📨 Received message:', data.type);
             
             switch (data.type) {
-                case 'connection_established':
-                    showStatusIndicator('connected', '✓ Connected');
+                case 'session_established':
+                    // This is sent when WebSocket connection is fully established
+                    console.log('🎯 Session established:', data.session_id);
+                    showStatusIndicator('connected', '✅ Connected');
+                    hideTypingIndicator();
                     break;
                     
+                case 'message_queued':
+                    // Server confirmed message was queued for processing
+                    console.log('📬 Message queued:', data.message_id);
+                    showStatusIndicator('connected', '📬 Message queued');
+                    
+                    // Keep typing indicator for a bit longer
+                    setTimeout(() => {
+                        const typing = document.querySelector('.typing-indicator');
+                        if (typing) {
+                            typing.innerHTML = '<span>Processing your message...</span>';
+                        }
+                    }, 500);
+                    break;
+                    
+                case 'message_status':
+                    // Status update about a message
+                    console.log('📊 Message status:', data.status, data.messageId);
+                    if (data.status === 'queued') {
+                        showStatusIndicator('connected', '📬 Message queued for processing');
+                    }
+                    break;
+                    
+                case 'server_error':
+                    console.error('🚨 Server error:', data.message);
+                    hideTypingIndicator();
+                    
+                    let errorMessage = data.message || 'Server error occurred';
+                    if (data.retry_after) {
+                        errorMessage += ` (retry in ${data.retry_after}s)`;
+                    }
+                    
+                    addMessage(errorMessage, 'bot');
+                    elements.sendMessageBtn.disabled = false;
+                    break;
+                    
+                case 'server_shutdown':
+                    console.warn('🚨 Server shutdown:', data.message);
+                    hideTypingIndicator();
+                    addMessage(`Server maintenance: ${data.message}`, 'system');
+                    
+                    if (data.reconnectRecommended) {
+                        setTimeout(() => {
+                            if (chatService) {
+                                chatService.forceReconnect().catch(console.error);
+                            }
+                        }, 5000);
+                    }
+                    break;
+                    
+                case 'session_terminating':
+                    console.warn('⚠️ Session terminating:', data.reason);
+                    hideTypingIndicator();
+                    addMessage(`Session ending: ${data.reason}`, 'system');
+                    break;
+                    
+                // Handle legacy message types for backward compatibility
                 case 'message':
-                    const typing = document.querySelector('.typing-indicator');
-                    if (typing) typing.remove();
+                    hideTypingIndicator();
                     
                     if (data.bot_message) {
                         addMessage(
@@ -1315,6 +1430,8 @@
                             data.bot_message.timestamp,
                             data.bot_message.components
                         );
+                    } else if (data.text) {
+                        addMessage(data.text, 'bot', data.timestamp, data.components);
                     }
                     
                     elements.sendMessageBtn.disabled = false;
@@ -1327,64 +1444,130 @@
                     break;
                     
                 case 'error':
-                    console.error('Chat error:', data.message);
-                    const errorTyping = document.querySelector('.typing-indicator');
-                    if (errorTyping) errorTyping.remove();
+                    console.error('❌ Chat error:', data.message);
+                    hideTypingIndicator();
                     
                     addMessage(data.message || 'An error occurred', 'bot');
                     elements.sendMessageBtn.disabled = false;
                     break;
+                    
+                default:
+                    console.log('📨 Unknown message type:', data.type, data);
+                    break;
             }
         }
         
         /**
-         * Handle status changes
+         * Handle connection status changes - Updated for integrated system
          */
-        function handleStatusChange(status) {
-            console.log('Status:', status);
+        function handleConnectionStatusChange(status, fullStatus) {
+            console.log('📊 Connection status changed:', status, fullStatus);
             updateConnectionStatus(status);
             
             switch (status) {
                 case 'connected':
-                    showStatusIndicator('connected', '✓ Connected');
+                    showStatusIndicator('connected', '✅ WebSocket Connected');
                     if (elements.connectionError) {
                         elements.connectionError.style.display = 'none';
                     }
+                    isConnecting = false;
+                    
+                    // Process any queued messages
+                    processMessageQueue();
                     break;
+                    
                 case 'connecting':
-                    showStatusIndicator('connecting', '⚡ Connecting...');
+                    showStatusIndicator('connecting', '⚡ Connecting to WebSocket...');
+                    isConnecting = true;
                     break;
+                    
                 case 'reconnecting':
-                    showStatusIndicator('reconnecting', '🔄 Reconnecting...');
+                    showStatusIndicator('reconnecting', `🔄 Reconnecting... (${fullStatus.reconnectAttempts})`);
+                    isConnecting = true;
                     break;
+                    
                 case 'disconnected':
-                    showStatusIndicator('disconnected', '📡 HTTP Mode');
+                    showStatusIndicator('disconnected', '📡 HTTP Mode (WebSocket Unavailable)');
+                    isConnecting = false;
+                    
+                    // Show reconnect option if there were previous connections
+                    if (fullStatus.reconnectAttempts > 0 && elements.connectionError) {
+                        elements.connectionError.style.display = 'block';
+                    }
                     break;
             }
         }
         
         /**
-         * Handle errors
+         * Handle chat errors - Updated for integrated system
          */
-        function handleError(data) {
-            console.error('Chat error:', data);
+        function handleChatError(error) {
+            console.error('❌ Chat error:', error);
             
-            if (data.requiresLogin || data.error?.includes('expired')) {
-                showError('Session expired. Please refresh.');
-                setTimeout(() => {
-                    if (confirm('Session expired. Refresh page?')) {
-                        window.location.reload();
+            switch (error.type) {
+                case 'auth_failed':
+                    showError('Authentication failed. Please login again.');
+                    setTimeout(() => {
+                        if (confirm('Session expired. Refresh page to login again?')) {
+                            window.location.reload();
+                        }
+                    }, 3000);
+                    break;
+                    
+                case 'max_reconnect_attempts':
+                    showError('Unable to reconnect to chat server. Please refresh the page.');
+                    if (elements.connectionError) {
+                        elements.connectionError.style.display = 'block';
                     }
-                }, 3000);
+                    break;
+                    
+                case 'server_error':
+                    showError(`Server error: ${error.message}`);
+                    break;
+                    
+                default:
+                    if (error.requiresLogin || (error.message && error.message.includes('expired'))) {
+                        showError('Session expired. Please refresh.');
+                        setTimeout(() => {
+                            if (confirm('Session expired. Refresh page?')) {
+                                window.location.reload();
+                            }
+                        }, 3000);
+                    } else {
+                        showError(`Chat error: ${error.message || 'Unknown error'}`);
+                    }
+                    break;
             }
         }
         
-        // Utility functions
+        /**
+         * Process queued messages when connection is restored
+         */
+        function processMessageQueue() {
+            if (messageQueue.length === 0) return;
+            
+            console.log(`📤 Processing ${messageQueue.length} queued messages`);
+            
+            const messages = [...messageQueue];
+            messageQueue = [];
+            
+            messages.forEach(async (msg) => {
+                try {
+                    await chatService.sendMessage(msg.text);
+                } catch (error) {
+                    console.error('❌ Failed to send queued message:', error);
+                    messageQueue.push(msg); // Re-queue on failure
+                }
+            });
+        }
+        
+        // Utility functions - Updated for better integration
         function addMessage(text, type, timestamp = null, components = null) {
             hideWelcomeMessage();
             
             const msg = document.createElement('div');
-            msg.className = type === 'user' ? 'message message-user' : 'message message-bot';
+            msg.className = type === 'user' ? 'message message-user' : 
+                          type === 'system' ? 'message message-system' : 'message message-bot';
             
             const textDiv = document.createElement('div');
             textDiv.textContent = text;
@@ -1419,8 +1602,7 @@
         }
         
         function showTypingIndicator() {
-            const existing = document.querySelector('.typing-indicator');
-            if (existing) existing.remove();
+            hideTypingIndicator(); // Remove existing
             
             const typing = document.createElement('div');
             typing.className = 'typing-indicator';
@@ -1434,6 +1616,13 @@
             elements.chatBody.scrollTop = elements.chatBody.scrollHeight;
             
             return typing;
+        }
+        
+        function hideTypingIndicator() {
+            const existing = document.querySelector('.typing-indicator');
+            if (existing) {
+                existing.remove();
+            }
         }
         
         function hideWelcomeMessage() {
@@ -1465,6 +1654,7 @@
         }
         
         function showStatusIndicator(status, message) {
+            // Hide all status indicators first
             [elements.connectedStatus, elements.disconnectedStatus, elements.reconnectingStatus]
                 .forEach(el => {
                     if (el) el.classList.remove('visible');
@@ -1488,6 +1678,7 @@
                 indicator.textContent = message;
                 indicator.classList.add('visible');
                 
+                // Auto-hide success messages after 3 seconds
                 if (status === 'connected') {
                     setTimeout(() => {
                         indicator.classList.remove('visible');
@@ -1497,6 +1688,8 @@
         }
         
         function showError(message, duration = 5000) {
+            console.error('🚨 Showing error:', message);
+            
             const error = document.createElement('div');
             error.style.cssText = `
                 position: fixed;
@@ -1512,16 +1705,19 @@
                 box-shadow: 0 5px 15px rgba(231, 76, 60, 0.3);
                 max-width: 400px;
                 text-align: center;
+                animation: slideInFromTop 0.3s ease-out;
             `;
             error.textContent = message;
             document.body.appendChild(error);
             
             setTimeout(() => {
-                error.remove();
+                error.style.animation = 'slideOutToTop 0.3s ease-in';
+                setTimeout(() => error.remove(), 300);
             }, duration);
         }
         
         function loadHistory(messages) {
+            console.log('📚 Loading message history:', messages.length);
             messages.reverse().forEach(msg => {
                 if (msg.sender === 'user') {
                     addMessage(msg.text, 'user', msg.timestamp);
@@ -1551,6 +1747,42 @@
                 sendMessage();
             }
         };
+        
+        // Debug functions for troubleshooting
+        window.ChatDebug = {
+            getStatus: () => chatService ? chatService.getStatus() : null,
+            getDebugInfo: () => chatService ? chatService.getDebugInfo() : null,
+            connect: () => chatService ? chatService.connect() : null,
+            disconnect: () => chatService ? chatService.disconnect() : null,
+            forceReconnect: () => chatService ? chatService.forceReconnect() : null,
+            sendTest: () => chatService ? chatService.sendMessage('Test message from debug') : null,
+            showQueue: () => messageQueue,
+            clearQueue: () => { messageQueue = []; },
+            reinitialize: initializeChat
+        };
+        
+        // Add CSS for animations
+        const style = document.createElement('style');
+        style.textContent = `
+            @keyframes slideInFromTop {
+                from { transform: translate(-50%, -100%); opacity: 0; }
+                to { transform: translate(-50%, 0); opacity: 1; }
+            }
+            @keyframes slideOutToTop {
+                from { transform: translate(-50%, 0); opacity: 1; }
+                to { transform: translate(-50%, -100%); opacity: 0; }
+            }
+            .message-system {
+                background-color: #fff3cd !important;
+                color: #856404 !important;
+                border: 1px solid #ffeaa7 !important;
+                text-align: center !important;
+                font-style: italic !important;
+            }
+        `;
+        document.head.appendChild(style);
+        
+        console.log('🔍 Debug functions available in window.ChatDebug');
         
         // Start the app
         initializeApp();

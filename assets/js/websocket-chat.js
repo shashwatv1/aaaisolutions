@@ -1,5 +1,6 @@
 /**
- * FIXED WebSocket Chat Service - Simplified and Working
+ * FIXED WebSocket Chat Service - Integrated with Python Server
+ * Matches server-side message types and flow
  */
 const ChatService = {
     // Core state
@@ -13,6 +14,7 @@ const ChatService = {
     reconnectAttempts: 0,
     reconnectTimer: null,
     heartbeatTimer: null,
+    sessionId: null,
     
     // Message handling
     messageQueue: [],
@@ -20,13 +22,18 @@ const ChatService = {
     statusListeners: [],
     errorListeners: [],
     
+    // Performance tracking
+    connectionStartTime: 0,
+    lastPongTime: 0,
+    messageCount: 0,
+    
     // Configuration
     options: {
         reconnectInterval: 3000,
         maxReconnectAttempts: 3,
-        heartbeatInterval: 45000,
-        connectionTimeout: 10000,
-        debug: false
+        heartbeatInterval: 45000,  // Match server heartbeat_interval
+        connectionTimeout: 15000,   // Increased timeout
+        debug: true  // Enable for debugging
     },
     
     /**
@@ -40,7 +47,7 @@ const ChatService = {
         this.authService = authService;
         this.options = { ...this.options, ...options };
         
-        this._log('ChatService initialized');
+        this._log('🚀 ChatService initialized with Python server integration');
         return this;
     },
     
@@ -48,21 +55,21 @@ const ChatService = {
      * Connect to WebSocket
      */
     async connect() {
-        if (this.isConnected) {
-            this._log('Already connected');
+        if (this.isConnected && this.isAuthenticated) {
+            this._log('✅ Already connected and authenticated');
             return true;
         }
         
         if (this.isConnecting) {
-            this._log('Connection already in progress');
+            this._log('⏳ Connection already in progress');
             return false;
         }
         
-        this._log('Starting WebSocket connection...');
+        this._log('🔌 Starting WebSocket connection...');
         
         // Check authentication
         if (!this.authService.isAuthenticated()) {
-            throw new Error('Not authenticated');
+            throw new Error('Not authenticated - please login first');
         }
         
         const user = this.authService.getCurrentUser();
@@ -72,19 +79,21 @@ const ChatService = {
         
         return new Promise((resolve, reject) => {
             this.isConnecting = true;
+            this.connectionStartTime = Date.now();
             this._notifyStatusChange('connecting');
             
             // Build WebSocket URL with auth parameters
             const wsUrl = this._buildWebSocketURL(user);
-            this._log('Connecting to:', wsUrl);
+            this._log('🌐 Connecting to:', wsUrl);
             
             // Connection timeout
             const timeout = setTimeout(() => {
                 if (this.isConnecting) {
+                    this._log('⏰ Connection timeout');
                     this._cleanup();
                     this.isConnecting = false;
                     this._notifyStatusChange('disconnected');
-                    reject(new Error('Connection timeout'));
+                    reject(new Error('Connection timeout after 15 seconds'));
                 }
             }, this.options.connectionTimeout);
             
@@ -94,24 +103,35 @@ const ChatService = {
                 
                 // Handle open
                 this.socket.onopen = () => {
-                    this._log('WebSocket opened');
+                    const connectionTime = Date.now() - this.connectionStartTime;
+                    this._log(`✅ WebSocket opened in ${connectionTime}ms`);
                     this.isConnected = true;
-                    clearTimeout(timeout);
+                    // Don't resolve here - wait for session_established
                 };
                 
                 // Handle messages
                 this.socket.onmessage = (event) => {
                     try {
                         const data = JSON.parse(event.data);
-                        this._log('Received:', data.type);
+                        const messageTime = Date.now() - this.connectionStartTime;
+                        this._log(`📨 Message received (${data.type}) after ${messageTime}ms`);
                         
-                        // Handle connection established
-                        if (data.type === 'connection_established') {
-                            this._log('Connection established');
+                        // CRITICAL: Handle session_established (not connection_established)
+                        if (data.type === 'session_established') {
+                            this._log('🎯 Session established with server');
+                            
+                            // Update all connection states
                             this.isAuthenticated = true;
                             this.isConnecting = false;
                             this.reconnectAttempts = 0;
+                            this.sessionId = data.session_id;
                             
+                            // Log session info
+                            this._log('Session ID:', data.session_id);
+                            this._log('User ID:', data.user_id);
+                            this._log('Server capabilities:', data.capabilities);
+                            
+                            clearTimeout(timeout);
                             this._notifyStatusChange('connected');
                             this._startHeartbeat();
                             this._processQueuedMessages();
@@ -120,13 +140,13 @@ const ChatService = {
                             return;
                         }
                         
-                        // Handle errors during connection
+                        // Handle authentication errors during connection
                         if (data.type === 'error' && this.isConnecting) {
-                            this._log('Connection error:', data.message);
+                            this._log('❌ Connection error:', data.message);
                             clearTimeout(timeout);
                             this.isConnecting = false;
                             this._cleanup();
-                            reject(new Error(data.message));
+                            reject(new Error(`Authentication failed: ${data.message}`));
                             return;
                         }
                         
@@ -134,18 +154,20 @@ const ChatService = {
                         this._handleMessage(data);
                         
                     } catch (e) {
-                        this._error('Message parse error:', e);
+                        this._error('❌ Message parse error:', e);
+                        this._error('Raw message:', event.data);
                     }
                 };
                 
                 // Handle close
                 this.socket.onclose = (event) => {
-                    this._log('WebSocket closed:', event.code, event.reason);
+                    const connectionTime = Date.now() - this.connectionStartTime;
+                    this._log(`🔌 WebSocket closed after ${connectionTime}ms:`, event.code, event.reason);
                     
                     if (this.isConnecting) {
                         clearTimeout(timeout);
                         this.isConnecting = false;
-                        reject(new Error(`Connection closed: ${event.reason}`));
+                        reject(new Error(`Connection closed: ${event.reason || 'Unknown reason'}`));
                         return;
                     }
                     
@@ -154,13 +176,13 @@ const ChatService = {
                 
                 // Handle errors
                 this.socket.onerror = (event) => {
-                    this._error('WebSocket error:', event);
+                    this._error('❌ WebSocket error:', event);
                     
                     if (this.isConnecting) {
                         clearTimeout(timeout);
                         this.isConnecting = false;
                         this._cleanup();
-                        reject(new Error('WebSocket error'));
+                        reject(new Error('WebSocket connection error'));
                     }
                 };
                 
@@ -186,10 +208,10 @@ const ChatService = {
             wsHost = 'api-server-559730737995.us-central1.run.app';
         }
         
-        // Build URL with auth parameters
+        // Build URL with auth parameters (matching server expectations)
         const params = new URLSearchParams({
             auth: 'true',
-            email: user.email,
+            email: encodeURIComponent(user.email),
             user_id: user.id,
             session_id: user.sessionId || 'web_session',
             t: Date.now() // Cache buster
@@ -199,20 +221,79 @@ const ChatService = {
     },
     
     /**
-     * Handle incoming messages
+     * Handle incoming messages (matching server message types)
      */
     _handleMessage(data) {
-        // Handle heartbeat
-        if (data.type === 'heartbeat' || data.type === 'ping') {
+        this.messageCount++;
+        
+        // Handle server heartbeat
+        if (data.type === 'heartbeat') {
+            this._log('💓 Heartbeat from server');
             this._sendPong();
             return;
         }
         
-        if (data.type === 'pong') {
+        // Handle ping from server
+        if (data.type === 'ping') {
+            this._log('🏓 Ping from server');
+            this._sendPong();
             return;
         }
         
-        // Notify listeners
+        // Handle pong response
+        if (data.type === 'pong') {
+            this.lastPongTime = Date.now();
+            return;
+        }
+        
+        // Handle message queued confirmation
+        if (data.type === 'message_queued') {
+            this._log('📬 Message queued:', data.message_id);
+            this._notifyMessageListeners({
+                type: 'message_status',
+                status: 'queued',
+                messageId: data.message_id,
+                timestamp: data.timestamp
+            });
+            return;
+        }
+        
+        // Handle error messages
+        if (data.type === 'error') {
+            this._error('❌ Server error:', data.message);
+            this._notifyErrorListeners({
+                type: 'server_error',
+                message: data.message,
+                errorId: data.error_id,
+                retryAfter: data.retry_after
+            });
+            return;
+        }
+        
+        // Handle server shutdown notification
+        if (data.type === 'server_shutdown') {
+            this._log('🚨 Server shutdown notification:', data.message);
+            this._notifyMessageListeners({
+                type: 'server_shutdown',
+                message: data.message,
+                reconnectRecommended: data.reconnect_recommended
+            });
+            return;
+        }
+        
+        // Handle session termination
+        if (data.type === 'session_terminating') {
+            this._log('⚠️ Session terminating:', data.reason);
+            this._notifyMessageListeners({
+                type: 'session_terminating',
+                reason: data.reason,
+                uptime: data.uptime
+            });
+            return;
+        }
+        
+        // Handle unknown message types
+        this._log('📨 Unknown message type:', data.type, data);
         this._notifyMessageListeners(data);
     },
     
@@ -223,19 +304,26 @@ const ChatService = {
         this._cleanup();
         this._notifyStatusChange('disconnected');
         
-        // Auto-reconnect logic
-        const shouldReconnect = event.code !== 1000 && 
-                              event.code !== 1001 && 
+        // Auto-reconnect logic (avoid reconnecting on normal closure)
+        const shouldReconnect = event.code !== 1000 && // Normal closure
+                              event.code !== 1001 && // Going away
+                              event.code !== 4001 && // Authentication failed
                               this.reconnectAttempts < this.options.maxReconnectAttempts &&
                               this.authService.isAuthenticated();
         
         if (shouldReconnect) {
             this._scheduleReconnect();
+        } else if (event.code === 4001) {
+            this._error('❌ Authentication failed - please login again');
+            this._notifyErrorListeners({
+                type: 'auth_failed',
+                message: 'Authentication failed, please login again'
+            });
         }
     },
     
     /**
-     * Send a message
+     * Send a message (matching server expectations)
      */
     async sendMessage(text) {
         if (!text || !text.trim()) {
@@ -243,25 +331,28 @@ const ChatService = {
         }
         
         const message = {
-            type: 'message',
+            type: 'message',  // Server expects 'message' type
             message: text.trim(),
             id: this._generateId(),
             timestamp: new Date().toISOString()
         };
         
         if (this.isAuthenticated && this.socket && this.socket.readyState === WebSocket.OPEN) {
+            this._log('📤 Sending message:', message.id);
             this.socket.send(JSON.stringify(message));
             return message.id;
+        } else if (this.isConnected && !this.isAuthenticated) {
+            throw new Error('Connected but not authenticated');
         } else {
             // Queue message
             this._queueMessage(message);
             
             // Try to connect
-            if (!this.isConnecting) {
+            if (!this.isConnecting && !this.isConnected) {
                 try {
                     await this.connect();
                 } catch (e) {
-                    throw new Error('Not connected');
+                    throw new Error(`Connection failed: ${e.message}`);
                 }
             }
             
@@ -273,7 +364,7 @@ const ChatService = {
      * Disconnect
      */
     disconnect() {
-        this._log('Disconnecting');
+        this._log('🔌 Disconnecting');
         
         this._cleanup();
         
@@ -284,6 +375,7 @@ const ChatService = {
         
         this.isConnected = false;
         this.isAuthenticated = false;
+        this.sessionId = null;
         this._notifyStatusChange('disconnected');
     },
     
@@ -291,7 +383,7 @@ const ChatService = {
      * Force reconnect
      */
     async forceReconnect() {
-        this._log('Force reconnecting');
+        this._log('🔄 Force reconnecting');
         
         this.disconnect();
         this.reconnectAttempts = 0;
@@ -309,7 +401,27 @@ const ChatService = {
             connected: this.isConnected,
             authenticated: this.isAuthenticated,
             connecting: this.isConnecting,
-            reconnectAttempts: this.reconnectAttempts
+            reconnectAttempts: this.reconnectAttempts,
+            sessionId: this.sessionId,
+            messageCount: this.messageCount,
+            lastPongTime: this.lastPongTime,
+            socketState: this.socket ? this.socket.readyState : null
+        };
+    },
+    
+    /**
+     * Get debug info
+     */
+    getDebugInfo() {
+        return {
+            ...this.getStatus(),
+            queuedMessages: this.messageQueue.length,
+            uptime: this.connectionStartTime ? Date.now() - this.connectionStartTime : 0,
+            listeners: {
+                message: this.messageListeners.length,
+                status: this.statusListeners.length,
+                error: this.errorListeners.length
+            }
         };
     },
     
@@ -336,9 +448,14 @@ const ChatService = {
     _startHeartbeat() {
         this._stopHeartbeat();
         
+        this._log('💓 Starting heartbeat');
         this.heartbeatTimer = setInterval(() => {
             if (this.socket && this.socket.readyState === WebSocket.OPEN) {
-                this.socket.send(JSON.stringify({ type: 'ping' }));
+                this._log('🏓 Sending ping to server');
+                this.socket.send(JSON.stringify({ 
+                    type: 'ping',
+                    timestamp: Date.now()
+                }));
             }
         }, this.options.heartbeatInterval);
     },
@@ -347,12 +464,16 @@ const ChatService = {
         if (this.heartbeatTimer) {
             clearInterval(this.heartbeatTimer);
             this.heartbeatTimer = null;
+            this._log('💓 Heartbeat stopped');
         }
     },
     
     _sendPong() {
         if (this.socket && this.socket.readyState === WebSocket.OPEN) {
-            this.socket.send(JSON.stringify({ type: 'pong' }));
+            this.socket.send(JSON.stringify({ 
+                type: 'pong',
+                timestamp: Date.now()
+            }));
         }
     },
     
@@ -360,14 +481,20 @@ const ChatService = {
         this.reconnectAttempts++;
         const delay = this.options.reconnectInterval * this.reconnectAttempts;
         
-        this._log(`Reconnecting in ${delay}ms (attempt ${this.reconnectAttempts})`);
+        this._log(`🔄 Reconnecting in ${delay}ms (attempt ${this.reconnectAttempts}/${this.options.maxReconnectAttempts})`);
         this._notifyStatusChange('reconnecting');
         
         this.reconnectTimer = setTimeout(() => {
             this.connect().catch(e => {
-                this._error('Reconnect failed:', e);
+                this._error('❌ Reconnect failed:', e.message);
                 if (this.reconnectAttempts < this.options.maxReconnectAttempts) {
                     this._scheduleReconnect();
+                } else {
+                    this._error('❌ Max reconnect attempts reached');
+                    this._notifyErrorListeners({
+                        type: 'max_reconnect_attempts',
+                        message: 'Maximum reconnection attempts reached'
+                    });
                 }
             });
         }, delay);
@@ -375,7 +502,7 @@ const ChatService = {
     
     _queueMessage(message) {
         this.messageQueue.push(message);
-        this._log('Message queued');
+        this._log('📥 Message queued (total:', this.messageQueue.length, ')');
     },
     
     _processQueuedMessages() {
@@ -384,13 +511,16 @@ const ChatService = {
         const messages = [...this.messageQueue];
         this.messageQueue = [];
         
+        this._log(`📤 Processing ${messages.length} queued messages`);
+        
         messages.forEach(msg => {
             if (this.socket && this.socket.readyState === WebSocket.OPEN) {
                 this.socket.send(JSON.stringify(msg));
+            } else {
+                // Re-queue if connection lost
+                this.messageQueue.push(msg);
             }
         });
-        
-        this._log(`Sent ${messages.length} queued messages`);
     },
     
     _cleanup() {
@@ -400,6 +530,10 @@ const ChatService = {
         }
         
         this._stopHeartbeat();
+        
+        // Reset connection state
+        this.isConnected = false;
+        this.isAuthenticated = false;
     },
     
     _generateId() {
@@ -411,17 +545,18 @@ const ChatService = {
             try {
                 callback(data);
             } catch (e) {
-                this._error('Error in message listener:', e);
+                this._error('❌ Error in message listener:', e);
             }
         });
     },
     
     _notifyStatusChange(status) {
+        this._log(`📊 Status change: ${status}`);
         this.statusListeners.forEach(callback => {
             try {
-                callback(status);
+                callback(status, this.getStatus());
             } catch (e) {
-                this._error('Error in status listener:', e);
+                this._error('❌ Error in status listener:', e);
             }
         });
     },
@@ -431,7 +566,7 @@ const ChatService = {
             try {
                 callback(data);
             } catch (e) {
-                this._error('Error in error listener:', e);
+                this._error('❌ Error in error listener:', e);
             }
         });
     },
@@ -451,3 +586,33 @@ const ChatService = {
 if (typeof window !== 'undefined') {
     window.ChatService = ChatService;
 }
+
+// Usage example:
+/*
+// Initialize
+ChatService.init(AuthService, { debug: true });
+
+// Listen for events
+ChatService.onStatusChange((status, fullStatus) => {
+    console.log('Connection status:', status);
+    console.log('Full status:', fullStatus);
+});
+
+ChatService.onMessage((message) => {
+    console.log('Received message:', message);
+});
+
+ChatService.onError((error) => {
+    console.error('Chat error:', error);
+});
+
+// Connect
+ChatService.connect()
+    .then(() => console.log('Connected successfully'))
+    .catch(err => console.error('Connection failed:', err));
+
+// Send message
+ChatService.sendMessage('Hello server!')
+    .then(messageId => console.log('Message sent:', messageId))
+    .catch(err => console.error('Send failed:', err));
+*/
