@@ -2248,6 +2248,492 @@
         initializeApp();
     });
   </script>
+  <script>
+    const WebSocketDiagnostics = {
+      logs: [],
+      startTime: Date.now(),
+      
+      init() {
+          console.log('🔍 WebSocket Diagnostics initialized');
+          this.addStyles();
+          this.createDiagnosticsPanel();
+          this.startDiagnostics();
+          return this;
+      },
+      
+      log(level, message, data = null) {
+          const timestamp = Date.now() - this.startTime;
+          const logEntry = {
+              timestamp,
+              level,
+              message,
+              data: data ? JSON.stringify(data, null, 2) : null,
+              time: new Date().toLocaleTimeString()
+          };
+          
+          this.logs.push(logEntry);
+          console.log(`[WS-Diag ${timestamp}ms] ${level}: ${message}`, data || '');
+          this.updateDiagnosticsPanel();
+          
+          // Keep only last 50 logs
+          if (this.logs.length > 50) {
+              this.logs = this.logs.slice(-50);
+          }
+      },
+      
+      async startDiagnostics() {
+          this.log('INFO', '🚀 Starting WebSocket diagnostics...');
+          
+          // 1. Check authentication
+          await this.checkAuthentication();
+          
+          // 2. Check WebSocket service availability
+          await this.checkWebSocketService();
+          
+          // 3. Test WebSocket connection
+          await this.testWebSocketConnection();
+          
+          // 4. Monitor connection status
+          this.monitorConnection();
+      },
+      
+      async checkAuthentication() {
+          this.log('INFO', '🔐 Checking authentication...');
+          
+          try {
+              if (!window.AuthService) {
+                  this.log('ERROR', '❌ AuthService not available');
+                  return false;
+              }
+              
+              const isAuth = AuthService.isAuthenticated();
+              this.log('INFO', `Authentication status: ${isAuth}`);
+              
+              if (isAuth) {
+                  const user = AuthService.getCurrentUser();
+                  this.log('INFO', '👤 User info:', {
+                      email: user.email,
+                      id: user.id,
+                      sessionId: user.sessionId
+                  });
+                  
+                  // Test session validation
+                  try {
+                      const sessionInfo = AuthService.getSessionInfo();
+                      this.log('INFO', '📋 Session info:', sessionInfo);
+                  } catch (e) {
+                      this.log('WARN', '⚠️ Session info error:', e.message);
+                  }
+                  
+                  return true;
+              } else {
+                  this.log('ERROR', '❌ Not authenticated');
+                  return false;
+              }
+          } catch (error) {
+              this.log('ERROR', '❌ Authentication check failed:', error.message);
+              return false;
+          }
+      },
+      
+      async checkWebSocketService() {
+          this.log('INFO', '🌐 Checking WebSocket service...');
+          
+          try {
+              // Check if ChatService is available
+              if (!window.ChatService) {
+                  this.log('ERROR', '❌ ChatService not available');
+                  return false;
+              }
+              
+              // Check WebSocket support
+              if (!window.WebSocket) {
+                  this.log('ERROR', '❌ WebSocket not supported in this browser');
+                  return false;
+              }
+              
+              // Test server WebSocket endpoint availability
+              const user = AuthService.getCurrentUser();
+              if (user) {
+                  const wsUrl = this.buildWebSocketURL(user);
+                  this.log('INFO', '🔗 WebSocket URL would be:', wsUrl);
+                  
+                  // Test if server is reachable
+                  try {
+                      const response = await fetch('/api/websocket/enterprise-health');
+                      const health = await response.json();
+                      this.log('INFO', '💓 Server WebSocket health:', health);
+                  } catch (e) {
+                      this.log('WARN', '⚠️ Could not check server health:', e.message);
+                  }
+              }
+              
+              return true;
+          } catch (error) {
+              this.log('ERROR', '❌ WebSocket service check failed:', error.message);
+              return false;
+          }
+      },
+      
+      buildWebSocketURL(user) {
+          const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+          let wsHost;
+          
+          if (window.AAAI_CONFIG?.ENVIRONMENT === 'development') {
+              wsHost = 'localhost:8080';
+          } else {
+              wsHost = 'api-server-559730737995.us-central1.run.app';
+          }
+          
+          const params = new URLSearchParams({
+              auth: 'true',
+              email: encodeURIComponent(user.email),
+              user_id: user.id,
+              session_id: user.sessionId || 'diagnostic_session',
+              t: Date.now()
+          });
+          
+          return `${wsProtocol}//${wsHost}/ws/${user.id}?${params}`;
+      },
+      
+      async testWebSocketConnection() {
+          this.log('INFO', '⚡ Testing WebSocket connection...');
+          
+          if (!AuthService.isAuthenticated()) {
+              this.log('ERROR', '❌ Cannot test - not authenticated');
+              return;
+          }
+          
+          const user = AuthService.getCurrentUser();
+          const wsUrl = this.buildWebSocketURL(user);
+          
+          return new Promise((resolve) => {
+              let socket = null;
+              let connected = false;
+              
+              const timeout = setTimeout(() => {
+                  if (!connected) {
+                      this.log('ERROR', '❌ WebSocket connection timeout (15s)');
+                      if (socket) {
+                          socket.close();
+                      }
+                      resolve(false);
+                  }
+              }, 15000);
+              
+              try {
+                  this.log('INFO', '🔌 Attempting WebSocket connection...');
+                  socket = new WebSocket(wsUrl);
+                  
+                  socket.onopen = () => {
+                      connected = true;
+                      clearTimeout(timeout);
+                      this.log('SUCCESS', '✅ WebSocket connection opened!');
+                      
+                      // Send a test ping
+                      socket.send(JSON.stringify({
+                          type: 'ping',
+                          diagnostic: true,
+                          timestamp: Date.now()
+                      }));
+                  };
+                  
+                  socket.onmessage = (event) => {
+                      try {
+                          const data = JSON.parse(event.data);
+                          this.log('INFO', `📨 Received message: ${data.type}`, data);
+                          
+                          if (data.type === 'session_established') {
+                              this.log('SUCCESS', '🎯 Session established successfully!', {
+                                  sessionId: data.session_id,
+                                  userId: data.user_id,
+                                  capabilities: data.capabilities
+                              });
+                              
+                              // Test sending a message
+                              setTimeout(() => {
+                                  this.log('INFO', '📤 Sending test message...');
+                                  socket.send(JSON.stringify({
+                                      type: 'message',
+                                      message: 'Diagnostic test message',
+                                      diagnostic: true,
+                                      timestamp: new Date().toISOString()
+                                  }));
+                              }, 1000);
+                          }
+                          
+                          if (data.type === 'message_queued') {
+                              this.log('SUCCESS', '📬 Test message queued successfully!', data);
+                              
+                              // Close connection after successful test
+                              setTimeout(() => {
+                                  socket.close(1000, 'Diagnostic test complete');
+                                  resolve(true);
+                              }, 2000);
+                          }
+                          
+                      } catch (e) {
+                          this.log('ERROR', '❌ Failed to parse message:', event.data);
+                      }
+                  };
+                  
+                  socket.onclose = (event) => {
+                      clearTimeout(timeout);
+                      this.log('INFO', `🔌 WebSocket closed: ${event.code} - ${event.reason}`);
+                      if (!connected) {
+                          resolve(false);
+                      }
+                  };
+                  
+                  socket.onerror = (event) => {
+                      clearTimeout(timeout);
+                      this.log('ERROR', '❌ WebSocket error:', event);
+                      resolve(false);
+                  };
+                  
+              } catch (error) {
+                  clearTimeout(timeout);
+                  this.log('ERROR', '❌ Failed to create WebSocket:', error.message);
+                  resolve(false);
+              }
+          });
+      },
+      
+      monitorConnection() {
+          this.log('INFO', '👁️ Starting connection monitoring...');
+          
+          // Monitor ChatService if available
+          if (window.ChatService) {
+              setInterval(() => {
+                  const status = ChatService.getStatus();
+                  const debugInfo = ChatService.getDebugInfo();
+                  
+                  this.log('DEBUG', '📊 ChatService Status:', {
+                      connected: status.connected,
+                      authenticated: status.authenticated,
+                      connecting: status.connecting,
+                      reconnectAttempts: status.reconnectAttempts,
+                      pendingMessages: status.pendingMessages,
+                      sessionId: status.sessionId
+                  });
+                  
+                  // Check for issues
+                  if (status.pendingMessages > 0) {
+                      this.log('WARN', `⚠️ ${status.pendingMessages} messages pending delivery`);
+                  }
+                  
+                  if (status.reconnectAttempts > 0) {
+                      this.log('WARN', `⚠️ ${status.reconnectAttempts} reconnect attempts`);
+                  }
+                  
+              }, 10000); // Every 10 seconds
+          }
+          
+          // Monitor server stats
+          setInterval(async () => {
+              try {
+                  const response = await fetch('/api/websocket/enterprise-stats');
+                  const stats = await response.json();
+                  
+                  this.log('DEBUG', '🏢 Server WebSocket Stats:', {
+                      activeSessions: stats.active_sessions,
+                      uniqueUsers: stats.unique_users,
+                      totalMessages: stats.total_messages,
+                      responsePolling: stats.response_polling
+                  });
+                  
+                  // Alert if no active sessions but user is authenticated
+                  if (AuthService.isAuthenticated() && stats.active_sessions === 0) {
+                      this.log('ERROR', '🚨 User authenticated but no server sessions active!');
+                  }
+                  
+              } catch (e) {
+                  this.log('DEBUG', 'Could not fetch server stats:', e.message);
+              }
+          }, 15000); // Every 15 seconds
+      },
+      
+      createDiagnosticsPanel() {
+          const panel = document.createElement('div');
+          panel.id = 'ws-diagnostics-panel';
+          panel.innerHTML = `
+              <div class="ws-diag-header">
+                  <h3>🔍 WebSocket Diagnostics</h3>
+                  <div class="ws-diag-controls">
+                      <button onclick="WebSocketDiagnostics.testConnection()">Test Connection</button>
+                      <button onclick="WebSocketDiagnostics.clearLogs()">Clear Logs</button>
+                      <button onclick="WebSocketDiagnostics.togglePanel()">Hide</button>
+                  </div>
+              </div>
+              <div class="ws-diag-content" id="ws-diag-content">
+                  <div id="ws-diag-logs">Starting diagnostics...</div>
+              </div>
+          `;
+          
+          document.body.appendChild(panel);
+      },
+      
+      updateDiagnosticsPanel() {
+          const logsContainer = document.getElementById('ws-diag-logs');
+          if (!logsContainer) return;
+          
+          const logsHtml = this.logs.slice(-20).map(log => `
+              <div class="ws-diag-log ws-diag-${log.level.toLowerCase()}">
+                  <span class="ws-diag-time">[${log.time}]</span>
+                  <span class="ws-diag-level">${log.level}</span>
+                  <span class="ws-diag-message">${log.message}</span>
+                  ${log.data ? `<pre class="ws-diag-data">${log.data}</pre>` : ''}
+              </div>
+          `).join('');
+          
+          logsContainer.innerHTML = logsHtml;
+          logsContainer.scrollTop = logsContainer.scrollHeight;
+      },
+      
+      addStyles() {
+          const styles = `
+              <style>
+              #ws-diagnostics-panel {
+                  position: fixed;
+                  bottom: 20px;
+                  right: 20px;
+                  width: 600px;
+                  max-height: 400px;
+                  background: rgba(0, 0, 0, 0.95);
+                  color: #fff;
+                  border-radius: 8px;
+                  font-family: 'Courier New', monospace;
+                  font-size: 12px;
+                  z-index: 10000;
+                  overflow: hidden;
+                  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
+              }
+              
+              .ws-diag-header {
+                  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                  padding: 10px 15px;
+                  display: flex;
+                  justify-content: space-between;
+                  align-items: center;
+              }
+              
+              .ws-diag-header h3 {
+                  margin: 0;
+                  font-size: 14px;
+                  font-weight: bold;
+              }
+              
+              .ws-diag-controls button {
+                  background: rgba(255, 255, 255, 0.2);
+                  border: 1px solid rgba(255, 255, 255, 0.3);
+                  color: white;
+                  padding: 4px 8px;
+                  margin-left: 5px;
+                  border-radius: 4px;
+                  cursor: pointer;
+                  font-size: 11px;
+              }
+              
+              .ws-diag-controls button:hover {
+                  background: rgba(255, 255, 255, 0.3);
+              }
+              
+              .ws-diag-content {
+                  max-height: 350px;
+                  overflow-y: auto;
+                  padding: 10px;
+              }
+              
+              .ws-diag-log {
+                  margin-bottom: 5px;
+                  padding: 5px;
+                  border-radius: 3px;
+                  word-wrap: break-word;
+              }
+              
+              .ws-diag-info { background: rgba(59, 130, 246, 0.1); border-left: 3px solid #3b82f6; }
+              .ws-diag-success { background: rgba(34, 197, 94, 0.1); border-left: 3px solid #22c55e; }
+              .ws-diag-warn { background: rgba(251, 191, 36, 0.1); border-left: 3px solid #fbbf24; }
+              .ws-diag-error { background: rgba(239, 68, 68, 0.1); border-left: 3px solid #ef4444; }
+              .ws-diag-debug { background: rgba(156, 163, 175, 0.1); border-left: 3px solid #9ca3af; }
+              
+              .ws-diag-time {
+                  color: #9ca3af;
+                  margin-right: 8px;
+              }
+              
+              .ws-diag-level {
+                  font-weight: bold;
+                  margin-right: 8px;
+                  min-width: 60px;
+                  display: inline-block;
+              }
+              
+              .ws-diag-data {
+                  background: rgba(55, 65, 81, 0.5);
+                  padding: 8px;
+                  margin-top: 5px;
+                  border-radius: 4px;
+                  font-size: 11px;
+                  white-space: pre-wrap;
+                  overflow-x: auto;
+              }
+              
+              #ws-diagnostics-panel.hidden {
+                  transform: translateX(100%);
+                  transition: transform 0.3s ease;
+              }
+              </style>
+          `;
+          
+          document.head.insertAdjacentHTML('beforeend', styles);
+      },
+      
+      // Public methods
+      async testConnection() {
+          this.log('INFO', '🔄 Manual connection test requested...');
+          await this.testWebSocketConnection();
+      },
+      
+      clearLogs() {
+          this.logs = [];
+          this.updateDiagnosticsPanel();
+          this.log('INFO', '🧹 Logs cleared');
+      },
+      
+      togglePanel() {
+          const panel = document.getElementById('ws-diagnostics-panel');
+          if (panel) {
+              panel.classList.toggle('hidden');
+          }
+      },
+      
+      // Get diagnostic report
+      getDiagnosticReport() {
+          return {
+              timestamp: new Date().toISOString(),
+              logs: this.logs,
+              authStatus: AuthService ? AuthService.isAuthenticated() : false,
+              chatServiceStatus: window.ChatService ? ChatService.getStatus() : null,
+              userAgent: navigator.userAgent,
+              url: window.location.href,
+              config: window.AAAI_CONFIG || null
+          };
+      }
+  };
+  
+  // Auto-initialize on load
+  if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', () => {
+          setTimeout(() => WebSocketDiagnostics.init(), 1000);
+      });
+  } else {
+      setTimeout(() => WebSocketDiagnostics.init(), 1000);
+  }
+  
+  // Export for global access
+  window.WebSocketDiagnostics = WebSocketDiagnostics;
+  </script>
 </body>
 
 </html>
