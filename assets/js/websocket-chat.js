@@ -56,7 +56,6 @@ const ChatService = {
         }
         
         this.authService = authService;
-        this.options = { ...this.getDefaultOptions(), ...options };
         
         // Set user context from auth
         const user = authService.getCurrentUser();
@@ -346,7 +345,7 @@ const ChatService = {
     _generateId() {
         return `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     },
-    
+
     /**
      * Handle incoming messages - WebSocket only version
      */
