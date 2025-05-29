@@ -1813,6 +1813,7 @@
               // Send via WebSocket
               console.log('📡 Sending via WebSocket');
               await chatService.sendMessage(text);
+              showTypingIndicator();
           } catch (error) {
               console.error('❌ Failed to send message:', error);
               
