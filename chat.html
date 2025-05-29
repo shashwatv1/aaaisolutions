@@ -702,6 +702,28 @@
       align-self: flex-end;
       border-bottom-right-radius: 6px;
     }
+
+    .message-system {
+      background: linear-gradient(135deg, var(--space-cadet) 0%, var(--independence) 100%);
+      color: rgba(255, 255, 255, 0.8);
+      align-self: center;
+      font-style: italic;
+      font-size: 0.9rem;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      text-align: center;
+      max-width: 60%;
+    }
+
+    .message.temporary {
+      opacity: 0.7;
+      font-style: italic;
+      animation: pulse-opacity 2s infinite;
+    }
+
+    @keyframes pulse-opacity {
+      0%, 100% { opacity: 0.7; }
+      50% { opacity: 1; }
+    }
     
     .message-timestamp {
       font-size: 0.75rem;
@@ -1791,7 +1813,6 @@
               // Send via WebSocket
               console.log('📡 Sending via WebSocket');
               await chatService.sendMessage(text);
-              showTypingIndicator();
           } catch (error) {
               console.error('❌ Failed to send message:', error);
               
@@ -1801,9 +1822,7 @@
               
               elements.messageInput.value = text;
               showError(`Failed to send message: ${error.message}`);
-          } finally {
               elements.sendMessageBtn.disabled = false;
-              elements.messageInput.focus();
           }
       }
       
@@ -1824,12 +1843,51 @@
                   console.log('📬 Message queued:', data.message_id);
                   showStatusIndicator('connected', '📬 Message queued');
                   
+                  // Show a temporary processing message
+                  addMessage('Processing your message...', 'system', null, null, true);
+                  
                   setTimeout(() => {
-                      const typing = document.querySelector('.typing-indicator');
-                      if (typing) {
-                          typing.innerHTML = '<span>Processing your message...</span>';
-                      }
-                  }, 500);
+                      // Remove temporary message and show typing indicator
+                      hideTypingIndicator(); // This will remove temporary messages
+                      showTypingIndicator();
+                  }, 1000);
+                  break;
+              
+              // NEW: Handle chat_response messages  
+              case 'chat_response':
+                  console.log('💬 Chat response received:', data.message_id);
+                  hideTypingIndicator();
+                  
+                  if (data.response) {
+                      addMessage(
+                          data.response.text || 'No response text',
+                          'bot',
+                          data.completed_at || data.timestamp,
+                          data.response.components
+                      );
+                  }
+                  
+                  elements.sendMessageBtn.disabled = false;
+                  break;
+              
+              // NEW: Handle bot_response messages (from EnhancedChatIntegration)
+              case 'bot_response':
+                  console.log('🤖 Bot response received:', data.message_id);
+                  hideTypingIndicator();
+                  
+                  let processingInfo = '';
+                  if (data.processingTime) {
+                      processingInfo = ` (${data.processingTime.toFixed(1)}s)`;
+                  }
+                  
+                  addMessage(
+                      data.text + processingInfo,
+                      'bot',
+                      data.timestamp,
+                      data.components
+                  );
+                  
+                  elements.sendMessageBtn.disabled = false;
                   break;
                   
               case 'message':
@@ -1986,12 +2044,18 @@
           `;
       }
       
-      function addMessage(text, type, timestamp = null, components = null) {
+      function addMessage(text, type, timestamp = null, components = null, isTemporary = false) {
           hideWelcomeMessage();
           
           const msg = document.createElement('div');
           msg.className = type === 'user' ? 'message message-user' : 
                         type === 'system' ? 'message message-system' : 'message message-bot';
+          
+          if (isTemporary) {
+              msg.classList.add('temporary');
+              msg.style.opacity = '0.7';
+              msg.style.fontStyle = 'italic';
+          }
           
           const textDiv = document.createElement('div');
           textDiv.textContent = text;
@@ -2043,10 +2107,12 @@
       }
       
       function hideTypingIndicator() {
-          const existing = document.querySelector('.typing-indicator');
-          if (existing) {
-              existing.remove();
-          }
+          const existing = document.querySelectorAll('.typing-indicator');
+          existing.forEach(indicator => indicator.remove());
+          
+          // Also remove any temporary processing messages
+          const tempMessages = document.querySelectorAll('.message.temporary');
+          tempMessages.forEach(msg => msg.remove());
       }
       
       function updateConnectionStatus(status) {

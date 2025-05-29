@@ -726,8 +726,8 @@ const EnhancedChatIntegration = {
     
     init(chatContainerId = 'chat-container') {
         this.chatContainer = document.getElementById(chatContainerId);
-        this.messageContainer = document.getElementById('messages') || document.getElementById('chat-messages');
-        this.inputElement = document.getElementById('message-input') || document.querySelector('input[type="text"]');
+        this.messageContainer = document.getElementById('chatBody') || document.getElementById('messages') || document.getElementById('chat-messages');
+        this.inputElement = document.getElementById('messageInput') || document.getElementById('message-input') || document.querySelector('input[type="text"], textarea');
         this.statusElement = document.getElementById('connection-status');
         
         // Set up ChatService listeners
@@ -1058,10 +1058,14 @@ document.addEventListener('DOMContentLoaded', function() {
         );
     }
     
-    // Initialize enhanced chat integration
-    EnhancedChatIntegration.init();
-    
-    console.log('🚀 WebSocket-only chat system ready');
+    // Only initialize enhanced chat integration if there's no main chat app
+    // (The main chat app in chat.html will handle messages directly)
+    if (!document.getElementById('chatBody')) {
+        EnhancedChatIntegration.init();
+        console.log('🚀 WebSocket-only chat system ready (Enhanced Integration)');
+    } else {
+        console.log('🚀 WebSocket-only chat system ready (Main App Integration)');
+    }
 });
 
 // Export for global access
