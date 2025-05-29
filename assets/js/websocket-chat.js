@@ -38,6 +38,15 @@ const ChatService = {
         debug: true
     },
     
+    // Context state - critical for proper data flow
+    currentContext: {
+        user_id: null,      // From authentication
+        chat_id: null,      // From project selection (project_id)
+        reel_id: null,      // From specific chat/conversation
+        project_name: null,
+        chat_name: null
+    },
+
     /**
      * Initialize the service
      */
@@ -47,12 +56,67 @@ const ChatService = {
         }
         
         this.authService = authService;
-        this.options = { ...this.options, ...options };
+        this.options = { ...this.getDefaultOptions(), ...options };
         
-        this._log('🚀 WebSocket-Only ChatService initialized');
+        // Set user context from auth
+        const user = authService.getCurrentUser();
+        if (user) {
+            this.currentContext.user_id = user.id;
+        }
+        
+        console.log('🚀 Enhanced ChatService initialized with context:', this.currentContext);
         return this;
     },
     
+    setProjectContext(projectId, projectName) {
+        this.currentContext.chat_id = projectId;
+        this.currentContext.project_name = projectName;
+        
+        console.log('📂 Project context set:', {
+            chat_id: this.currentContext.chat_id,
+            project_name: this.currentContext.project_name
+        });
+        
+        // Notify orchestrator about context change
+        this._notifyContextChange();
+    },
+
+    setChatContext(chatId, chatName) {
+        this.currentContext.reel_id = chatId;
+        this.currentContext.chat_name = chatName;
+        
+        console.log('💬 Chat context set:', {
+            reel_id: this.currentContext.reel_id,
+            chat_name: this.currentContext.chat_name
+        });
+        
+        // Notify orchestrator about context change
+        this._notifyContextChange();
+    },
+    
+    async saveContext() {
+        try {
+            await this.authService.executeFunction('save_user_context', {
+                user_id: this.currentContext.user_id,
+                chat_id: this.currentContext.chat_id,
+                reel_id: this.currentContext.reel_id,
+                context_data: {
+                    project_name: this.currentContext.project_name,
+                    chat_name: this.currentContext.chat_name,
+                    last_accessed: new Date().toISOString()
+                }
+            });
+            
+            console.log('💾 Context saved successfully');
+            
+        } catch (error) {
+            console.error('❌ Failed to save context:', error);
+        }
+    },
+
+    getCurrentContext() {
+        return { ...this.currentContext };
+    },
     /**
      * Connect to WebSocket
      */
@@ -215,11 +279,72 @@ const ChatService = {
             auth: 'true',
             email: encodeURIComponent(user.email),
             user_id: user.id,
+            chat_id: this.currentContext.chat_id || '',
+            reel_id: this.currentContext.reel_id || '',
             session_id: user.sessionId || 'web_session',
             t: Date.now()
         });
         
         return `${wsProtocol}//${wsHost}/ws/${user.id}?${params}`;
+    },
+    
+    _validateMessageContext(messageContext) {
+        if (!messageContext) return true; // Allow messages without context
+        
+        return (
+            messageContext.user_id === this.currentContext.user_id &&
+            messageContext.chat_id === this.currentContext.chat_id &&
+            (!messageContext.reel_id || messageContext.reel_id === this.currentContext.reel_id)
+        );
+    },
+    
+    _updateContextFromServer(serverContext) {
+        if (serverContext.chat_id) {
+            this.currentContext.chat_id = serverContext.chat_id;
+        }
+        if (serverContext.reel_id) {
+            this.currentContext.reel_id = serverContext.reel_id;
+        }
+        
+        console.log('🔄 Context updated from server:', this.currentContext);
+    },
+
+    _notifyContextChange() {
+        // Send context update to server if connected
+        if (this.isConnected && this.socket.readyState === WebSocket.OPEN) {
+            this.socket.send(JSON.stringify({
+                type: 'context_update',
+                context: this.currentContext,
+                timestamp: new Date().toISOString()
+            }));
+        }
+        
+        // Save context
+        this.saveContext();
+    },
+
+    async _loadProjectMessages() {
+        try {
+            const result = await this.authService.executeFunction('get_project_messages', {
+                user_id: this.currentContext.user_id,
+                chat_id: this.currentContext.chat_id,
+                limit: 50
+            });
+            
+            if (result?.data?.success) {
+                return result.data.messages || [];
+            }
+            
+            return [];
+            
+        } catch (error) {
+            console.error('❌ Failed to load project messages:', error);
+            return [];
+        }
+    },
+    
+    _generateId() {
+        return `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     },
     
     /**
@@ -228,6 +353,23 @@ const ChatService = {
     _handleMessage(data) {
         this.messageCount++;
         
+        
+        if (data.type === 'session_established') {
+            this.isAuthenticated = true;
+            console.log('🎯 Session established with context:', data.context);
+            
+            // Verify context matches
+            if (data.context) {
+                if (data.context.chat_id !== this.currentContext.chat_id) {
+                    console.warn('⚠️ Context mismatch detected, updating...');
+                    this._updateContextFromServer(data.context);
+                }
+            }
+            
+            this._notifyStatusChange('connected');
+            return;
+        }
+
         // Handle server heartbeat
         if (data.type === 'heartbeat') {
             this._log('💓 Heartbeat from server');
@@ -312,7 +454,7 @@ const ChatService = {
                 components: response.components || [],
                 processingTime: processingTime,
                 timestamp: Date.now(),
-                metadata: response.metadata || {}
+                context: data.context
             });
             
             // Also notify regular message listeners for backward compatibility
@@ -433,7 +575,14 @@ const ChatService = {
             type: 'message',
             message: text.trim(),
             id: this._generateId(),
-            timestamp: new Date().toISOString()
+            timestamp: new Date().toISOString(),
+            context: {
+                user_id: this.currentContext.user_id,
+                chat_id: this.currentContext.chat_id,
+                reel_id: this.currentContext.reel_id,
+                project_name: this.currentContext.project_name,
+                chat_name: this.currentContext.chat_name
+            }
         };
         
         if (this.isAuthenticated && this.socket && this.socket.readyState === WebSocket.OPEN) {
@@ -459,6 +608,34 @@ const ChatService = {
         }
     },
     
+    async loadChatHistory() {
+        if (!this.currentContext.chat_id || !this.currentContext.reel_id) {
+            console.log('No specific chat context, loading project messages');
+            return await this._loadProjectMessages();
+        }
+        
+        try {
+            console.log('📚 Loading chat history for context:', this.currentContext);
+            
+            const result = await this.authService.executeFunction('get_chat_messages', {
+                user_id: this.currentContext.user_id,
+                chat_id: this.currentContext.chat_id,
+                reel_id: this.currentContext.reel_id,
+                limit: 50
+            });
+            
+            if (result?.data?.success) {
+                return result.data.messages || [];
+            }
+            
+            return [];
+            
+        } catch (error) {
+            console.error('❌ Failed to load chat history:', error);
+            return [];
+        }
+    },
+
     /**
      * Disconnect
      */
