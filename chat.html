@@ -1,2739 +1,1001 @@
-<!DOCTYPE html>
-<html lang="en">
-
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>AAAI Solutions - AI Chat</title>
-  <link rel="shortcut icon" href="./robot.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="./assets/css/style.css">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Barlow:wght@600;700&family=Open+Sans:wght@400;500;700&family=Poppins:wght@400;600&display=swap" rel="stylesheet">
+document.addEventListener('DOMContentLoaded', function() {
+  // Application state
+  let chatService = null;
+  let currentProject = null;
+  let currentChat = null;
+  let chats = [];
+  let uiRenderer = null;
+  let isConnecting = false;
+  let messageQueue = [];
+  let sidebarCollapsed = false;
+  let contextMenuChatId = null;
   
-  <!-- Load configuration -->
-  <script>
-    try {
-      document.head.appendChild(document.createElement('script')).src = './assets/js/config.js';
-    } catch (e) {
-      console.log('Config.js not found, using default configuration');
-    }
-  </script>
+  // DOM elements
+  const elements = {
+      // Sidebar elements
+      chatSidebar: document.getElementById('chatSidebar'),
+      sidebarProjectName: document.getElementById('sidebarProjectName'),
+      sidebarCollapseBtn: document.getElementById('sidebarCollapseBtn'),
+      collapseIcon: document.getElementById('collapseIcon'),
+      newChatBtn: document.getElementById('newChatBtn'),
+      chatList: document.getElementById('chatList'),
+      loadingChats: document.getElementById('loadingChats'),
+      
+      // Context Menu elements
+      chatContextMenu: document.getElementById('chatContextMenu'),
+      renameChatBtn: document.getElementById('renameChatBtn'),
+      deleteChatBtn: document.getElementById('deleteChatBtn'),
+      
+      // Delete Modal elements
+      deleteModalOverlay: document.getElementById('deleteModalOverlay'),
+      deleteModalMessage: document.getElementById('deleteModalMessage'),
+      cancelDeleteBtn: document.getElementById('cancelDeleteBtn'),
+      confirmDeleteBtn: document.getElementById('confirmDeleteBtn'),
+      
+      // Chat elements
+      chatContainer: document.getElementById('chatContainer'),
+      chatTitle: document.getElementById('chatTitle'),
+      chatSubtitle: document.getElementById('chatSubtitle'),
+      userEmail: document.getElementById('userEmail'),
+      creditsDisplay: document.getElementById('creditsDisplay'),
+      connectionDot: document.getElementById('connectionDot'),
+      connectionText: document.getElementById('connectionText'),
+      chatBody: document.getElementById('chatBody'),
+      messageInput: document.getElementById('messageInput'),
+      sendMessageBtn: document.getElementById('sendMessageBtn'),
+      welcomeMessage: document.getElementById('welcomeMessage'),
+      backBtn: document.getElementById('backBtn'),
+      connectionError: document.getElementById('connectionError'),
+      reconnectBtn: document.getElementById('reconnectBtn'),
+      connectedStatus: document.querySelector('.status-connected'),
+      disconnectedStatus: document.querySelector('.status-disconnected'),
+      reconnectingStatus: document.querySelector('.status-reconnecting')
+  };
   
-  <!-- Enhanced Chat-specific styles -->
-  <style>
-    /* Environment indicator */
-    .env-indicator {
-      position: fixed;
-      top: 0;
-      left: 0;
-      right: 0;
-      z-index: 10000;
-      padding: 5px 10px;
-      text-align: center;
-      font-size: 0.8rem;
-      font-weight: bold;
-      color: white;
-      display: none;
-    }
-    
-    .env-indicator.development {
-      background-color: #f39c12;
-      display: block;
-    }
-    
-    .env-indicator.staging {
-      background-color: #9b59b6;
-      display: block;
-    }
-    
-    body.with-env-indicator {
-      padding-top: 30px;
-    }
-
-    /* Main content styles */
-    .main-content {
-      min-height: 100vh;
-      background: linear-gradient(180deg, var(--rich-black-fogra-29) 0%, var(--space-cadet) 100%);
-      padding-top: 80px;
-      display: flex;
-      width: 100%;
-    }
-
-    /* Chat Layout Container */
-    .chat-layout {
-      margin: 20px 0;
-      display: flex;
-      height: calc(100vh - 140px);
-      gap: 0;
-      position: relative;
-      width: 100%;
-      padding: 0;
-    }
-
-    /* Chat Sidebar */
-    .chat-sidebar {
-      width: 300px;
-      background: linear-gradient(135deg, var(--space-cadet) 0%, var(--independence) 100%);
-      border-radius: var(--radius-15) 0 0 var(--radius-15);
-      border: 1px solid rgba(255, 255, 255, 0.1);
-      border-right: none;
-      display: flex;
-      flex-direction: column;
-      transition: all 0.3s ease;
-      overflow: hidden;
-    }
-
-    .chat-sidebar.collapsed {
-      width: 60px;
-    }
-
-    .chat-sidebar.collapsed .sidebar-content {
-      opacity: 0;
-      pointer-events: none;
-    }
-
-    .chat-sidebar.collapsed .sidebar-header .project-name {
-      display: none;
-    }
-
-    .chat-sidebar.collapsed .sidebar-header .collapse-btn {
-      justify-self: center;
-    }
-
-    /* Sidebar Header */
-    .sidebar-header {
-      padding: 20px;
-      border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      min-height: 70px;
-    }
-
-    .project-name {
-      color: var(--white);
-      font-size: 1.1rem;
-      font-weight: 600;
-      margin: 0;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-      flex: 1;
-    }
-
-    .collapse-btn {
-      background: transparent;
-      border: 1px solid rgba(255, 255, 255, 0.3);
-      color: var(--white);
-      padding: 8px;
-      border-radius: 6px;
-      cursor: pointer;
-      transition: all 0.3s ease;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      min-width: 32px;
-      height: 32px;
-    }
-
-    .collapse-btn:hover {
-      background: rgba(255, 255, 255, 0.1);
-      border-color: rgba(255, 255, 255, 0.5);
-    }
-
-    /* Sidebar Content */
-    .sidebar-content {
-      flex: 1;
-      display: flex;
-      flex-direction: column;
-      transition: opacity 0.3s ease;
-      overflow: hidden;
-    }
-
-    /* New Chat Button */
-    .new-chat-container {
-      padding: 15px 20px;
-      border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-    }
-
-    .new-chat-btn {
-      width: 100%;
-      background: linear-gradient(135deg, var(--orange-soda) 0%, var(--klein-blue) 100%);
-      color: var(--white);
-      border: none;
-      padding: 12px 16px;
-      border-radius: 8px;
-      cursor: pointer;
-      font-weight: 600;
-      font-size: 0.9rem;
-      transition: all 0.3s ease;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      gap: 8px;
-    }
-
-    .new-chat-btn:hover {
-      transform: translateY(-2px);
-      box-shadow: 0 5px 15px rgba(255, 126, 95, 0.4);
-    }
-
-    /* Chat List */
-    .chat-list-container {
-      flex: 1;
-      overflow-y: auto;
-      padding: 10px 0;
-    }
-
-    .chat-list-header {
-      padding: 10px 20px;
-      color: rgba(255, 255, 255, 0.6);
-      font-size: 0.85rem;
-      font-weight: 600;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-    }
-
-    .chat-list {
-      padding: 0 10px;
-    }
-
-    .chat-item {
-      background: transparent;
-      border: none;
-      color: rgba(255, 255, 255, 0.8);
-      padding: 12px 15px;
-      margin-bottom: 4px;
-      border-radius: 8px;
-      cursor: pointer;
-      transition: all 0.3s ease;
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      width: 100%;
-      text-align: left;
-      position: relative;
-    }
-
-    .chat-item:hover {
-      background: rgba(255, 255, 255, 0.1);
-      color: var(--white);
-    }
-
-    .chat-item.active {
-      background: linear-gradient(135deg, var(--klein-blue) 0%, var(--indigo) 100%);
-      color: var(--white);
-    }
-
-    .chat-item-icon {
-      font-size: 1rem;
-      opacity: 0.7;
-      min-width: 16px;
-    }
-
-    .chat-item-content {
-      flex: 1;
-      overflow: hidden;
-    }
-
-    .chat-item-name {
-      font-size: 0.9rem;
-      font-weight: 500;
-      margin-bottom: 2px;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-    }
-
-    .chat-item-preview {
-      font-size: 0.75rem;
-      opacity: 0.7;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-    }
-
-    .chat-item-menu {
-      background: transparent;
-      border: none;
-      color: inherit;
-      font-size: 1rem;
-      cursor: pointer;
-      padding: 4px;
-      border-radius: 4px;
-      opacity: 0;
-      transition: all 0.3s ease;
-    }
-
-    .chat-item:hover .chat-item-menu {
-      opacity: 0.7;
-    }
-
-    .chat-item-menu:hover {
-      opacity: 1;
-      background: rgba(255, 255, 255, 0.1);
-    }
-
-    /* Chat Context Menu */
-    .chat-context-menu {
-      position: absolute;
-      background: linear-gradient(135deg, var(--independence) 0%, var(--space-cadet) 100%);
-      border: 1px solid rgba(255, 255, 255, 0.1);
-      border-radius: 8px;
-      padding: 8px 0;
-      min-width: 160px;
-      box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
-      z-index: 1000;
-      display: none;
-      backdrop-filter: blur(10px);
-    }
-
-    .chat-context-menu.show {
-      display: block;
-    }
-
-    .chat-context-menu-item {
-      background: transparent;
-      border: none;
-      color: var(--white);
-      padding: 10px 16px;
-      width: 100%;
-      text-align: left;
-      cursor: pointer;
-      font-size: 0.9rem;
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      transition: background-color 0.2s ease;
-    }
-
-    .chat-context-menu-item:hover {
-      background: rgba(255, 255, 255, 0.1);
-    }
-
-    .chat-context-menu-item.danger {
-      color: #e74c3c;
-    }
-
-    .chat-context-menu-item.danger:hover {
-      background: rgba(231, 76, 60, 0.1);
-    }
-
-    /* Delete Confirmation Modal */
-    .delete-modal-overlay {
-      position: fixed;
-      top: 0;
-      left: 0;
-      width: 100%;
-      height: 100%;
-      background: rgba(0, 0, 0, 0.7);
-      display: none;
-      justify-content: center;
-      align-items: center;
-      z-index: 2000;
-      backdrop-filter: blur(5px);
-    }
-
-    .delete-modal {
-      background: linear-gradient(135deg, var(--independence) 0%, var(--space-cadet) 100%);
-      border-radius: var(--radius-15);
-      padding: 30px;
-      max-width: 400px;
-      width: 90%;
-      border: 1px solid rgba(255, 255, 255, 0.1);
-      text-align: center;
-    }
-
-    .delete-modal-icon {
-      font-size: 3rem;
-      color: #e74c3c;
-      margin-bottom: 20px;
-    }
-
-    .delete-modal-title {
-      color: var(--white);
-      font-size: 1.3rem;
-      margin-bottom: 10px;
-      font-weight: 600;
-    }
-
-    .delete-modal-message {
-      color: rgba(255, 255, 255, 0.8);
-      margin-bottom: 25px;
-      line-height: 1.5;
-    }
-
-    .delete-modal-actions {
-      display: flex;
-      gap: 15px;
-      justify-content: center;
-    }
-
-    .btn-cancel {
-      background: transparent;
-      border: 1px solid rgba(255, 255, 255, 0.3);
-      color: var(--white);
-      padding: 12px 24px;
-      border-radius: 8px;
-      cursor: pointer;
-      transition: all 0.3s ease;
-      font-weight: 500;
-    }
-
-    .btn-cancel:hover {
-      background: rgba(255, 255, 255, 0.1);
-      border-color: rgba(255, 255, 255, 0.5);
-    }
-
-    .btn-delete {
-      background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%);
-      color: white;
-      border: none;
-      padding: 12px 24px;
-      border-radius: 8px;
-      cursor: pointer;
-      font-weight: 600;
-      transition: all 0.3s ease;
-    }
-
-    .btn-delete:hover {
-      transform: translateY(-2px);
-      box-shadow: 0 5px 15px rgba(231, 76, 60, 0.4);
-    }
-
-    .btn-delete:disabled {
-      opacity: 0.6;
-      cursor: not-allowed;
-      transform: none;
-    }
-
-    /* Chat Container */
-    .chat-container {
-      flex: 1;
-      background-color: var(--independence);
-      border-radius: 0 var(--radius-15) var(--radius-15) 0;
-      overflow: hidden;
-      box-shadow: 0 15px 35px rgba(0, 0, 0, 0.3);
-      position: relative;
-      border: 1px solid rgba(255, 255, 255, 0.1);
-      border-left: none;
-      display: flex;
-      flex-direction: column;
-    }
-
-    .chat-container.sidebar-collapsed {
-      border-radius: var(--radius-15);
-      border-left: 1px solid rgba(255, 255, 255, 0.1);
-    }
-    
-    /* Status indicators */
-    .status-indicator {
-      position: absolute;
-      top: 15px;
-      left: 50%;
-      transform: translateX(-50%);
-      padding: 8px 20px;
-      border-radius: 25px;
-      font-size: 0.9rem;
-      font-weight: 600;
-      opacity: 0;
-      transition: all 0.3s ease;
-      z-index: 1000;
-      backdrop-filter: blur(10px);
-    }
-    
-    .status-connected {
-      background: linear-gradient(135deg, rgba(46, 204, 113, 0.9) 0%, rgba(39, 174, 96, 0.9) 100%);
-      color: white;
-    }
-    
-    .status-disconnected {
-      background: linear-gradient(135deg, rgba(231, 76, 60, 0.9) 0%, rgba(192, 57, 43, 0.9) 100%);
-      color: white;
-    }
-    
-    .status-reconnecting {
-      background: linear-gradient(135deg, rgba(243, 156, 18, 0.9) 0%, rgba(230, 126, 34, 0.9) 100%);
-      color: white;
-    }
-    
-    .status-indicator.visible {
-      opacity: 1;
-      transform: translateX(-50%) translateY(10px);
-    }
-    
-    /* Chat header */
-    .chat-header {
-      background: linear-gradient(135deg, var(--indigo) 0%, var(--klein-blue) 100%);
-      padding: 20px 25px;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-      flex-shrink: 0;
-    }
-    
-    .chat-header-left {
-      display: flex;
-      align-items: center;
-      gap: 15px;
-    }
-    
-    .back-btn {
-      background: transparent;
-      border: 1px solid rgba(255, 255, 255, 0.3);
-      color: var(--white);
-      padding: 8px 12px;
-      border-radius: 6px;
-      cursor: pointer;
-      transition: all 0.3s ease;
-      display: flex;
-      align-items: center;
-      gap: 5px;
-      font-size: 0.9rem;
-    }
-    
-    .back-btn:hover {
-      background: rgba(255, 255, 255, 0.1);
-      border-color: rgba(255, 255, 255, 0.5);
-    }
-    
-    .chat-info {
-      color: var(--white);
-    }
-    
-    .chat-title {
-      font-size: 1.3rem;
-      margin: 0 0 5px 0;
-      font-weight: 600;
-    }
-    
-    .chat-subtitle {
-      font-size: 0.85rem;
-      color: rgba(255, 255, 255, 0.7);
-      margin: 0;
-    }
-    
-    .chat-env-info {
-      font-size: 0.7rem;
-      color: rgba(255, 255, 255, 0.6);
-      margin-left: 10px;
-    }
-    
-    .chat-header-right {
-      display: flex;
-      align-items: center;
-      gap: 15px;
-    }
-    
-    .user-info {
-      display: flex;
-      align-items: center;
-      gap: 15px;
-      color: var(--white);
-    }
-    
-    .credits-badge {
-      background: linear-gradient(135deg, var(--orange-soda) 0%, var(--red-orange) 100%);
-      padding: 6px 12px;
-      border-radius: 20px;
-      font-size: 0.85rem;
-      font-weight: 600;
-      box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
-    }
-    
-    .connection-status {
-      display: flex;
-      align-items: center;
-      gap: 5px;
-      font-size: 0.8rem;
-      color: rgba(255, 255, 255, 0.8);
-    }
-    
-    .connection-dot {
-      width: 8px;
-      height: 8px;
-      border-radius: 50%;
-      background: #e74c3c;
-      animation: pulse 2s infinite;
-    }
-    
-    .connection-dot.connected {
-      background: #2ecc71;
-    }
-    
-    .connection-dot.connecting {
-      background: #f39c12;
-    }
-    
-    @keyframes pulse {
-      0%, 100% { opacity: 1; }
-      50% { opacity: 0.5; }
-    }
-    
-    .chat-menu-btn {
-      background: transparent;
-      border: 1px solid rgba(255, 255, 255, 0.3);
-      color: var(--white);
-      padding: 8px 12px;
-      border-radius: 6px;
-      cursor: pointer;
-      transition: all 0.3s ease;
-      font-size: 1.2rem;
-    }
-    
-    .chat-menu-btn:hover {
-      background: rgba(255, 255, 255, 0.1);
-      border-color: rgba(255, 255, 255, 0.5);
-    }
-    
-    /* Chat body */
-    .chat-body {
-      flex: 1;
-      padding: 20px;
-      overflow-y: auto;
-      display: flex;
-      flex-direction: column;
-      background: linear-gradient(180deg, var(--space-cadet) 0%, var(--independence) 100%);
-      scrollbar-width: thin;
-      scrollbar-color: var(--orange-soda) transparent;
-    }
-    
-    .chat-body::-webkit-scrollbar {
-      width: 6px;
-    }
-    
-    .chat-body::-webkit-scrollbar-track {
-      background: transparent;
-    }
-    
-    .chat-body::-webkit-scrollbar-thumb {
-      background: var(--orange-soda);
-      border-radius: 3px;
-    }
-    
-    /* Welcome message */
-    .welcome-message {
-      text-align: center;
-      padding: 40px 20px;
-      color: rgba(255, 255, 255, 0.6);
-    }
-    
-    .welcome-icon {
-      font-size: 3rem;
-      margin-bottom: 20px;
-      opacity: 0.7;
-    }
-    
-    .welcome-message h3 {
-      color: var(--white);
-      font-size: 1.3rem;
-      margin-bottom: 10px;
-    }
-    
-    .welcome-message p {
-      font-size: 0.95rem;
-      margin-bottom: 20px;
-      max-width: 400px;
-      margin-left: auto;
-      margin-right: auto;
-      line-height: 1.5;
-    }
-    
-    .welcome-suggestions {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 10px;
-      justify-content: center;
-      margin-top: 20px;
-    }
-    
-    .suggestion-btn {
-      background: rgba(255, 255, 255, 0.1);
-      border: 1px solid rgba(255, 255, 255, 0.2);
-      color: var(--white);
-      padding: 8px 16px;
-      border-radius: 20px;
-      cursor: pointer;
-      transition: all 0.3s ease;
-      font-size: 0.85rem;
-    }
-    
-    .suggestion-btn:hover {
-      background: rgba(255, 255, 255, 0.2);
-      border-color: var(--orange-soda);
-    }
-    
-    /* Messages */
-    .message {
-      max-width: 75%;
-      padding: 15px 20px;
-      margin-bottom: 15px;
-      border-radius: 18px;
-      position: relative;
-      line-height: 1.6;
-      word-wrap: break-word;
-      animation: fadeInUp 0.3s ease-out;
-    }
-    
-    @keyframes fadeInUp {
-      from {
-        opacity: 0;
-        transform: translateY(20px);
-      }
-      to {
-        opacity: 1;
-        transform: translateY(0);
-      }
-    }
-    
-    .message-bot {
-      background: linear-gradient(135deg, var(--independence) 0%, var(--cadet-blue-crayola) 100%);
-      color: var(--white);
-      align-self: flex-start;
-      border-bottom-left-radius: 6px;
-      border: 1px solid rgba(255, 255, 255, 0.1);
-    }
-    
-    .message-user {
-      background: linear-gradient(135deg, var(--klein-blue) 0%, var(--indigo) 100%);
-      color: var(--white);
-      align-self: flex-end;
-      border-bottom-right-radius: 6px;
-    }
-    
-    .message-timestamp {
-      font-size: 0.75rem;
-      color: rgba(255, 255, 255, 0.6);
-      margin-top: 8px;
-      text-align: right;
-    }
-    
-    .message-status {
-      font-size: 0.7rem;
-      color: rgba(255, 255, 255, 0.5);
-      margin-top: 5px;
-      text-align: right;
-      font-style: italic;
-    }
-    
-    /* Typing indicator */
-    .typing-indicator {
-      display: flex;
-      align-items: center;
-      padding: 15px 20px;
-      background: linear-gradient(135deg, var(--independence) 0%, var(--cadet-blue-crayola) 100%);
-      border-radius: 18px;
-      border-bottom-left-radius: 6px;
-      margin-bottom: 15px;
-      width: fit-content;
-      align-self: flex-start;
-      border: 1px solid rgba(255, 255, 255, 0.1);
-    }
-    
-    .typing-dot {
-      width: 8px;
-      height: 8px;
-      background-color: var(--white);
-      border-radius: 50%;
-      margin: 0 3px;
-      animation: typing-animation 1.4s infinite ease-in-out;
-    }
-    
-    .typing-dot:nth-child(2) {
-      animation-delay: 0.2s;
-    }
-    
-    .typing-dot:nth-child(3) {
-      animation-delay: 0.4s;
-    }
-    
-    @keyframes typing-animation {
-      0%, 100% {
-        transform: translateY(0);
-        opacity: 0.7;
-      }
-      50% {
-        transform: translateY(-8px);
-        opacity: 1;
-      }
-    }
-    
-    /* Chat footer */
-    .chat-footer {
-      display: flex;
-      padding: 20px;
-      background: linear-gradient(135deg, var(--independence) 0%, var(--space-cadet) 100%);
-      border-top: 1px solid rgba(255, 255, 255, 0.1);
-      gap: 15px;
-      flex-shrink: 0;
-    }
-    
-    .chat-input {
-      flex: 1;
-      background: rgba(255, 255, 255, 0.1);
-      color: var(--white);
-      border: 2px solid transparent;
-      padding: 15px 20px;
-      border-radius: 25px;
-      font-size: 1rem;
-      transition: all 0.3s ease;
-      backdrop-filter: blur(10px);
-      resize: none;
-      min-height: 54px;
-      max-height: 120px;
-    }
-    
-    .chat-input:focus {
-      outline: none;
-      border-color: var(--orange-soda);
-      background: rgba(255, 255, 255, 0.15);
-    }
-    
-    .chat-input::placeholder {
-      color: rgba(255, 255, 255, 0.6);
-    }
-    
-    .chat-send-btn {
-      background: linear-gradient(135deg, var(--orange-soda) 0%, var(--red-orange) 100%);
-      color: white;
-      border: none;
-      padding: 15px 25px;
-      border-radius: 25px;
-      cursor: pointer;
-      transition: all 0.3s ease;
-      font-weight: 600;
-      white-space: nowrap;
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      position: relative;
-      overflow: hidden;
-    }
-    
-    .chat-send-btn:hover:not(:disabled) {
-      transform: translateY(-2px);
-      box-shadow: 0 5px 15px rgba(255, 126, 95, 0.4);
-    }
-    
-    .chat-send-btn:disabled {
-      opacity: 0.5;
-      cursor: not-allowed;
-      transform: none;
-      background: linear-gradient(135deg, #6c7b7f 0%, #95a5a6 100%);
-    }
-
-    /* Loading states */
-    .loading-chats {
-      padding: 20px;
-      text-align: center;
-      color: rgba(255, 255, 255, 0.6);
-      font-size: 0.85rem;
-    }
-
-    .loading-spinner {
-      width: 20px;
-      height: 20px;
-      border: 2px solid rgba(255, 255, 255, 0.3);
-      border-top: 2px solid var(--orange-soda);
-      border-radius: 50%;
-      animation: spin 1s linear infinite;
-      margin: 0 auto 10px;
-    }
-
-    @keyframes spin {
-      0% { transform: rotate(0deg); }
-      100% { transform: rotate(360deg); }
-    }
-
-    /* Empty chat state */
-    .empty-chat-list {
-      padding: 30px 20px;
-      text-align: center;
-      color: rgba(255, 255, 255, 0.5);
-    }
-
-    .empty-chat-list ion-icon {
-      font-size: 2rem;
-      margin-bottom: 10px;
-      opacity: 0.5;
-    }
-
-    .empty-chat-list p {
-      font-size: 0.85rem;
-      margin: 0;
-    }
-
-    /* UI Components Styling */
-    .chat-components-container {
-      margin-top: 15px;
-    }
-    
-    /* Button Component */
-    .chat-component-button {
-      padding: 10px 18px;
-      border-radius: 20px;
-      font-size: 0.9rem;
-      border: none;
-      background: linear-gradient(135deg, var(--klein-blue) 0%, var(--indigo) 100%);
-      color: white;
-      cursor: pointer;
-      margin: 5px;
-      transition: all 0.3s ease;
-      font-weight: 500;
-    }
-    
-    .chat-component-button:hover {
-      transform: translateY(-2px);
-      box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
-    }
-    
-    .chat-button-primary {
-      background: linear-gradient(135deg, var(--klein-blue) 0%, var(--indigo) 100%);
-    }
-    
-    .chat-button-secondary {
-      background: linear-gradient(135deg, var(--independence) 0%, var(--cadet-blue-crayola) 100%);
-    }
-    
-    .chat-button-success {
-      background: linear-gradient(135deg, #2ecc71 0%, #27ae60 100%);
-    }
-    
-    .chat-button-danger {
-      background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%);
-    }
-
-    /* Responsive design */
-    @media (max-width: 1024px) {
-      .chat-layout {
-        padding: 0;
-      }
-      
-      .chat-sidebar {
-        width: 280px;
-      }
-    }
-
-    @media (max-width: 768px) {
-      .main-content {
-        padding-top: 60px;
-      }
-      
-      .chat-layout {
-        margin: 10px 0;
-        height: calc(100vh - 80px);
-        flex-direction: column;
-        padding: 0;
-      }
-
-      .chat-sidebar {
-        width: 100%;
-        height: 200px;
-        border-radius: var(--radius-10) var(--radius-10) 0 0;
-        border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-        border-right: 1px solid rgba(255, 255, 255, 0.1);
-      }
-
-      .chat-sidebar.collapsed {
-        height: 60px;
-      }
-
-      .chat-container {
-        border-radius: 0 0 var(--radius-10) var(--radius-10);
-        border-left: 1px solid rgba(255, 255, 255, 0.1);
-        border-top: none;
-      }
-
-      .chat-container.sidebar-collapsed {
-        border-radius: 0 0 var(--radius-10) var(--radius-10);
-        border-top: 1px solid rgba(255, 255, 255, 0.1);
-      }
-      
-      .chat-header {
-        padding: 15px 20px;
-        flex-wrap: wrap;
-        gap: 10px;
-      }
-      
-      .chat-header-right {
-        gap: 10px;
-      }
-      
-      .user-info {
-        gap: 10px;
-      }
-      
-      .user-info span {
-        display: none;
-      }
-      
-      .chat-footer {
-        padding: 15px;
-        flex-direction: column;
-        gap: 10px;
-      }
-      
-      .chat-send-btn {
-        padding: 12px 20px;
-        align-self: flex-end;
-      }
-      
-      .message {
-        max-width: 90%;
-      }
-      
-      .chat-title {
-        font-size: 1.1rem;
-      }
-      
-      .back-btn span {
-        display: none;
-      }
-
-      .project-name {
-        font-size: 1rem;
-      }
-
-      .chat-list-container {
-        padding: 5px 0;
-      }
-
-      .new-chat-container {
-        padding: 10px 15px;
-      }
-    }
-  </style>
-</head>
-
-<body id="top">
-  <!-- Environment indicator -->
-  <div class="env-indicator" id="envIndicator">
-    <span id="envText"></span>
-  </div>
-
-  <!-- Header -->
-  <header class="header" data-header>
-    <div class="container">
-      <a href="index.html">
-        <h1 class="logo">Aaai Solutions</h1>
-      </a>
-      <button class="nav-toggle-btn" aria-label="Toggle Menu" data-nav-toggle-btn>
-        <ion-icon name="menu-outline" class="menu-icon"></ion-icon>
-        <ion-icon name="close-outline" class="close-icon"></ion-icon>
-      </button>
-      <nav class="navbar container">
-        <ul class="navbar-list">
-          <li><a href="index.html" class="navbar-link" data-nav-link>Home</a></li>
-          <li><a href="index.html#about" class="navbar-link" data-nav-link>About</a></li>
-          <li><a href="index.html#solutions" class="navbar-link" data-nav-link>Solutions</a></li>
-          <li><a href="index.html#applications" class="navbar-link" data-nav-link>Pursuits</a></li>
-          <li><a href="index.html#contact" class="navbar-link" data-nav-link>Contact</a></li>
-          <li><a href="https://calendly.com/shash-aaai/30min" class="btn btn-primary">Schedule a Demo</a></li>
-        </ul>
-      </nav>
-    </div>
-  </header>
-
-  <main class="main-content">
-    <!-- Chat Layout Container -->
-    <div class="chat-layout">
-      <!-- Chat Sidebar -->
-      <div class="chat-sidebar" id="chatSidebar">
-        <!-- Sidebar Header -->
-        <div class="sidebar-header">
-          <h3 class="project-name" id="sidebarProjectName">Loading...</h3>
-          <button class="collapse-btn" id="sidebarCollapseBtn" title="Collapse Sidebar">
-            <ion-icon name="chevron-back-outline" id="collapseIcon"></ion-icon>
-          </button>
-        </div>
-
-        <!-- Sidebar Content -->
-        <div class="sidebar-content">
-          <!-- New Chat Button -->
-          <div class="new-chat-container">
-            <button class="new-chat-btn" id="newChatBtn">
-              <ion-icon name="add-outline"></ion-icon>
-              <span>New Chat</span>
-            </button>
-          </div>
-
-          <!-- Chat List -->
-          <div class="chat-list-container">
-            <div class="chat-list-header">Recent Chats</div>
-            <div class="chat-list" id="chatList">
-              <!-- Loading state -->
-              <div class="loading-chats" id="loadingChats">
-                <div class="loading-spinner"></div>
-                <div>Loading chats...</div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Chat Container -->
-      <div class="chat-container" id="chatContainer">
-        <!-- Status Indicators -->
-        <div class="status-indicator status-connected">✓ Connected</div>
-        <div class="status-indicator status-disconnected">✗ Disconnected</div>
-        <div class="status-indicator status-reconnecting">⟳ Reconnecting...</div>
-        
-        <!-- Chat Header -->
-        <div class="chat-header">
-          <div class="chat-header-left">
-            <button class="back-btn" id="backBtn" title="Back to Project">
-              <ion-icon name="arrow-back-outline"></ion-icon>
-              <span>Projects</span>
-            </button>
-            <div class="chat-info">
-              <h3 class="chat-title" id="chatTitle">New Chat</h3>
-              <p class="chat-subtitle" id="chatSubtitle">Start your conversation</p>
-              <span class="chat-env-info" id="chatEnvInfo"></span>
-            </div>
-          </div>
+  /**
+   * Initialize the enhanced chat application
+   */
+  async function initializeApp() {
+      try {
+          console.log('🚀 Starting WebSocket-only chat application...');
           
-          <div class="chat-header-right">
-            <div class="connection-status" id="connectionStatus">
-              <div class="connection-dot" id="connectionDot"></div>
-              <span id="connectionText">Disconnected</span>
-            </div>
-            <div class="user-info">
-              <span class="credits-badge" id="creditsDisplay">Credits: 0</span>
-              <span id="userEmail">user@example.com</span>
-            </div>
-            <button class="chat-menu-btn" id="chatMenuBtn" title="Chat Options">
-              <ion-icon name="ellipsis-vertical-outline"></ion-icon>
-            </button>
-          </div>
-        </div>
-        
-        <div id="connectionError" style="display:none; text-align:center; padding:20px; background:rgba(231,76,60,0.1); border-radius:10px; margin:10px;">
-          <p>Connection error: Your session may have expired.</p>
-          <button id="reconnectBtn" class="chat-send-btn" style="margin:10px auto; display:inline-block;">
-            <ion-icon name="refresh-outline"></ion-icon>
-            <span>Reconnect</span>
-          </button>
-        </div>
-
-        <!-- Chat Body -->
-        <div class="chat-body" id="chatBody">
-          <!-- Welcome message -->
-          <div class="welcome-message" id="welcomeMessage">
-            <div class="welcome-icon">🤖</div>
-            <h3>Start a New Conversation!</h3>
-            <p>This is a fresh chat session. Ask questions, get insights, or explore ideas with your AI assistant.</p>
-            <div class="welcome-suggestions">
-              <button class="suggestion-btn" onclick="sendSuggestion('What can you help me with?')">What can you help me with?</button>
-              <button class="suggestion-btn" onclick="sendSuggestion('Tell me about this project')">About this project</button>
-              <button class="suggestion-btn" onclick="sendSuggestion('Give me some creative ideas')">Creative ideas</button>
-            </div>
-          </div>
+          // Initialize environment
+          initializeEnvironment();
           
-          <!-- Messages will be inserted here -->
-        </div>
-        
-        <!-- Chat Footer -->
-        <div class="chat-footer">
-          <textarea class="chat-input" id="messageInput" placeholder="Type your message here..." maxlength="1000" rows="1"></textarea>
-          <button class="chat-send-btn" id="sendMessageBtn">
-            <ion-icon name="send"></ion-icon>
-            <span>Send</span>
-          </button>
-        </div>
-      </div>
-    </div>
-  </main>
-
-  <!-- Chat Context Menu -->
-  <div class="chat-context-menu" id="chatContextMenu">
-    <button class="chat-context-menu-item" id="renameChatBtn">
-      <ion-icon name="create-outline"></ion-icon>
-      <span>Rename Chat</span>
-    </button>
-    <button class="chat-context-menu-item danger" id="deleteChatBtn">
-      <ion-icon name="trash-outline"></ion-icon>
-      <span>Delete Chat</span>
-    </button>
-  </div>
-
-  <!-- Delete Confirmation Modal -->
-  <div class="delete-modal-overlay" id="deleteModalOverlay">
-    <div class="delete-modal">
-      <div class="delete-modal-icon">
-        <ion-icon name="warning-outline"></ion-icon>
-      </div>
-      <h3 class="delete-modal-title">Delete Chat?</h3>
-      <p class="delete-modal-message" id="deleteModalMessage">
-        This will permanently delete the chat and all its messages. This action cannot be undone.
-      </p>
-      <div class="delete-modal-actions">
-        <button class="btn-cancel" id="cancelDeleteBtn">Cancel</button>
-        <button class="btn-delete" id="confirmDeleteBtn">
-          <span>Delete Chat</span>
-        </button>
-      </div>
-    </div>
-  </div>
-
-  <!-- Footer -->
-  <footer class="footer">
-    <div class="container">
-      <p class="copyright">
-        &copy; 2024 <a href="#" class="copyright-link">Aaai Solutions</a>. All Rights Reserved
-      </p>
-      <ul class="footer-list">
-        <li><a href="terms_conditions.html" class="footer-link">Terms & Conditions</a></li>
-        <li><a href="privacy_policy.html" class="footer-link">Privacy Policy</a></li>
-        <li><a href="https://docs.google.com/document/d/1ZH5H3gvn3b9xcXepwS9wx7juUfULOvW5MPSKCX3bYu4/edit?addon_store&pli=1#heading=h.ednect7ygrp2" class="footer-link">Bylaws</a></li>
-      </ul>
-    </div>
-  </footer>
-
-  <a href="#top" class="back-to-top" data-back-to-top>BACK TOP</a>
-
-  <!-- Scripts -->
-  <script src="./assets/js/script.js"></script>
-  <script src="./assets/js/auth.js"></script>
-  <script src="./assets/js/websocket-chat.js"></script>
-  <script src="./assets/js/ui-components.js"></script>
-  <script type="module" src="https://unpkg.com/ionicons@5.5.2/dist/ionicons/ionicons.esm.js"></script>
-  <script nomodule src="https://unpkg.com/ionicons@5.5.2/dist/ionicons/ionicons.js"></script>
-  
-  <!-- Enhanced Chat Application Script -->
-  <script> 
-      document.addEventListener('DOMContentLoaded', function() {
-        // Application state
-        let chatService = null;
-        let currentProject = null;
-        let currentChat = null;
-        let chats = [];
-        let uiRenderer = null;
-        let isConnecting = false;
-        let messageQueue = [];
-        let sidebarCollapsed = false;
-        let contextMenuChatId = null;
-        
-        // DOM elements
-        const elements = {
-            // Sidebar elements
-            chatSidebar: document.getElementById('chatSidebar'),
-            sidebarProjectName: document.getElementById('sidebarProjectName'),
-            sidebarCollapseBtn: document.getElementById('sidebarCollapseBtn'),
-            collapseIcon: document.getElementById('collapseIcon'),
-            newChatBtn: document.getElementById('newChatBtn'),
-            chatList: document.getElementById('chatList'),
-            loadingChats: document.getElementById('loadingChats'),
-            
-            // Context Menu elements
-            chatContextMenu: document.getElementById('chatContextMenu'),
-            renameChatBtn: document.getElementById('renameChatBtn'),
-            deleteChatBtn: document.getElementById('deleteChatBtn'),
-            
-            // Delete Modal elements
-            deleteModalOverlay: document.getElementById('deleteModalOverlay'),
-            deleteModalMessage: document.getElementById('deleteModalMessage'),
-            cancelDeleteBtn: document.getElementById('cancelDeleteBtn'),
-            confirmDeleteBtn: document.getElementById('confirmDeleteBtn'),
-            
-            // Chat elements
-            chatContainer: document.getElementById('chatContainer'),
-            chatTitle: document.getElementById('chatTitle'),
-            chatSubtitle: document.getElementById('chatSubtitle'),
-            userEmail: document.getElementById('userEmail'),
-            creditsDisplay: document.getElementById('creditsDisplay'),
-            connectionDot: document.getElementById('connectionDot'),
-            connectionText: document.getElementById('connectionText'),
-            chatBody: document.getElementById('chatBody'),
-            messageInput: document.getElementById('messageInput'),
-            sendMessageBtn: document.getElementById('sendMessageBtn'),
-            welcomeMessage: document.getElementById('welcomeMessage'),
-            backBtn: document.getElementById('backBtn'),
-            connectionError: document.getElementById('connectionError'),
-            reconnectBtn: document.getElementById('reconnectBtn'),
-            connectedStatus: document.querySelector('.status-connected'),
-            disconnectedStatus: document.querySelector('.status-disconnected'),
-            reconnectingStatus: document.querySelector('.status-reconnecting')
-        };
-        
-        /**
-         * Initialize the enhanced chat application
-         */
-        async function initializeApp() {
-            try {
-                console.log('🚀 Starting enhanced chat application...');
-                
-                // Initialize environment
-                initializeEnvironment();
-                
-                // Check authentication
-                if (!AuthService || !AuthService.init()) {
-                    redirectToLogin('Authentication service not available');
-                    return;
-                }
-                
-                if (!AuthService.isAuthenticated()) {
-                    redirectToLogin('Not authenticated');
-                    return;
-                }
-                
-                // Get project ID
-                const projectId = getProjectId();
-                if (!projectId) {
-                    redirectToProjects();
-                    return;
-                }
-                
-                // Initialize UI
-                await initializeUI();
-                
-                // Load project
-                await loadProject(projectId);
-                
-                // Load chats for this project
-                await loadProjectChats(projectId);
-                
-                // Initialize chat service
-                await initializeChat();
-                
-                // Setup event listeners
-                setupEventListeners();
-                
-                console.log('✅ Enhanced chat application initialized');
-                
-            } catch (error) {
-                console.error('❌ Failed to initialize:', error);
-                showError('Failed to initialize chat. Please refresh the page.');
-            }
-        }
-        
-        /**
-         * Initialize environment
-         */
-        function initializeEnvironment() {
-            // Ensure config exists
-            if (!window.AAAI_CONFIG) {
-                window.AAAI_CONFIG = {
-                    ENVIRONMENT: 'production',
-                    ENABLE_WEBSOCKETS: true,
-                    ENABLE_DEBUG: true
-                };
-            }
-            
-            // Show environment indicator
-            const env = window.AAAI_CONFIG.ENVIRONMENT;
-            if (env !== 'production') {
-                const indicator = document.getElementById('envIndicator');
-                const envText = document.getElementById('envText');
-                if (indicator && envText) {
-                    indicator.className = `env-indicator ${env}`;
-                    envText.textContent = `${env.toUpperCase()} Environment`;
-                    document.body.classList.add('with-env-indicator');
-                }
-            }
-        }
-        
-        /**
-         * Initialize UI
-         */
-        async function initializeUI() {
-            // Display user info
-            const user = AuthService.getCurrentUser();
-            if (user && elements.userEmail) {
-                elements.userEmail.textContent = user.email;
-            }
-            
-            // Load credits
-            try {
-                const credits = await AuthService.getUserCredits();
-                if (elements.creditsDisplay) {
-                    elements.creditsDisplay.textContent = `Credits: ${credits}`;
-                }
-            } catch (error) {
-                console.warn('Failed to load credits:', error);
-                if (elements.creditsDisplay) {
-                    elements.creditsDisplay.textContent = 'Credits: --';
-                }
-            }
-            
-            // Initialize UI renderer
-            if (typeof UIComponentRenderer !== 'undefined') {
-                uiRenderer = UIComponentRenderer.init({
-                    linkHandler: (url) => window.open(url, '_blank'),
-                    actionHandler: (action, value) => {
-                        if (action === 'reply' && value) {
-                            elements.messageInput.value = value;
-                            sendMessage();
-                        }
-                    }
-                });
-            }
-        }
-        
-        /**
-         * Load project data
-         */
-        async function loadProject(projectId) {
-            try {
-                // Try to load from API
-                const result = await AuthService.executeFunction('get_project_details', {
-                    project_id: projectId
-                });
-                
-                if (result?.data?.success) {
-                    currentProject = result.data.project;
-                }
-            } catch (error) {
-                console.warn('Failed to load project from API:', error);
-            }
-            
-            // Use fallback if needed
-            if (!currentProject) {
-                currentProject = {
-                    id: projectId,
-                    name: 'AI Assistant Project',
-                    description: 'Intelligent conversation assistant'
-                };
-            }
-            
-            // Update UI
-            if (elements.sidebarProjectName) {
-                elements.sidebarProjectName.textContent = currentProject.name;
-            }
-            
-            document.title = `${currentProject.name} - AAAI Solutions`;
-        }
-        
-        /**
-         * Load chats for the current project
-         */
-        async function loadProjectChats(projectId) {
-            try {
-                showChatListLoading(true);
-                
-                // Try to load from API - you'll need to implement this function
-                // const result = await AuthService.executeFunction('list_project_chats', {
-                //     project_id: projectId
-                // });
-                
-                // Mock data for now - replace with actual API call
-                await new Promise(resolve => setTimeout(resolve, 1000));
-                
-                chats = [
-                    {
-                        id: 'chat_1',
-                        name: 'Initial Conversation',
-                        created_at: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
-                        updated_at: new Date(Date.now() - 5 * 60 * 1000).toISOString(),
-                        message_count: 8,
-                        last_message_preview: 'That sounds like a great approach...'
-                    },
-                    {
-                        id: 'chat_2',
-                        name: 'Feature Planning',
-                        created_at: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
-                        updated_at: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
-                        message_count: 15,
-                        last_message_preview: 'Let me help you break this down...'
-                    },
-                    {
-                        id: 'chat_3',
-                        name: 'Technical Discussion',
-                        created_at: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString(),
-                        updated_at: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
-                        message_count: 23,
-                        last_message_preview: 'Here are some best practices...'
-                    }
-                ];
-                
-                renderChatList();
-                
-                // Auto-select the first chat or create a new one
-                const chatId = getChatIdFromURL();
-                if (chatId && chats.find(c => c.id === chatId)) {
-                    selectChat(chatId);
-                } else if (chats.length > 0) {
-                    selectChat(chats[0].id);
-                } else {
-                    createNewChat();
-                }
-                
-            } catch (error) {
-                console.error('Failed to load chats:', error);
-                showChatListError();
-            } finally {
-                showChatListLoading(false);
-            }
-        }
-        
-        /**
-         * Render the chat list in the sidebar
-         */
-        function renderChatList() {
-            if (chats.length === 0) {
-                elements.chatList.innerHTML = `
-                    <div class="empty-chat-list">
-                        <ion-icon name="chatbubbles-outline"></ion-icon>
-                        <p>No chats yet.<br>Create your first chat!</p>
-                    </div>
-                `;
-                return;
-            }
-            
-            elements.chatList.innerHTML = chats.map(chat => `
-                <button class="chat-item" data-chat-id="${chat.id}" onclick="selectChat('${chat.id}')">
-                    <ion-icon name="chatbubble-outline" class="chat-item-icon"></ion-icon>
-                    <div class="chat-item-content">
-                        <div class="chat-item-name">${escapeHtml(chat.name)}</div>
-                        <div class="chat-item-preview">${escapeHtml(chat.last_message_preview || 'No messages yet')}</div>
-                    </div>
-                    <button class="chat-item-menu" onclick="event.stopPropagation(); showChatMenu('${chat.id}', event)">
-                        <ion-icon name="ellipsis-horizontal-outline"></ion-icon>
-                    </button>
-                </button>
-            `).join('');
-        }
-        
-        /**
-         * Select and switch to a specific chat
-         */
-        async function selectChat(chatId) {
-            try {
-                const chat = chats.find(c => c.id === chatId);
-                if (!chat) {
-                    console.error('Chat not found:', chatId);
-                    return;
-                }
-                
-                // Update current chat
-                currentChat = chat;
-                
-                // Update URL without page reload
-                const url = new URL(window.location);
-                url.searchParams.set('chat', chatId);
-                window.history.replaceState({}, '', url);
-                
-                // Update UI
-                updateChatHeader(chat);
-                updateChatListSelection(chatId);
-                
-                // Clear current messages
-                clearChatBody();
-                
-                // Load chat messages
-                await loadChatMessages(chatId);
-                
-                console.log('✅ Selected chat:', chat.name);
-                
-            } catch (error) {
-                console.error('Error selecting chat:', error);
-                showError('Failed to load chat');
-            }
-        }
-        
-        /**
-         * Create a new chat
-         */
-        async function createNewChat() {
-            try {
-                // Generate new chat
-                const newChat = {
-                    id: `chat_${Date.now()}`,
-                    name: `Chat ${chats.length + 1}`,
-                    created_at: new Date().toISOString(),
-                    updated_at: new Date().toISOString(),
-                    message_count: 0,
-                    last_message_preview: null
-                };
-                
-                // In a real app, you'd save this to the backend:
-                // await AuthService.executeFunction('create_chat', {
-                //     project_id: currentProject.id,
-                //     name: newChat.name
-                // });
-                
-                // Add to local list
-                chats.unshift(newChat);
-                
-                // Re-render chat list
-                renderChatList();
-                
-                // Select the new chat
-                await selectChat(newChat.id);
-                
-                console.log('✅ Created new chat:', newChat.name);
-                
-            } catch (error) {
-                console.error('Error creating new chat:', error);
-                showError('Failed to create new chat');
-            }
-        }
-        
-        /**
-         * Load messages for a specific chat
-         */
-        async function loadChatMessages(chatId) {
-            try {
-                // Show loading state
-                showWelcomeMessage();
-                
-                // In a real app, load from backend:
-                // const result = await AuthService.executeFunction('get_chat_messages', {
-                //     chat_id: chatId
-                // });
-                
-                // Mock messages for demonstration
-                if (chatId !== chats[0]?.id || chats.find(c => c.id === chatId)?.message_count === 0) {
-                    // New chat or empty chat - show welcome
-                    showWelcomeMessage();
-                } else {
-                    // Load existing messages (mock)
-                    hideWelcomeMessage();
-                    
-                    const mockMessages = [
-                        {
-                            id: 'msg_1',
-                            text: 'Hello! How can I help you today?',
-                            sender: 'bot',
-                            timestamp: new Date(Date.now() - 60 * 60 * 1000).toISOString()
-                        },
-                        {
-                            id: 'msg_2',
-                            text: 'I need help with project planning.',
-                            sender: 'user',
-                            timestamp: new Date(Date.now() - 58 * 60 * 1000).toISOString()
-                        },
-                        {
-                            id: 'msg_3',
-                            text: 'I\'d be happy to help you with project planning! Let me know what specific aspects you\'d like to focus on.',
-                            sender: 'bot',
-                            timestamp: new Date(Date.now() - 55 * 60 * 1000).toISOString()
-                        }
-                    ];
-                    
-                    // Add messages to UI
-                    mockMessages.forEach(msg => {
-                        addMessage(msg.text, msg.sender, msg.timestamp);
-                    });
-                }
-                
-            } catch (error) {
-                console.error('Error loading chat messages:', error);
-                showError('Failed to load chat messages');
-            }
-        }
-        
-        /**
-         * Initialize chat service
-         */
-        async function initializeChat() {
-            if (!window.AAAI_CONFIG.ENABLE_WEBSOCKETS) {
-                console.warn('⚠️ WebSockets disabled in config');
-                updateConnectionStatus('disconnected');
-                return;
-            }
-            
-            if (!window.ChatService) {
-                console.error('❌ ChatService not available');
-                updateConnectionStatus('disconnected');
-                showError('WebSocket service unavailable. Using HTTP mode.');
-                return;
-            }
-            
-            try {
-                console.log('🔌 Initializing ChatService...');
-                
-                chatService = ChatService.init(AuthService, {
-                    debug: window.AAAI_CONFIG.ENABLE_DEBUG,
-                    reconnectInterval: 3000,
-                    maxReconnectAttempts: 5,
-                    heartbeatInterval: 60000,
-                    connectionTimeout: 15000
-                });
-                
-                chatService.onMessage(handleIncomingMessage);
-                chatService.onStatusChange(handleConnectionStatusChange);
-                chatService.onError(handleChatError);
-                
-                console.log('📡 Attempting WebSocket connection...');
-                await chatService.connect();
-                console.log('✅ WebSocket connected successfully');
-                
-            } catch (error) {
-                console.error('❌ Failed to connect WebSocket:', error);
-                updateConnectionStatus('disconnected');
-                showError(`WebSocket connection failed: ${error.message}. Using HTTP mode.`);
-            }
-        }
-        
-        /**
-         * Setup all event listeners
-         */
-        function setupEventListeners() {
-            // Sidebar collapse/expand
-            elements.sidebarCollapseBtn?.addEventListener('click', toggleSidebar);
-            
-            // New chat button
-            elements.newChatBtn?.addEventListener('click', createNewChat);
-            
-            // Back button
-            elements.backBtn?.addEventListener('click', () => {
-                window.location.href = 'project.html';
-            });
-            
-            // Send button and message input
-            elements.sendMessageBtn?.addEventListener('click', sendMessage);
-            elements.messageInput?.addEventListener('keydown', (e) => {
-                if (e.key === 'Enter' && !e.shiftKey) {
-                    e.preventDefault();
-                    sendMessage();
-                }
-            });
-            
-            // Auto-resize message input
-            elements.messageInput?.addEventListener('input', function() {
-                this.style.height = 'auto';
-                this.style.height = Math.min(this.scrollHeight, 120) + 'px';
-            });
-            
-            // Reconnect button
-            elements.reconnectBtn?.addEventListener('click', async () => {
-                console.log('🔄 Manual reconnect requested');
-                elements.connectionError.style.display = 'none';
-                
-                if (chatService) {
-                    try {
-                        showStatusIndicator('reconnecting', '🔄 Reconnecting...');
-                        await chatService.forceReconnect();
-                        console.log('✅ Manual reconnect successful');
-                    } catch (error) {
-                        console.error('❌ Manual reconnect failed:', error);
-                        showError('Reconnection failed. Please refresh.');
-                    }
-                } else {
-                    await initializeChat();
-                }
-            });
-            
-            // Page visibility handling
-            document.addEventListener('visibilitychange', () => {
-                if (document.visibilityState === 'visible' && 
-                    AuthService.isAuthenticated() && 
-                    chatService) {
-                    
-                    const status = chatService.getStatus();
-                    if (!status.connected && !status.connecting) {
-                        console.log('🔄 Attempting reconnect on page focus');
-                        setTimeout(() => {
-                            chatService.connect().catch(console.error);
-                        }, 1000);
-                    }
-                }
-            });
-            
-            // Proper cleanup on page unload
-            window.addEventListener('beforeunload', () => {
-                if (chatService) {
-                    chatService.disconnect();
-                }
-            });
-        }
-        
-        /**
-         * Toggle sidebar collapse/expand
-         */
-        function toggleSidebar() {
-            sidebarCollapsed = !sidebarCollapsed;
-            
-            if (sidebarCollapsed) {
-                elements.chatSidebar.classList.add('collapsed');
-                elements.chatContainer.classList.add('sidebar-collapsed');
-                elements.collapseIcon.name = 'chevron-forward-outline';
-            } else {
-                elements.chatSidebar.classList.remove('collapsed');
-                elements.chatContainer.classList.remove('sidebar-collapsed');
-                elements.collapseIcon.name = 'chevron-back-outline';
-            }
-        }
-        
-        /**
-         * Send a message in the current chat
-         */
-        async function sendMessage() {
-            const text = elements.messageInput.value.trim();
-            if (!text || elements.sendMessageBtn.disabled) {
-                return;
-            }
-            
-            if (!currentChat) {
-                showError('No chat selected');
-                return;
-            }
-            
-            console.log('📤 Sending message to chat:', currentChat.id);
-            
-            // Clear input and disable send button
-            elements.messageInput.value = '';
-            elements.messageInput.style.height = 'auto';
-            elements.sendMessageBtn.disabled = true;
-            
-            // Hide welcome message
-            hideWelcomeMessage();
-            
-            // Add user message to UI
-            const userMsg = addMessage(text, 'user');
-            
-            // Update chat in list
-            updateChatAfterMessage(currentChat.id, text);
-            
-            try {
-                // Send via WebSocket or HTTP
-                if (chatService && chatService.getStatus().authenticated) {
-                    console.log('📡 Sending via WebSocket');
-                    await chatService.sendMessage(text);
-                    showTypingIndicator();
-                } else {
-                    console.log('🌐 Sending via HTTP');
-                    await sendMessageHTTP(text, userMsg);
-                }
-            } catch (error) {
-                console.error('❌ Failed to send message:', error);
-                
-                if (userMsg) {
-                    userMsg.remove();
-                }
-                
-                elements.messageInput.value = text;
-                showError(`Failed to send message: ${error.message}`);
-            } finally {
-                elements.sendMessageBtn.disabled = false;
-                elements.messageInput.focus();
-            }
-        }
-        
-        /**
-         * Send message via HTTP fallback
-         */
-        async function sendMessageHTTP(text, userMsg) {
-            const typing = showTypingIndicator();
-            
-            try {
-                console.log('🌐 Sending HTTP message');
-                const response = await AuthService.sendChatMessage(text);
-                
-                if (typing) typing.remove();
-                
-                if (response?.data?.bot_message) {
-                    addMessage(
-                        response.data.bot_message.text,
-                        'bot',
-                        response.data.bot_message.timestamp,
-                        response.data.bot_message.components
-                    );
-                } else {
-                    addMessage('Message sent via HTTP. Response processing...', 'bot');
-                }
-            } catch (error) {
-                if (typing) typing.remove();
-                if (userMsg) userMsg.remove();
-                
-                let errorMsg = 'Sorry, an error occurred.';
-                if (error.message.includes('expired')) {
-                    errorMsg = 'Session expired. Please refresh.';
-                } else if (error.message.includes('network')) {
-                    errorMsg = 'Network error. Please check your connection.';
-                }
-                
-                addMessage(errorMsg, 'bot');
-                throw error;
-            }
-        }
-        
-        /**
-         * Handle incoming WebSocket messages
-         */
-        function handleIncomingMessage(data) {
-            console.log('📨 Received message:', data.type);
-            
-            switch (data.type) {
-                case 'session_established':
-                    console.log('🎯 Session established:', data.session_id);
-                    showStatusIndicator('connected', '✅ Connected');
-                    hideTypingIndicator();
-                    break;
-                    
-                case 'message_queued':
-                    console.log('📬 Message queued:', data.message_id);
-                    showStatusIndicator('connected', '📬 Message queued');
-                    
-                    setTimeout(() => {
-                        const typing = document.querySelector('.typing-indicator');
-                        if (typing) {
-                            typing.innerHTML = '<span>Processing your message...</span>';
-                        }
-                    }, 500);
-                    break;
-                    
-                case 'message':
-                    hideTypingIndicator();
-                    
-                    if (data.bot_message) {
-                        addMessage(
-                            data.bot_message.text,
-                            'bot',
-                            data.bot_message.timestamp,
-                            data.bot_message.components
-                        );
-                    } else if (data.text) {
-                        addMessage(data.text, 'bot', data.timestamp, data.components);
-                    }
-                    
-                    elements.sendMessageBtn.disabled = false;
-                    break;
-                    
-                case 'error':
-                    console.error('❌ Chat error:', data.message);
-                    hideTypingIndicator();
-                    addMessage(data.message || 'An error occurred', 'bot');
-                    elements.sendMessageBtn.disabled = false;
-                    break;
-                    
-                default:
-                    console.log('📨 Unknown message type:', data.type, data);
-                    break;
-            }
-        }
-        
-        /**
-         * Handle connection status changes
-         */
-        function handleConnectionStatusChange(status, fullStatus) {
-            console.log('📊 Connection status changed:', status);
-            updateConnectionStatus(status);
-            
-            switch (status) {
-                case 'connected':
-                    showStatusIndicator('connected', '✅ WebSocket Connected');
-                    elements.connectionError.style.display = 'none';
-                    isConnecting = false;
-                    processMessageQueue();
-                    break;
-                    
-                case 'connecting':
-                    showStatusIndicator('connecting', '⚡ Connecting...');
-                    isConnecting = true;
-                    break;
-                    
-                case 'reconnecting':
-                    showStatusIndicator('reconnecting', `🔄 Reconnecting... (${fullStatus.reconnectAttempts})`);
-                    isConnecting = true;
-                    break;
-                    
-                case 'disconnected':
-                    showStatusIndicator('disconnected', '📡 HTTP Mode');
-                    isConnecting = false;
-                    
-                    if (fullStatus.reconnectAttempts > 0) {
-                        elements.connectionError.style.display = 'block';
-                    }
-                    break;
-            }
-        }
-        
-        /**
-         * Handle chat errors
-         */
-        function handleChatError(error) {
-            console.error('❌ Chat error:', error);
-            
-            switch (error.type) {
-                case 'auth_failed':
-                    showError('Authentication failed. Please login again.');
-                    setTimeout(() => {
-                        if (confirm('Session expired. Refresh page to login again?')) {
-                            window.location.reload();
-                        }
-                    }, 3000);
-                    break;
-                    
-                case 'max_reconnect_attempts':
-                    showError('Unable to reconnect to chat server. Please refresh the page.');
-                    elements.connectionError.style.display = 'block';
-                    break;
-                    
-                default:
-                    if (error.requiresLogin || (error.message && error.message.includes('expired'))) {
-                        showError('Session expired. Please refresh.');
-                        setTimeout(() => {
-                            if (confirm('Session expired. Refresh page?')) {
-                                window.location.reload();
-                            }
-                        }, 3000);
-                    } else {
-                        showError(`Chat error: ${error.message || 'Unknown error'}`);
-                    }
-                    break;
-            }
-        }
-        
-        // UI Helper Functions
-        
-        function updateChatHeader(chat) {
-            elements.chatTitle.textContent = chat.name;
-            elements.chatSubtitle.textContent = 
-                chat.message_count > 0 
-                    ? `${chat.message_count} messages`
-                    : 'Start your conversation';
-        }
-        
-        function updateChatListSelection(selectedChatId) {
-            document.querySelectorAll('.chat-item').forEach(item => {
-                item.classList.toggle('active', item.dataset.chatId === selectedChatId);
-            });
-        }
-        
-        function updateChatAfterMessage(chatId, lastMessage) {
-            const chat = chats.find(c => c.id === chatId);
-            if (chat) {
-                chat.message_count++;
-                chat.last_message_preview = lastMessage.substring(0, 50) + (lastMessage.length > 50 ? '...' : '');
-                chat.updated_at = new Date().toISOString();
-                renderChatList();
-                updateChatListSelection(chatId);
-            }
-        }
-        
-        function clearChatBody() {
-            elements.chatBody.innerHTML = '';
-        }
-        
-        function showWelcomeMessage() {
-            elements.welcomeMessage.style.display = 'block';
-        }
-        
-        function hideWelcomeMessage() {
-            elements.welcomeMessage.style.display = 'none';
-        }
-        
-        function showChatListLoading(show) {
-            elements.loadingChats.style.display = show ? 'block' : 'none';
-        }
-        
-        function showChatListError() {
-            elements.chatList.innerHTML = `
-                <div class="empty-chat-list">
-                    <ion-icon name="warning-outline" style="color: #e74c3c;"></ion-icon>
-                    <p>Failed to load chats.<br>Please refresh.</p>
-                </div>
-            `;
-        }
-        
-        function addMessage(text, type, timestamp = null, components = null) {
-            hideWelcomeMessage();
-            
-            const msg = document.createElement('div');
-            msg.className = type === 'user' ? 'message message-user' : 
-                          type === 'system' ? 'message message-system' : 'message message-bot';
-            
-            const textDiv = document.createElement('div');
-            textDiv.textContent = text;
-            msg.appendChild(textDiv);
-            
-            const timeDiv = document.createElement('div');
-            timeDiv.className = 'message-timestamp';
-            const date = timestamp ? new Date(timestamp) : new Date();
-            timeDiv.textContent = date.toLocaleTimeString([], { 
-                hour: '2-digit', 
-                minute: '2-digit' 
-            });
-            msg.appendChild(timeDiv);
-            
-            if (components && uiRenderer) {
-                const container = document.createElement('div');
-                container.className = 'chat-components-container';
-                components.forEach(comp => {
-                    try {
-                        uiRenderer.renderComponent(comp, container);
-                    } catch (e) {
-                        console.error('Component render error:', e);
-                    }
-                });
-                msg.appendChild(container);
-            }
-            
-            elements.chatBody.appendChild(msg);
-            elements.chatBody.scrollTop = elements.chatBody.scrollHeight;
-            
-            return msg;
-        }
-        
-        function showTypingIndicator() {
-            hideTypingIndicator();
-            
-            const typing = document.createElement('div');
-            typing.className = 'typing-indicator';
-            typing.innerHTML = `
-                <span class="typing-dot"></span>
-                <span class="typing-dot"></span>
-                <span class="typing-dot"></span>
-            `;
-            
-            elements.chatBody.appendChild(typing);
-            elements.chatBody.scrollTop = elements.chatBody.scrollHeight;
-            
-            return typing;
-        }
-        
-        function hideTypingIndicator() {
-            const existing = document.querySelector('.typing-indicator');
-            if (existing) {
-                existing.remove();
-            }
-        }
-        
-        function updateConnectionStatus(status) {
-            if (!elements.connectionDot || !elements.connectionText) return;
-            
-            elements.connectionDot.className = 'connection-dot';
-            
-            switch (status) {
-                case 'connected':
-                    elements.connectionDot.classList.add('connected');
-                    elements.connectionText.textContent = 'WebSocket';
-                    break;
-                case 'connecting':
-                case 'reconnecting':
-                    elements.connectionDot.classList.add('connecting');
-                    elements.connectionText.textContent = 
-                        status === 'connecting' ? 'Connecting...' : 'Reconnecting...';
-                    break;
-                default:
-                    elements.connectionText.textContent = 'HTTP Mode';
-                    break;
-            }
-        }
-        
-        function showStatusIndicator(status, message) {
-            [elements.connectedStatus, elements.disconnectedStatus, elements.reconnectingStatus]
-                .forEach(el => {
-                    if (el) el.classList.remove('visible');
-                });
-            
-            let indicator = null;
-            switch (status) {
-                case 'connected':
-                    indicator = elements.connectedStatus;
-                    break;
-                case 'disconnected':
-                    indicator = elements.disconnectedStatus;
-                    break;
-                case 'connecting':
-                case 'reconnecting':
-                    indicator = elements.reconnectingStatus;
-                    break;
-            }
-            
-            if (indicator) {
-                indicator.textContent = message;
-                indicator.classList.add('visible');
-                
-                if (status === 'connected') {
-                    setTimeout(() => {
-                        indicator.classList.remove('visible');
-                    }, 3000);
-                }
-            }
-        }
-        
-        function showError(message, duration = 5000) {
-            console.error('🚨 Error:', message);
-            
-            const error = document.createElement('div');
-            error.style.cssText = `
-                position: fixed;
-                top: 120px;
-                left: 50%;
-                transform: translateX(-50%);
-                background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%);
-                color: white;
-                padding: 15px 25px;
-                border-radius: 10px;
-                z-index: 10000;
-                font-weight: 500;
-                box-shadow: 0 5px 15px rgba(231, 76, 60, 0.3);
-                max-width: 400px;
-                text-align: center;
-            `;
-            error.textContent = message;
-            document.body.appendChild(error);
-            
-            setTimeout(() => error.remove(), duration);
-        }
-        
-        function processMessageQueue() {
-            if (messageQueue.length === 0) return;
-            
-            console.log(`📤 Processing ${messageQueue.length} queued messages`);
-            
-            const messages = [...messageQueue];
-            messageQueue = [];
-            
-            messages.forEach(async (msg) => {
-                try {
-                    await chatService.sendMessage(msg.text);
-                } catch (error) {
-                    console.error('❌ Failed to send queued message:', error);
-                    messageQueue.push(msg);
-                }
-            });
-        }
-        
-        function escapeHtml(text) {
-            const div = document.createElement('div');
-            div.textContent = text;
-            return div.innerHTML;
-        }
-        
-        function getProjectId() {
-            const params = new URLSearchParams(window.location.search);
-            return params.get('project');
-        }
-        
-        function getChatIdFromURL() {
-            const params = new URLSearchParams(window.location.search);
-            return params.get('chat');
-        }
-        
-        function redirectToLogin(reason) {
-            console.log('Redirecting to login:', reason);
-            window.location.href = 'login.html';
-        }
-        
-        function redirectToProjects() {
-            console.log('Redirecting to projects');
-            window.location.href = 'project.html';
-        }
-        
-        // Global functions
-        window.sendSuggestion = function(text) {
-            if (elements.messageInput) {
-                elements.messageInput.value = text;
-                sendMessage();
-            }
-        };
-        
-        window.selectChat = selectChat;
-        
-        window.showChatMenu = function(chatId, event) {
-            // TODO: Implement chat context menu
-            console.log('Show chat menu for:', chatId);
-        };
-        
-        // Debug functions
-        window.ChatDebug = {
-            getStatus: () => chatService ? chatService.getStatus() : null,
-            getChats: () => chats,
-            getCurrentChat: () => currentChat,
-            getCurrentProject: () => currentProject,
-            createNewChat: createNewChat,
-            selectChat: selectChat,
-            toggleSidebar: toggleSidebar,
-            reinitialize: initializeChat
-        };
-        
-        console.log('🔍 Debug functions available in window.ChatDebug');
-        
-        // Start the app
-        initializeApp();
-    });
-  </script>
-  <script>
-    const WebSocketDiagnostics = {
-      logs: [],
-      startTime: Date.now(),
-      
-      init() {
-          console.log('🔍 WebSocket Diagnostics initialized');
-          this.addStyles();
-          this.createDiagnosticsPanel();
-          this.startDiagnostics();
-          return this;
-      },
-      
-      log(level, message, data = null) {
-          const timestamp = Date.now() - this.startTime;
-          const logEntry = {
-              timestamp,
-              level,
-              message,
-              data: data ? JSON.stringify(data, null, 2) : null,
-              time: new Date().toLocaleTimeString()
-          };
-          
-          this.logs.push(logEntry);
-          console.log(`[WS-Diag ${timestamp}ms] ${level}: ${message}`, data || '');
-          this.updateDiagnosticsPanel();
-          
-          // Keep only last 50 logs
-          if (this.logs.length > 50) {
-              this.logs = this.logs.slice(-50);
-          }
-      },
-      
-      async startDiagnostics() {
-          this.log('INFO', '🚀 Starting WebSocket diagnostics...');
-          
-          // 1. Check authentication
-          await this.checkAuthentication();
-          
-          // 2. Check WebSocket service availability
-          await this.checkWebSocketService();
-          
-          // 3. Test WebSocket connection
-          await this.testWebSocketConnection();
-          
-          // 4. Monitor connection status
-          this.monitorConnection();
-      },
-      
-      async checkAuthentication() {
-          this.log('INFO', '🔐 Checking authentication...');
-          
-          try {
-              if (!window.AuthService) {
-                  this.log('ERROR', '❌ AuthService not available');
-                  return false;
-              }
-              
-              const isAuth = AuthService.isAuthenticated();
-              this.log('INFO', `Authentication status: ${isAuth}`);
-              
-              if (isAuth) {
-                  const user = AuthService.getCurrentUser();
-                  this.log('INFO', '👤 User info:', {
-                      email: user.email,
-                      id: user.id,
-                      sessionId: user.sessionId
-                  });
-                  
-                  // Test session validation
-                  try {
-                      const sessionInfo = AuthService.getSessionInfo();
-                      this.log('INFO', '📋 Session info:', sessionInfo);
-                  } catch (e) {
-                      this.log('WARN', '⚠️ Session info error:', e.message);
-                  }
-                  
-                  return true;
-              } else {
-                  this.log('ERROR', '❌ Not authenticated');
-                  return false;
-              }
-          } catch (error) {
-              this.log('ERROR', '❌ Authentication check failed:', error.message);
-              return false;
-          }
-      },
-      
-      async checkWebSocketService() {
-          this.log('INFO', '🌐 Checking WebSocket service...');
-          
-          try {
-              // Check if ChatService is available
-              if (!window.ChatService) {
-                  this.log('ERROR', '❌ ChatService not available');
-                  return false;
-              }
-              
-              // Check WebSocket support
-              if (!window.WebSocket) {
-                  this.log('ERROR', '❌ WebSocket not supported in this browser');
-                  return false;
-              }
-              
-              // Test server WebSocket endpoint availability
-              const user = AuthService.getCurrentUser();
-              if (user) {
-                  const wsUrl = this.buildWebSocketURL(user);
-                  this.log('INFO', '🔗 WebSocket URL would be:', wsUrl);
-                  
-                  // Test if server is reachable
-                  try {
-                      const response = await fetch('/api/websocket/enterprise-health');
-                      const health = await response.json();
-                      this.log('INFO', '💓 Server WebSocket health:', health);
-                  } catch (e) {
-                      this.log('WARN', '⚠️ Could not check server health:', e.message);
-                  }
-              }
-              
-              return true;
-          } catch (error) {
-              this.log('ERROR', '❌ WebSocket service check failed:', error.message);
-              return false;
-          }
-      },
-      
-      buildWebSocketURL(user) {
-          const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-          let wsHost;
-          
-          if (window.AAAI_CONFIG?.ENVIRONMENT === 'development') {
-              wsHost = 'localhost:8080';
-          } else {
-              wsHost = 'api-server-559730737995.us-central1.run.app';
-          }
-          
-          const params = new URLSearchParams({
-              auth: 'true',
-              email: encodeURIComponent(user.email),
-              user_id: user.id,
-              session_id: user.sessionId || 'diagnostic_session',
-              t: Date.now()
-          });
-          
-          return `${wsProtocol}//${wsHost}/ws/${user.id}?${params}`;
-      },
-      
-      async testWebSocketConnection() {
-          this.log('INFO', '⚡ Testing WebSocket connection...');
-          
-          if (!AuthService.isAuthenticated()) {
-              this.log('ERROR', '❌ Cannot test - not authenticated');
+          // Check authentication
+          if (!AuthService || !AuthService.init()) {
+              redirectToLogin('Authentication service not available');
               return;
           }
           
-          const user = AuthService.getCurrentUser();
-          const wsUrl = this.buildWebSocketURL(user);
+          if (!AuthService.isAuthenticated()) {
+              redirectToLogin('Not authenticated');
+              return;
+          }
           
-          return new Promise((resolve) => {
-              let socket = null;
-              let connected = false;
-              
-              const timeout = setTimeout(() => {
-                  if (!connected) {
-                      this.log('ERROR', '❌ WebSocket connection timeout (15s)');
-                      if (socket) {
-                          socket.close();
-                      }
-                      resolve(false);
+          // Get project ID
+          const projectId = getProjectId();
+          if (!projectId) {
+              redirectToProjects();
+              return;
+          }
+          
+          // Initialize UI
+          await initializeUI();
+          
+          // Load project
+          await loadProject(projectId);
+          
+          // Load chats for this project
+          await loadProjectChats(projectId);
+          
+          // Initialize chat service
+          await initializeChat();
+          
+          // Setup event listeners
+          setupEventListeners();
+          
+          console.log('✅ WebSocket-only chat application initialized');
+          
+      } catch (error) {
+          console.error('❌ Failed to initialize:', error);
+          showError('Failed to initialize chat. Please refresh the page.');
+      }
+  }
+  
+  /**
+   * Initialize environment
+   */
+  function initializeEnvironment() {
+      // Ensure config exists
+      if (!window.AAAI_CONFIG) {
+          window.AAAI_CONFIG = {
+              ENVIRONMENT: 'production',
+              ENABLE_WEBSOCKETS: true,
+              ENABLE_DEBUG: true
+          };
+      }
+      
+      // Show environment indicator
+      const env = window.AAAI_CONFIG.ENVIRONMENT;
+      if (env !== 'production') {
+          const indicator = document.getElementById('envIndicator');
+          const envText = document.getElementById('envText');
+          if (indicator && envText) {
+              indicator.className = `env-indicator ${env}`;
+              envText.textContent = `${env.toUpperCase()} Environment`;
+              document.body.classList.add('with-env-indicator');
+          }
+      }
+  }
+  
+  /**
+   * Initialize UI
+   */
+  async function initializeUI() {
+      // Display user info
+      const user = AuthService.getCurrentUser();
+      if (user && elements.userEmail) {
+          elements.userEmail.textContent = user.email;
+      }
+      
+      // Load credits
+      try {
+          const credits = await AuthService.getUserCredits();
+          if (elements.creditsDisplay) {
+              elements.creditsDisplay.textContent = `Credits: ${credits}`;
+          }
+      } catch (error) {
+          console.warn('Failed to load credits:', error);
+          if (elements.creditsDisplay) {
+              elements.creditsDisplay.textContent = 'Credits: --';
+          }
+      }
+      
+      // Initialize UI renderer
+      if (typeof UIComponentRenderer !== 'undefined') {
+          uiRenderer = UIComponentRenderer.init({
+              linkHandler: (url) => window.open(url, '_blank'),
+              actionHandler: (action, value) => {
+                  if (action === 'reply' && value) {
+                      elements.messageInput.value = value;
+                      sendMessage();
                   }
-              }, 15000);
-              
-              try {
-                  this.log('INFO', '🔌 Attempting WebSocket connection...');
-                  socket = new WebSocket(wsUrl);
-                  
-                  socket.onopen = () => {
-                      connected = true;
-                      clearTimeout(timeout);
-                      this.log('SUCCESS', '✅ WebSocket connection opened!');
-                      
-                      // Send a test ping
-                      socket.send(JSON.stringify({
-                          type: 'ping',
-                          diagnostic: true,
-                          timestamp: Date.now()
-                      }));
-                  };
-                  
-                  socket.onmessage = (event) => {
-                      try {
-                          const data = JSON.parse(event.data);
-                          this.log('INFO', `📨 Received message: ${data.type}`, data);
-                          
-                          if (data.type === 'session_established') {
-                              this.log('SUCCESS', '🎯 Session established successfully!', {
-                                  sessionId: data.session_id,
-                                  userId: data.user_id,
-                                  capabilities: data.capabilities
-                              });
-                              
-                              // Test sending a message
-                              setTimeout(() => {
-                                  this.log('INFO', '📤 Sending test message...');
-                                  socket.send(JSON.stringify({
-                                      type: 'message',
-                                      message: 'Diagnostic test message',
-                                      diagnostic: true,
-                                      timestamp: new Date().toISOString()
-                                  }));
-                              }, 1000);
-                          }
-                          
-                          if (data.type === 'message_queued') {
-                              this.log('SUCCESS', '📬 Test message queued successfully!', data);
-                              
-                              // Close connection after successful test
-                              setTimeout(() => {
-                                  socket.close(1000, 'Diagnostic test complete');
-                                  resolve(true);
-                              }, 2000);
-                          }
-                          
-                      } catch (e) {
-                          this.log('ERROR', '❌ Failed to parse message:', event.data);
-                      }
-                  };
-                  
-                  socket.onclose = (event) => {
-                      clearTimeout(timeout);
-                      this.log('INFO', `🔌 WebSocket closed: ${event.code} - ${event.reason}`);
-                      if (!connected) {
-                          resolve(false);
-                      }
-                  };
-                  
-                  socket.onerror = (event) => {
-                      clearTimeout(timeout);
-                      this.log('ERROR', '❌ WebSocket error:', event);
-                      resolve(false);
-                  };
-                  
-              } catch (error) {
-                  clearTimeout(timeout);
-                  this.log('ERROR', '❌ Failed to create WebSocket:', error.message);
-                  resolve(false);
               }
           });
-      },
-      
-      monitorConnection() {
-          this.log('INFO', '👁️ Starting connection monitoring...');
+      }
+  }
+  
+  /**
+   * Load project data
+   */
+  async function loadProject(projectId) {
+      try {
+          // Try to load from API
+          const result = await AuthService.executeFunction('get_project_details', {
+              project_id: projectId
+          });
           
-          // Monitor ChatService if available
-          if (window.ChatService) {
-              setInterval(() => {
-                  const status = ChatService.getStatus();
-                  const debugInfo = ChatService.getDebugInfo();
-                  
-                  this.log('DEBUG', '📊 ChatService Status:', {
-                      connected: status.connected,
-                      authenticated: status.authenticated,
-                      connecting: status.connecting,
-                      reconnectAttempts: status.reconnectAttempts,
-                      pendingMessages: status.pendingMessages,
-                      sessionId: status.sessionId
-                  });
-                  
-                  // Check for issues
-                  if (status.pendingMessages > 0) {
-                      this.log('WARN', `⚠️ ${status.pendingMessages} messages pending delivery`);
-                  }
-                  
-                  if (status.reconnectAttempts > 0) {
-                      this.log('WARN', `⚠️ ${status.reconnectAttempts} reconnect attempts`);
-                  }
-                  
-              }, 10000); // Every 10 seconds
+          if (result?.data?.success) {
+              currentProject = result.data.project;
           }
-          
-          // Monitor server stats
-          setInterval(async () => {
-              try {
-                  const response = await fetch('/api/websocket/enterprise-stats');
-                  const stats = await response.json();
-                  
-                  this.log('DEBUG', '🏢 Server WebSocket Stats:', {
-                      activeSessions: stats.active_sessions,
-                      uniqueUsers: stats.unique_users,
-                      totalMessages: stats.total_messages,
-                      responsePolling: stats.response_polling
-                  });
-                  
-                  // Alert if no active sessions but user is authenticated
-                  if (AuthService.isAuthenticated() && stats.active_sessions === 0) {
-                      this.log('ERROR', '🚨 User authenticated but no server sessions active!');
-                  }
-                  
-              } catch (e) {
-                  this.log('DEBUG', 'Could not fetch server stats:', e.message);
-              }
-          }, 15000); // Every 15 seconds
-      },
+      } catch (error) {
+          console.warn('Failed to load project from API:', error);
+      }
       
-      createDiagnosticsPanel() {
-          const panel = document.createElement('div');
-          panel.id = 'ws-diagnostics-panel';
-          panel.innerHTML = `
-              <div class="ws-diag-header">
-                  <h3>🔍 WebSocket Diagnostics</h3>
-                  <div class="ws-diag-controls">
-                      <button onclick="WebSocketDiagnostics.testConnection()">Test Connection</button>
-                      <button onclick="WebSocketDiagnostics.clearLogs()">Clear Logs</button>
-                      <button onclick="WebSocketDiagnostics.togglePanel()">Hide</button>
-                  </div>
-              </div>
-              <div class="ws-diag-content" id="ws-diag-content">
-                  <div id="ws-diag-logs">Starting diagnostics...</div>
-              </div>
-          `;
-          
-          document.body.appendChild(panel);
-      },
-      
-      updateDiagnosticsPanel() {
-          const logsContainer = document.getElementById('ws-diag-logs');
-          if (!logsContainer) return;
-          
-          const logsHtml = this.logs.slice(-20).map(log => `
-              <div class="ws-diag-log ws-diag-${log.level.toLowerCase()}">
-                  <span class="ws-diag-time">[${log.time}]</span>
-                  <span class="ws-diag-level">${log.level}</span>
-                  <span class="ws-diag-message">${log.message}</span>
-                  ${log.data ? `<pre class="ws-diag-data">${log.data}</pre>` : ''}
-              </div>
-          `).join('');
-          
-          logsContainer.innerHTML = logsHtml;
-          logsContainer.scrollTop = logsContainer.scrollHeight;
-      },
-      
-      addStyles() {
-          const styles = `
-              <style>
-              #ws-diagnostics-panel {
-                  position: fixed;
-                  bottom: 20px;
-                  right: 20px;
-                  width: 600px;
-                  max-height: 400px;
-                  background: rgba(0, 0, 0, 0.95);
-                  color: #fff;
-                  border-radius: 8px;
-                  font-family: 'Courier New', monospace;
-                  font-size: 12px;
-                  z-index: 10000;
-                  overflow: hidden;
-                  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
-              }
-              
-              .ws-diag-header {
-                  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-                  padding: 10px 15px;
-                  display: flex;
-                  justify-content: space-between;
-                  align-items: center;
-              }
-              
-              .ws-diag-header h3 {
-                  margin: 0;
-                  font-size: 14px;
-                  font-weight: bold;
-              }
-              
-              .ws-diag-controls button {
-                  background: rgba(255, 255, 255, 0.2);
-                  border: 1px solid rgba(255, 255, 255, 0.3);
-                  color: white;
-                  padding: 4px 8px;
-                  margin-left: 5px;
-                  border-radius: 4px;
-                  cursor: pointer;
-                  font-size: 11px;
-              }
-              
-              .ws-diag-controls button:hover {
-                  background: rgba(255, 255, 255, 0.3);
-              }
-              
-              .ws-diag-content {
-                  max-height: 350px;
-                  overflow-y: auto;
-                  padding: 10px;
-              }
-              
-              .ws-diag-log {
-                  margin-bottom: 5px;
-                  padding: 5px;
-                  border-radius: 3px;
-                  word-wrap: break-word;
-              }
-              
-              .ws-diag-info { background: rgba(59, 130, 246, 0.1); border-left: 3px solid #3b82f6; }
-              .ws-diag-success { background: rgba(34, 197, 94, 0.1); border-left: 3px solid #22c55e; }
-              .ws-diag-warn { background: rgba(251, 191, 36, 0.1); border-left: 3px solid #fbbf24; }
-              .ws-diag-error { background: rgba(239, 68, 68, 0.1); border-left: 3px solid #ef4444; }
-              .ws-diag-debug { background: rgba(156, 163, 175, 0.1); border-left: 3px solid #9ca3af; }
-              
-              .ws-diag-time {
-                  color: #9ca3af;
-                  margin-right: 8px;
-              }
-              
-              .ws-diag-level {
-                  font-weight: bold;
-                  margin-right: 8px;
-                  min-width: 60px;
-                  display: inline-block;
-              }
-              
-              .ws-diag-data {
-                  background: rgba(55, 65, 81, 0.5);
-                  padding: 8px;
-                  margin-top: 5px;
-                  border-radius: 4px;
-                  font-size: 11px;
-                  white-space: pre-wrap;
-                  overflow-x: auto;
-              }
-              
-              #ws-diagnostics-panel.hidden {
-                  transform: translateX(100%);
-                  transition: transform 0.3s ease;
-              }
-              </style>
-          `;
-          
-          document.head.insertAdjacentHTML('beforeend', styles);
-      },
-      
-      // Public methods
-      async testConnection() {
-          this.log('INFO', '🔄 Manual connection test requested...');
-          await this.testWebSocketConnection();
-      },
-      
-      clearLogs() {
-          this.logs = [];
-          this.updateDiagnosticsPanel();
-          this.log('INFO', '🧹 Logs cleared');
-      },
-      
-      togglePanel() {
-          const panel = document.getElementById('ws-diagnostics-panel');
-          if (panel) {
-              panel.classList.toggle('hidden');
-          }
-      },
-      
-      // Get diagnostic report
-      getDiagnosticReport() {
-          return {
-              timestamp: new Date().toISOString(),
-              logs: this.logs,
-              authStatus: AuthService ? AuthService.isAuthenticated() : false,
-              chatServiceStatus: window.ChatService ? ChatService.getStatus() : null,
-              userAgent: navigator.userAgent,
-              url: window.location.href,
-              config: window.AAAI_CONFIG || null
+      // Use fallback if needed
+      if (!currentProject) {
+          currentProject = {
+              id: projectId,
+              name: 'AI Assistant Project',
+              description: 'Intelligent conversation assistant'
           };
+      }
+      
+      // Update UI
+      if (elements.sidebarProjectName) {
+          elements.sidebarProjectName.textContent = currentProject.name;
+      }
+      
+      document.title = `${currentProject.name} - AAAI Solutions`;
+  }
+  
+  /**
+   * Load chats for the current project
+   */
+  async function loadProjectChats(projectId) {
+      try {
+          showChatListLoading(true);
+          
+          // Try to load from API - you'll need to implement this function
+          // const result = await AuthService.executeFunction('list_project_chats', {
+          //     project_id: projectId
+          // });
+          
+          // Mock data for demonstration
+          await new Promise(resolve => setTimeout(resolve, 1000));
+          
+          chats = [
+              {
+                  id: 'chat_1',
+                  name: 'Initial Conversation',
+                  created_at: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
+                  updated_at: new Date(Date.now() - 5 * 60 * 1000).toISOString(),
+                  message_count: 8,
+                  last_message_preview: 'That sounds like a great approach...'
+              },
+              {
+                  id: 'chat_2',
+                  name: 'Feature Planning',
+                  created_at: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
+                  updated_at: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
+                  message_count: 15,
+                  last_message_preview: 'Let me help you break this down...'
+              },
+              {
+                  id: 'chat_3',
+                  name: 'Technical Discussion',
+                  created_at: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString(),
+                  updated_at: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
+                  message_count: 23,
+                  last_message_preview: 'Here are some best practices...'
+              }
+          ];
+          
+          renderChatList();
+          
+          // Auto-select the first chat or create a new one
+          const chatId = getChatIdFromURL();
+          if (chatId && chats.find(c => c.id === chatId)) {
+              selectChat(chatId);
+          } else if (chats.length > 0) {
+              selectChat(chats[0].id);
+          } else {
+              createNewChat();
+          }
+          
+      } catch (error) {
+          console.error('Failed to load chats:', error);
+          showChatListError();
+      } finally {
+          showChatListLoading(false);
+      }
+  }
+  
+  /**
+   * Render the chat list in the sidebar
+   */
+  function renderChatList() {
+      if (chats.length === 0) {
+          elements.chatList.innerHTML = `
+              <div class="empty-chat-list">
+                  <ion-icon name="chatbubbles-outline"></ion-icon>
+                  <p>No chats yet.<br>Create your first chat!</p>
+              </div>
+          `;
+          return;
+      }
+      
+      elements.chatList.innerHTML = chats.map(chat => `
+          <button class="chat-item" data-chat-id="${chat.id}" onclick="selectChat('${chat.id}')">
+              <ion-icon name="chatbubble-outline" class="chat-item-icon"></ion-icon>
+              <div class="chat-item-content">
+                  <div class="chat-item-name">${escapeHtml(chat.name)}</div>
+                  <div class="chat-item-preview">${escapeHtml(chat.last_message_preview || 'No messages yet')}</div>
+              </div>
+              <button class="chat-item-menu" onclick="event.stopPropagation(); showChatMenu('${chat.id}', event)">
+                  <ion-icon name="ellipsis-horizontal-outline"></ion-icon>
+              </button>
+          </button>
+      `).join('');
+  }
+  
+  /**
+   * Select and switch to a specific chat
+   */
+  async function selectChat(chatId) {
+      try {
+          const chat = chats.find(c => c.id === chatId);
+          if (!chat) {
+              console.error('Chat not found:', chatId);
+              return;
+          }
+          
+          // Update current chat
+          currentChat = chat;
+          
+          // Update URL without page reload
+          const url = new URL(window.location);
+          url.searchParams.set('chat', chatId);
+          window.history.replaceState({}, '', url);
+          
+          // Update UI
+          updateChatHeader(chat);
+          updateChatListSelection(chatId);
+          
+          // Clear current messages
+          clearChatBody();
+          
+          // Load chat messages
+          await loadChatMessages(chatId);
+          
+          console.log('✅ Selected chat:', chat.name);
+          
+      } catch (error) {
+          console.error('Error selecting chat:', error);
+          showError('Failed to load chat');
+      }
+  }
+  
+  /**
+   * Create a new chat
+   */
+  async function createNewChat() {
+      try {
+          // Generate new chat
+          const newChat = {
+              id: `chat_${Date.now()}`,
+              name: `Chat ${chats.length + 1}`,
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+              message_count: 0,
+              last_message_preview: null
+          };
+          
+          // In a real app, you'd save this to the backend:
+          // await AuthService.executeFunction('create_chat', {
+          //     project_id: currentProject.id,
+          //     name: newChat.name
+          // });
+          
+          // Add to local list
+          chats.unshift(newChat);
+          
+          // Re-render chat list
+          renderChatList();
+          
+          // Select the new chat
+          await selectChat(newChat.id);
+          
+          console.log('✅ Created new chat:', newChat.name);
+          
+      } catch (error) {
+          console.error('Error creating new chat:', error);
+          showError('Failed to create new chat');
+      }
+  }
+  
+  /**
+   * Load messages for a specific chat
+   */
+  async function loadChatMessages(chatId) {
+      try {
+          // Show loading state
+          showWelcomeMessage();
+          
+          // In a real app, load from backend:
+          // const result = await AuthService.executeFunction('get_chat_messages', {
+          //     chat_id: chatId
+          // });
+          
+          // Mock messages for demonstration
+          if (chatId !== chats[0]?.id || chats.find(c => c.id === chatId)?.message_count === 0) {
+              // New chat or empty chat - show welcome
+              showWelcomeMessage();
+          } else {
+              // Load existing messages (mock)
+              hideWelcomeMessage();
+              
+              const mockMessages = [
+                  {
+                      id: 'msg_1',
+                      text: 'Hello! How can I help you today?',
+                      sender: 'bot',
+                      timestamp: new Date(Date.now() - 60 * 60 * 1000).toISOString()
+                  },
+                  {
+                      id: 'msg_2',
+                      text: 'I need help with project planning.',
+                      sender: 'user',
+                      timestamp: new Date(Date.now() - 58 * 60 * 1000).toISOString()
+                  },
+                  {
+                      id: 'msg_3',
+                      text: 'I\'d be happy to help you with project planning! Let me know what specific aspects you\'d like to focus on.',
+                      sender: 'bot',
+                      timestamp: new Date(Date.now() - 55 * 60 * 1000).toISOString()
+                  }
+              ];
+              
+              // Add messages to UI
+              mockMessages.forEach(msg => {
+                  addMessage(msg.text, msg.sender, msg.timestamp);
+              });
+          }
+          
+      } catch (error) {
+          console.error('Error loading chat messages:', error);
+          showError('Failed to load chat messages');
+      }
+  }
+  
+  /**
+   * Initialize chat service - WebSocket only
+   */
+  async function initializeChat() {
+      if (!window.AAAI_CONFIG.ENABLE_WEBSOCKETS) {
+          console.error('❌ WebSockets are required for this application');
+          showError('WebSocket service is required but disabled in config.');
+          return;
+      }
+      
+      if (!window.ChatService) {
+          console.error('❌ ChatService not available');
+          updateConnectionStatus('disconnected');
+          showError('WebSocket service unavailable.');
+          return;
+      }
+      
+      try {
+          console.log('🔌 Initializing WebSocket-Only ChatService...');
+          
+          chatService = ChatService.init(AuthService, {
+              debug: window.AAAI_CONFIG.ENABLE_DEBUG,
+              reconnectInterval: 3000,
+              maxReconnectAttempts: 5,
+              heartbeatInterval: 60000,
+              connectionTimeout: 15000
+          });
+          
+          chatService.onMessage(handleIncomingMessage);
+          chatService.onStatusChange(handleConnectionStatusChange);
+          chatService.onError(handleChatError);
+          
+          console.log('📡 Attempting WebSocket connection...');
+          await chatService.connect();
+          console.log('✅ WebSocket connected successfully');
+          
+      } catch (error) {
+          console.error('❌ Failed to connect WebSocket:', error);
+          updateConnectionStatus('disconnected');
+          showError(`WebSocket connection failed: ${error.message}. Please try again later.`);
+      }
+  }
+  
+  /**
+   * Setup all event listeners
+   */
+  function setupEventListeners() {
+      // Sidebar collapse/expand
+      elements.sidebarCollapseBtn?.addEventListener('click', toggleSidebar);
+      
+      // New chat button
+      elements.newChatBtn?.addEventListener('click', createNewChat);
+      
+      // Back button
+      elements.backBtn?.addEventListener('click', () => {
+          window.location.href = 'project.html';
+      });
+      
+      // Send button and message input
+      elements.sendMessageBtn?.addEventListener('click', sendMessage);
+      elements.messageInput?.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter' && !e.shiftKey) {
+              e.preventDefault();
+              sendMessage();
+          }
+      });
+      
+      // Auto-resize message input
+      elements.messageInput?.addEventListener('input', function() {
+          this.style.height = 'auto';
+          this.style.height = Math.min(this.scrollHeight, 120) + 'px';
+      });
+      
+      // Reconnect button
+      elements.reconnectBtn?.addEventListener('click', async () => {
+          console.log('🔄 Manual reconnect requested');
+          elements.connectionError.style.display = 'none';
+          
+          if (chatService) {
+              try {
+                  showStatusIndicator('reconnecting', '🔄 Reconnecting...');
+                  await chatService.forceReconnect();
+                  console.log('✅ Manual reconnect successful');
+              } catch (error) {
+                  console.error('❌ Manual reconnect failed:', error);
+                  showError('Reconnection failed. Please refresh.');
+              }
+          } else {
+              await initializeChat();
+          }
+      });
+      
+      // Page visibility handling
+      document.addEventListener('visibilitychange', () => {
+          if (document.visibilityState === 'visible' && 
+              AuthService.isAuthenticated() && 
+              chatService) {
+              
+              const status = chatService.getStatus();
+              if (!status.connected && !status.connecting) {
+                  console.log('🔄 Attempting reconnect on page focus');
+                  setTimeout(() => {
+                      chatService.connect().catch(console.error);
+                  }, 1000);
+              }
+          }
+      });
+      
+      // Proper cleanup on page unload
+      window.addEventListener('beforeunload', () => {
+          if (chatService) {
+              chatService.disconnect();
+          }
+      });
+  }
+  
+  /**
+   * Toggle sidebar collapse/expand
+   */
+  function toggleSidebar() {
+      sidebarCollapsed = !sidebarCollapsed;
+      
+      if (sidebarCollapsed) {
+          elements.chatSidebar.classList.add('collapsed');
+          elements.chatContainer.classList.add('sidebar-collapsed');
+          elements.collapseIcon.name = 'chevron-forward-outline';
+      } else {
+          elements.chatSidebar.classList.remove('collapsed');
+          elements.chatContainer.classList.remove('sidebar-collapsed');
+          elements.collapseIcon.name = 'chevron-back-outline';
+      }
+  }
+  
+  /**
+   * Send a message in the current chat - WebSocket only
+   */
+  async function sendMessage() {
+      const text = elements.messageInput.value.trim();
+      if (!text || elements.sendMessageBtn.disabled) {
+          return;
+      }
+      
+      if (!currentChat) {
+          showError('No chat selected');
+          return;
+      }
+      
+      console.log('📤 Sending message to chat:', currentChat.id);
+      
+      // Clear input and disable send button
+      elements.messageInput.value = '';
+      elements.messageInput.style.height = 'auto';
+      elements.sendMessageBtn.disabled = true;
+      
+      // Hide welcome message
+      hideWelcomeMessage();
+      
+      // Add user message to UI
+      const userMsg = addMessage(text, 'user');
+      
+      // Update chat in list
+      updateChatAfterMessage(currentChat.id, text);
+      
+      try {
+          // Send via WebSocket
+          console.log('📡 Sending via WebSocket');
+          await chatService.sendMessage(text);
+          showTypingIndicator();
+      } catch (error) {
+          console.error('❌ Failed to send message:', error);
+          
+          if (userMsg) {
+              userMsg.remove();
+          }
+          
+          elements.messageInput.value = text;
+          showError(`Failed to send message: ${error.message}`);
+      } finally {
+          elements.sendMessageBtn.disabled = false;
+          elements.messageInput.focus();
+      }
+  }
+  
+  /**
+   * Handle incoming WebSocket messages
+   */
+  function handleIncomingMessage(data) {
+      console.log('📨 Received message:', data.type);
+      
+      switch (data.type) {
+          case 'session_established':
+              console.log('🎯 Session established:', data.session_id);
+              showStatusIndicator('connected', '✅ Connected');
+              hideTypingIndicator();
+              break;
+              
+          case 'message_queued':
+              console.log('📬 Message queued:', data.message_id);
+              showStatusIndicator('connected', '📬 Message queued');
+              
+              setTimeout(() => {
+                  const typing = document.querySelector('.typing-indicator');
+                  if (typing) {
+                      typing.innerHTML = '<span>Processing your message...</span>';
+                  }
+              }, 500);
+              break;
+              
+          case 'message':
+              hideTypingIndicator();
+              
+              if (data.bot_message) {
+                  addMessage(
+                      data.bot_message.text,
+                      'bot',
+                      data.bot_message.timestamp,
+                      data.bot_message.components
+                  );
+              } else if (data.text) {
+                  addMessage(data.text, 'bot', data.timestamp, data.components);
+              }
+              
+              elements.sendMessageBtn.disabled = false;
+              break;
+              
+          case 'error':
+              console.error('❌ Chat error:', data.message);
+              hideTypingIndicator();
+              addMessage(data.message || 'An error occurred', 'bot');
+              elements.sendMessageBtn.disabled = false;
+              break;
+              
+          default:
+              console.log('📨 Unknown message type:', data.type, data);
+              break;
+      }
+  }
+  
+  /**
+   * Handle connection status changes
+   */
+  function handleConnectionStatusChange(status, fullStatus) {
+      console.log('📊 Connection status changed:', status);
+      updateConnectionStatus(status);
+      
+      switch (status) {
+          case 'connected':
+              showStatusIndicator('connected', '✅ WebSocket Connected');
+              elements.connectionError.style.display = 'none';
+              isConnecting = false;
+              processMessageQueue();
+              break;
+              
+          case 'connecting':
+              showStatusIndicator('connecting', '⚡ Connecting...');
+              isConnecting = true;
+              break;
+              
+          case 'reconnecting':
+              showStatusIndicator('reconnecting', `🔄 Reconnecting... (${fullStatus.reconnectAttempts})`);
+              isConnecting = true;
+              break;
+              
+          case 'disconnected':
+              showStatusIndicator('disconnected', '❌ Disconnected');
+              isConnecting = false;
+              
+              if (fullStatus.reconnectAttempts > 0) {
+                  elements.connectionError.style.display = 'block';
+              }
+              break;
+      }
+  }
+  
+  /**
+   * Handle chat errors
+   */
+  function handleChatError(error) {
+      console.error('❌ Chat error:', error);
+      
+      switch (error.type) {
+          case 'auth_failed':
+              showError('Authentication failed. Please login again.');
+              setTimeout(() => {
+                  if (confirm('Session expired. Refresh page to login again?')) {
+                      window.location.reload();
+                  }
+              }, 3000);
+              break;
+              
+          case 'max_reconnect_attempts':
+              showError('Unable to reconnect to chat server. Please refresh the page.');
+              elements.connectionError.style.display = 'block';
+              break;
+              
+          default:
+              if (error.requiresLogin || (error.message && error.message.includes('expired'))) {
+                  showError('Session expired. Please refresh.');
+                  setTimeout(() => {
+                      if (confirm('Session expired. Refresh page?')) {
+                          window.location.reload();
+                      }
+                  }, 3000);
+              } else {
+                  showError(`Chat error: ${error.message || 'Unknown error'}`);
+              }
+              break;
+      }
+  }
+  
+  // UI Helper Functions
+  
+  function updateChatHeader(chat) {
+      elements.chatTitle.textContent = chat.name;
+      elements.chatSubtitle.textContent = 
+          chat.message_count > 0 
+              ? `${chat.message_count} messages`
+              : 'Start your conversation';
+  }
+  
+  function updateChatListSelection(selectedChatId) {
+      document.querySelectorAll('.chat-item').forEach(item => {
+          item.classList.toggle('active', item.dataset.chatId === selectedChatId);
+      });
+  }
+  
+  function updateChatAfterMessage(chatId, lastMessage) {
+      const chat = chats.find(c => c.id === chatId);
+      if (chat) {
+          chat.message_count++;
+          chat.last_message_preview = lastMessage.substring(0, 50) + (lastMessage.length > 50 ? '...' : '');
+          chat.updated_at = new Date().toISOString();
+          renderChatList();
+          updateChatListSelection(chatId);
+      }
+  }
+  
+  function clearChatBody() {
+      elements.chatBody.innerHTML = '';
+  }
+  
+  function showWelcomeMessage() {
+      elements.welcomeMessage.style.display = 'block';
+  }
+  
+  function hideWelcomeMessage() {
+      elements.welcomeMessage.style.display = 'none';
+  }
+  
+  function showChatListLoading(show) {
+      elements.loadingChats.style.display = show ? 'block' : 'none';
+  }
+  
+  function showChatListError() {
+      elements.chatList.innerHTML = `
+          <div class="empty-chat-list">
+              <ion-icon name="warning-outline" style="color: #e74c3c;"></ion-icon>
+              <p>Failed to load chats.<br>Please refresh.</p>
+          </div>
+      `;
+  }
+  
+  function addMessage(text, type, timestamp = null, components = null) {
+      hideWelcomeMessage();
+      
+      const msg = document.createElement('div');
+      msg.className = type === 'user' ? 'message message-user' : 
+                    type === 'system' ? 'message message-system' : 'message message-bot';
+      
+      const textDiv = document.createElement('div');
+      textDiv.textContent = text;
+      msg.appendChild(textDiv);
+      
+      const timeDiv = document.createElement('div');
+      timeDiv.className = 'message-timestamp';
+      const date = timestamp ? new Date(timestamp) : new Date();
+      timeDiv.textContent = date.toLocaleTimeString([], { 
+          hour: '2-digit', 
+          minute: '2-digit' 
+      });
+      msg.appendChild(timeDiv);
+      
+      if (components && uiRenderer) {
+          const container = document.createElement('div');
+          container.className = 'chat-components-container';
+          components.forEach(comp => {
+              try {
+                  uiRenderer.renderComponent(comp, container);
+              } catch (e) {
+                  console.error('Component render error:', e);
+              }
+          });
+          msg.appendChild(container);
+      }
+      
+      elements.chatBody.appendChild(msg);
+      elements.chatBody.scrollTop = elements.chatBody.scrollHeight;
+      
+      return msg;
+  }
+  
+  function showTypingIndicator() {
+      hideTypingIndicator();
+      
+      const typing = document.createElement('div');
+      typing.className = 'typing-indicator';
+      typing.innerHTML = `
+          <span class="typing-dot"></span>
+          <span class="typing-dot"></span>
+          <span class="typing-dot"></span>
+      `;
+      
+      elements.chatBody.appendChild(typing);
+      elements.chatBody.scrollTop = elements.chatBody.scrollHeight;
+      
+      return typing;
+  }
+  
+  function hideTypingIndicator() {
+      const existing = document.querySelector('.typing-indicator');
+      if (existing) {
+          existing.remove();
+      }
+  }
+  
+  function updateConnectionStatus(status) {
+      if (!elements.connectionDot || !elements.connectionText) return;
+      
+      elements.connectionDot.className = 'connection-dot';
+      
+      switch (status) {
+          case 'connected':
+              elements.connectionDot.classList.add('connected');
+              elements.connectionText.textContent = 'WebSocket';
+              break;
+          case 'connecting':
+          case 'reconnecting':
+              elements.connectionDot.classList.add('connecting');
+              elements.connectionText.textContent = 
+                  status === 'connecting' ? 'Connecting...' : 'Reconnecting...';
+              break;
+          default:
+              elements.connectionText.textContent = 'Disconnected';
+              break;
+      }
+  }
+  
+  function showStatusIndicator(status, message) {
+      [elements.connectedStatus, elements.disconnectedStatus, elements.reconnectingStatus]
+          .forEach(el => {
+              if (el) el.classList.remove('visible');
+          });
+      
+      let indicator = null;
+      switch (status) {
+          case 'connected':
+              indicator = elements.connectedStatus;
+              break;
+          case 'disconnected':
+              indicator = elements.disconnectedStatus;
+              break;
+          case 'connecting':
+          case 'reconnecting':
+              indicator = elements.reconnectingStatus;
+              break;
+      }
+      
+      if (indicator) {
+          indicator.textContent = message;
+          indicator.classList.add('visible');
+          
+          if (status === 'connected') {
+              setTimeout(() => {
+                  indicator.classList.remove('visible');
+              }, 3000);
+          }
+      }
+  }
+  
+  function showError(message, duration = 5000) {
+      console.error('🚨 Error:', message);
+      
+      const error = document.createElement('div');
+      error.style.cssText = `
+          position: fixed;
+          top: 120px;
+          left: 50%;
+          transform: translateX(-50%);
+          background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%);
+          color: white;
+          padding: 15px 25px;
+          border-radius: 10px;
+          z-index: 10000;
+          font-weight: 500;
+          box-shadow: 0 5px 15px rgba(231, 76, 60, 0.3);
+          max-width: 400px;
+          text-align: center;
+      `;
+      error.textContent = message;
+      document.body.appendChild(error);
+      
+      setTimeout(() => error.remove(), duration);
+  }
+  
+  function processMessageQueue() {
+      if (messageQueue.length === 0) return;
+      
+      console.log(`📤 Processing ${messageQueue.length} queued messages`);
+      
+      const messages = [...messageQueue];
+      messageQueue = [];
+      
+      messages.forEach(async (msg) => {
+          try {
+              await chatService.sendMessage(msg.text);
+          } catch (error) {
+              console.error('❌ Failed to send queued message:', error);
+              messageQueue.push(msg);
+          }
+      });
+  }
+  
+  function escapeHtml(text) {
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
+  }
+  
+  function getProjectId() {
+      const params = new URLSearchParams(window.location.search);
+      return params.get('project');
+  }
+  
+  function getChatIdFromURL() {
+      const params = new URLSearchParams(window.location.search);
+      return params.get('chat');
+  }
+  
+  function redirectToLogin(reason) {
+      console.log('Redirecting to login:', reason);
+      window.location.href = 'login.html';
+  }
+  
+  function redirectToProjects() {
+      console.log('Redirecting to projects');
+      window.location.href = 'project.html';
+  }
+  
+  // Global functions
+  window.sendSuggestion = function(text) {
+      if (elements.messageInput) {
+          elements.messageInput.value = text;
+          sendMessage();
       }
   };
   
-  // Auto-initialize on load
-  if (document.readyState === 'loading') {
-      document.addEventListener('DOMContentLoaded', () => {
-          setTimeout(() => WebSocketDiagnostics.init(), 1000);
-      });
-  } else {
-      setTimeout(() => WebSocketDiagnostics.init(), 1000);
-  }
+  window.selectChat = selectChat;
   
-  // Export for global access
-  window.WebSocketDiagnostics = WebSocketDiagnostics;
-  </script>
-</body>
-
-</html>
+  window.showChatMenu = function(chatId, event) {
+      // TODO: Implement chat context menu
+      console.log('Show chat menu for:', chatId);
+  };
+  
+  // Debug functions
+  window.ChatDebug = {
+      getStatus: () => chatService ? chatService.getStatus() : null,
+      getChats: () => chats,
+      getCurrentChat: () => currentChat,
+      getCurrentProject: () => currentProject,
+      createNewChat: createNewChat,
+      selectChat: selectChat,
+      toggleSidebar: toggleSidebar,
+      reinitialize: initializeChat
+  };
+  
+  console.log('🔍 Debug functions available in window.ChatDebug');
+  
+  // Start the app
+  initializeApp();
+});

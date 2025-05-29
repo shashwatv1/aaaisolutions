@@ -1,6 +1,6 @@
 /**
- * FIXED WebSocket Chat Service - Response Polling Ready
- * Clean version that handles all message types properly
+ * WebSocket-Only Chat Service
+ * Handles all chat functionality exclusively through WebSockets
  */
 const ChatService = {
     // Core state
@@ -32,7 +32,7 @@ const ChatService = {
     // Configuration
     options: {
         reconnectInterval: 3000,
-        maxReconnectAttempts: 3,
+        maxReconnectAttempts: 5,
         heartbeatInterval: 60000,
         connectionTimeout: 15000,
         debug: true
@@ -49,7 +49,7 @@ const ChatService = {
         this.authService = authService;
         this.options = { ...this.options, ...options };
         
-        this._log('🚀 ChatService initialized with response polling support');
+        this._log('🚀 WebSocket-Only ChatService initialized');
         return this;
     },
     
@@ -223,7 +223,7 @@ const ChatService = {
     },
     
     /**
-     * FIXED: Handle incoming messages - clean version
+     * Handle incoming messages - WebSocket only version
      */
     _handleMessage(data) {
         this.messageCount++;
@@ -269,7 +269,7 @@ const ChatService = {
             return;
         }
         
-        // Handle message status updates (from your current system)
+        // Handle message status updates
         if (data.type === 'message_status') {
             this._log('📬 Message status update:', data.status, data.messageId);
             
@@ -292,7 +292,7 @@ const ChatService = {
             return;
         }
         
-        // Handle chat response from orchestrator (this is what you need!)
+        // Handle chat response from orchestrator
         if (data.type === 'chat_response') {
             this._log('💬 Chat response received:', data.message_id);
             
@@ -422,7 +422,7 @@ const ChatService = {
     },
     
     /**
-     * Send a message
+     * Send a message - WebSocket only
      */
     async sendMessage(text) {
         if (!text || !text.trim()) {
@@ -716,7 +716,7 @@ const ChatService = {
     }
 };
 
-// FIXED Enhanced Chat Integration
+// WebSocket-Only Chat Integration
 const EnhancedChatIntegration = {
     chatContainer: null,
     messageContainer: null,
@@ -730,7 +730,7 @@ const EnhancedChatIntegration = {
         this.inputElement = document.getElementById('message-input') || document.querySelector('input[type="text"]');
         this.statusElement = document.getElementById('connection-status');
         
-        // Set up ChatService listeners - FIXED to handle all message types
+        // Set up ChatService listeners
         ChatService.onStatusChange((status) => this.updateConnectionStatus(status));
         
         // Handle all message types in one place
@@ -796,7 +796,7 @@ const EnhancedChatIntegration = {
         // Set up input handler
         this.setupInputHandler();
         
-        console.log('🎯 Enhanced Chat Integration initialized');
+        console.log('🎯 WebSocket-Only Chat Integration initialized');
     },
     
     setupInputHandler() {
@@ -1061,7 +1061,7 @@ document.addEventListener('DOMContentLoaded', function() {
     // Initialize enhanced chat integration
     EnhancedChatIntegration.init();
     
-    console.log('🚀 Enhanced chat system ready');
+    console.log('🚀 WebSocket-only chat system ready');
 });
 
 // Export for global access
