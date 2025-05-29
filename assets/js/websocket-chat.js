@@ -1,6 +1,6 @@
 /**
- * FIXED WebSocket Chat Service - Integrated with Python Server
- * Matches server-side message types and flow
+ * FIXED WebSocket Chat Service - Response Polling Ready
+ * Clean version that handles all message types properly
  */
 const ChatService = {
     // Core state
@@ -33,9 +33,9 @@ const ChatService = {
     options: {
         reconnectInterval: 3000,
         maxReconnectAttempts: 3,
-        heartbeatInterval: 60000,  // FIXED: Match server heartbeat_interval (60 seconds)
-        connectionTimeout: 15000,   // Increased timeout
-        debug: true  // Enable for debugging
+        heartbeatInterval: 60000,
+        connectionTimeout: 15000,
+        debug: true
     },
     
     /**
@@ -49,7 +49,7 @@ const ChatService = {
         this.authService = authService;
         this.options = { ...this.options, ...options };
         
-        this._log('🚀 ChatService initialized with Python server integration');
+        this._log('🚀 ChatService initialized with response polling support');
         return this;
     },
     
@@ -118,7 +118,7 @@ const ChatService = {
                         const messageTime = Date.now() - this.connectionStartTime;
                         this._log(`📨 Message received (${data.type}) after ${messageTime}ms`);
                         
-                        // CRITICAL: Handle session_established (not connection_established)
+                        // Handle session_established
                         if (data.type === 'session_established') {
                             this._log('🎯 Session established with server');
                             
@@ -210,20 +210,20 @@ const ChatService = {
             wsHost = 'api-server-559730737995.us-central1.run.app';
         }
         
-        // Build URL with auth parameters (matching server expectations)
+        // Build URL with auth parameters
         const params = new URLSearchParams({
             auth: 'true',
             email: encodeURIComponent(user.email),
             user_id: user.id,
             session_id: user.sessionId || 'web_session',
-            t: Date.now() // Cache buster
+            t: Date.now()
         });
         
         return `${wsProtocol}//${wsHost}/ws/${user.id}?${params}`;
     },
     
     /**
-     * Handle incoming messages (matching server message types)
+     * FIXED: Handle incoming messages - clean version
      */
     _handleMessage(data) {
         this.messageCount++;
@@ -248,7 +248,7 @@ const ChatService = {
             return;
         }
         
-        // UPDATED: Handle message queued confirmation with pending tracking
+        // Handle message queued confirmation
         if (data.type === 'message_queued') {
             this._log('📬 Message queued:', data.message_id);
             
@@ -258,45 +258,77 @@ const ChatService = {
                 status: 'pending'
             });
             
+            // Notify listeners
             this._notifyMessageListeners({
-                type: 'message_status',
-                status: 'queued',
+                type: 'processing_message',
                 messageId: data.message_id,
-                timestamp: data.timestamp,
-                message: data.message || 'Processing your message...'
+                text: data.message || 'Processing your message...',
+                timestamp: Date.now(),
+                isTemporary: true
             });
             return;
         }
         
-        // NEW: Handle chat response from orchestrator
+        // Handle message status updates (from your current system)
+        if (data.type === 'message_status') {
+            this._log('📬 Message status update:', data.status, data.messageId);
+            
+            if (data.status === 'queued') {
+                // Track pending message
+                this.pendingMessages.set(data.messageId, {
+                    queuedAt: Date.now(),
+                    status: 'pending'
+                });
+                
+                // Show processing message
+                this._notifyMessageListeners({
+                    type: 'processing_message',
+                    messageId: data.messageId,
+                    text: data.message || 'Processing your message...',
+                    timestamp: Date.now(),
+                    isTemporary: true
+                });
+            }
+            return;
+        }
+        
+        // Handle chat response from orchestrator (this is what you need!)
         if (data.type === 'chat_response') {
             this._log('💬 Chat response received:', data.message_id);
             
             // Remove from pending messages
             this.pendingMessages.delete(data.message_id);
             
-            // Parse response data
+            // Parse response
             const response = data.response || {};
             const text = response.text || 'No response text';
-            const components = response.components || [];
-            const metadata = response.metadata || {};
+            const processingTime = data.processing_time || 0;
             
             // Notify chat response listeners
             this._notifyChatResponseListeners({
                 type: 'chat_response',
                 messageId: data.message_id,
                 text: text,
-                components: components,
-                metadata: metadata,
-                processingTime: data.processing_time,
-                completedAt: data.completed_at,
-                createdAt: data.created_at,
-                timestamp: data.timestamp
+                components: response.components || [],
+                processingTime: processingTime,
+                timestamp: Date.now(),
+                metadata: response.metadata || {}
+            });
+            
+            // Also notify regular message listeners for backward compatibility
+            this._notifyMessageListeners({
+                type: 'bot_response',
+                messageId: data.message_id,
+                text: text,
+                components: response.components || [],
+                processingTime: processingTime,
+                timestamp: Date.now(),
+                metadata: response.metadata || {}
             });
             return;
         }
         
-        // NEW: Handle chat error from orchestrator
+        // Handle chat error from orchestrator
         if (data.type === 'chat_error') {
             this._log('❌ Chat error received:', data.message_id);
             
@@ -308,14 +340,20 @@ const ChatService = {
                 type: 'chat_error',
                 messageId: data.message_id,
                 error: data.error || 'Unknown error occurred',
-                failedAt: data.failed_at,
-                createdAt: data.created_at,
-                timestamp: data.timestamp
+                timestamp: Date.now()
+            });
+            
+            // Also notify regular message listeners
+            this._notifyMessageListeners({
+                type: 'error_response',
+                messageId: data.message_id,
+                text: `Error: ${data.error}`,
+                timestamp: Date.now()
             });
             return;
         }
         
-        // Handle error messages
+        // Handle general error messages
         if (data.type === 'error') {
             this._error('❌ Server error:', data.message);
             this._notifyErrorListeners({
@@ -361,14 +399,12 @@ const ChatService = {
         this._cleanup();
         this._notifyStatusChange('disconnected');
         
-        // FIXED: More intelligent reconnection logic
         const shouldReconnect = event.code !== 1000 && // Normal closure
                               event.code !== 1001 && // Going away
                               event.code !== 4001 && // Authentication failed
                               this.reconnectAttempts < this.options.maxReconnectAttempts &&
                               this.authService.isAuthenticated();
         
-        // FIXED: Special handling for code 1006 (abnormal closure) - always try to reconnect once
         const isAbnormalClosure = event.code === 1006;
         
         if (shouldReconnect || (isAbnormalClosure && this.reconnectAttempts === 0)) {
@@ -386,7 +422,7 @@ const ChatService = {
     },
     
     /**
-     * Send a message (matching server expectations)
+     * Send a message
      */
     async sendMessage(text) {
         if (!text || !text.trim()) {
@@ -394,7 +430,7 @@ const ChatService = {
         }
         
         const message = {
-            type: 'message',  // Server expects 'message' type
+            type: 'message',
             message: text.trim(),
             id: this._generateId(),
             timestamp: new Date().toISOString()
@@ -423,63 +459,6 @@ const ChatService = {
         }
     },
     
-    onChatResponse(callback) {
-        if (typeof callback === 'function') {
-            this.chatResponseListeners.push(callback);
-        }
-    },
-
-    _notifyChatResponseListeners(data) {
-        this.chatResponseListeners.forEach(callback => {
-            try {
-                callback(data);
-            } catch (e) {
-                this._error('❌ Error in chat response listener:', e);
-            }
-        });
-    },
-
-    getPendingMessages() {
-        const pendingArray = [];
-        this.pendingMessages.forEach((info, messageId) => {
-            pendingArray.push({
-                messageId: messageId,
-                queuedAt: info.queuedAt,
-                waitTime: Date.now() - info.queuedAt,
-                status: info.status
-            });
-        });
-        return pendingArray;
-    },
-    
-    getStatus() {
-        return {
-            connected: this.isConnected,
-            authenticated: this.isAuthenticated,
-            connecting: this.isConnecting,
-            reconnectAttempts: this.reconnectAttempts,
-            sessionId: this.sessionId,
-            messageCount: this.messageCount,
-            lastPongTime: this.lastPongTime,
-            socketState: this.socket ? this.socket.readyState : null,
-            pendingMessages: this.pendingMessages.size // ADD this line
-        };
-    },
-    
-    getDebugInfo() {
-        return {
-            ...this.getStatus(),
-            queuedMessages: this.messageQueue.length,
-            uptime: this.connectionStartTime ? Date.now() - this.connectionStartTime : 0,
-            listeners: {
-                message: this.messageListeners.length,
-                status: this.statusListeners.length,
-                error: this.errorListeners.length,
-                chatResponse: this.chatResponseListeners.length // ADD this line
-            },
-            pendingMessageDetails: this.getPendingMessages() // ADD this line
-        };
-    },
     /**
      * Disconnect
      */
@@ -494,7 +473,7 @@ const ChatService = {
         }
         
         // Clear pending messages
-        this.pendingMessages.clear(); // ADD this line
+        this.pendingMessages.clear();
         
         this.isConnected = false;
         this.isAuthenticated = false;
@@ -528,7 +507,8 @@ const ChatService = {
             sessionId: this.sessionId,
             messageCount: this.messageCount,
             lastPongTime: this.lastPongTime,
-            socketState: this.socket ? this.socket.readyState : null
+            socketState: this.socket ? this.socket.readyState : null,
+            pendingMessages: this.pendingMessages.size
         };
     },
     
@@ -543,8 +523,10 @@ const ChatService = {
             listeners: {
                 message: this.messageListeners.length,
                 status: this.statusListeners.length,
-                error: this.errorListeners.length
-            }
+                error: this.errorListeners.length,
+                chatResponse: this.chatResponseListeners.length
+            },
+            pendingMessageDetails: this.getPendingMessages()
         };
     },
     
@@ -565,6 +547,36 @@ const ChatService = {
         if (typeof callback === 'function') {
             this.errorListeners.push(callback);
         }
+    },
+    
+    onChatResponse(callback) {
+        if (typeof callback === 'function') {
+            this.chatResponseListeners.push(callback);
+        }
+    },
+    
+    // Helper methods
+    _notifyChatResponseListeners(data) {
+        this.chatResponseListeners.forEach(callback => {
+            try {
+                callback(data);
+            } catch (e) {
+                this._error('❌ Error in chat response listener:', e);
+            }
+        });
+    },
+    
+    getPendingMessages() {
+        const pendingArray = [];
+        this.pendingMessages.forEach((info, messageId) => {
+            pendingArray.push({
+                messageId: messageId,
+                queuedAt: info.queuedAt,
+                waitTime: Date.now() - info.queuedAt,
+                status: info.status
+            });
+        });
+        return pendingArray;
     },
     
     // Private methods
@@ -602,9 +614,8 @@ const ChatService = {
     
     _scheduleReconnect() {
         this.reconnectAttempts++;
-        // FIXED: Shorter delay for first reconnection attempt
         let delay = this.reconnectAttempts === 1 ? 1000 : (this.options.reconnectInterval * this.reconnectAttempts);
-        delay = Math.min(delay, 10000); // Cap at 10 seconds max
+        delay = Math.min(delay, 10000);
         
         this._log(`🔄 Reconnecting in ${delay}ms (attempt ${this.reconnectAttempts}/${this.options.maxReconnectAttempts})`);
         this._notifyStatusChange('reconnecting');
@@ -642,7 +653,6 @@ const ChatService = {
             if (this.socket && this.socket.readyState === WebSocket.OPEN) {
                 this.socket.send(JSON.stringify(msg));
             } else {
-                // Re-queue if connection lost
                 this.messageQueue.push(msg);
             }
         });
@@ -656,7 +666,6 @@ const ChatService = {
         
         this._stopHeartbeat();
         
-        // Reset connection state
         this.isConnected = false;
         this.isAuthenticated = false;
     },
@@ -707,13 +716,13 @@ const ChatService = {
     }
 };
 
-
+// FIXED Enhanced Chat Integration
 const EnhancedChatIntegration = {
     chatContainer: null,
     messageContainer: null,
     inputElement: null,
     statusElement: null,
-    tempMessages: new Map(), // Track temporary messages
+    tempMessages: new Map(),
     
     init(chatContainerId = 'chat-container') {
         this.chatContainer = document.getElementById(chatContainerId);
@@ -721,10 +730,67 @@ const EnhancedChatIntegration = {
         this.inputElement = document.getElementById('message-input') || document.querySelector('input[type="text"]');
         this.statusElement = document.getElementById('connection-status');
         
-        // Set up ChatService listeners
+        // Set up ChatService listeners - FIXED to handle all message types
         ChatService.onStatusChange((status) => this.updateConnectionStatus(status));
-        ChatService.onMessage((data) => this.handleSystemMessage(data));
-        ChatService.onChatResponse((data) => this.handleChatResponse(data));
+        
+        // Handle all message types in one place
+        ChatService.onMessage((data) => {
+            console.log('📨 Enhanced Chat - Message received:', data.type, data);
+            
+            if (data.type === 'processing_message') {
+                // Show temporary processing message
+                const tempMsg = {
+                    type: 'system',
+                    text: data.text,
+                    timestamp: new Date(data.timestamp).toISOString(),
+                    isTemporary: true,
+                    messageId: data.messageId
+                };
+                
+                this.addMessage(tempMsg);
+                this.tempMessages.set(data.messageId, tempMsg);
+                
+            } else if (data.type === 'bot_response') {
+                // Remove processing message and add bot response
+                if (data.messageId) {
+                    this.removeTemporaryMessage(data.messageId);
+                    this.tempMessages.delete(data.messageId);
+                }
+                
+                let processingInfo = '';
+                if (data.processingTime) {
+                    processingInfo = ` (${data.processingTime.toFixed(2)}s)`;
+                }
+                
+                this.addMessage({
+                    type: 'bot',
+                    text: data.text + processingInfo,
+                    components: data.components,
+                    timestamp: new Date(data.timestamp).toISOString(),
+                    metadata: data.metadata
+                });
+                
+            } else if (data.type === 'error_response') {
+                // Remove processing message and add error
+                if (data.messageId) {
+                    this.removeTemporaryMessage(data.messageId);
+                    this.tempMessages.delete(data.messageId);
+                }
+                
+                this.addMessage({
+                    type: 'error',
+                    text: data.text,
+                    timestamp: new Date(data.timestamp).toISOString()
+                });
+            }
+        });
+        
+        // Also handle dedicated chat response listener
+        ChatService.onChatResponse((data) => {
+            console.log('💬 Enhanced Chat - Chat response:', data);
+            this.handleChatResponse(data);
+        });
+        
         ChatService.onError((error) => this.handleError(error));
         
         // Set up input handler
@@ -781,25 +847,7 @@ const EnhancedChatIntegration = {
         }
     },
     
-    handleSystemMessage(data) {
-        if (data.type === 'message_status' && data.status === 'queued') {
-            // Show processing message
-            const tempMsg = {
-                type: 'system',
-                text: data.message || 'Processing your message...',
-                timestamp: new Date().toISOString(),
-                isTemporary: true,
-                messageId: data.messageId
-            };
-            
-            this.addMessage(tempMsg);
-            this.tempMessages.set(data.messageId, tempMsg);
-        }
-    },
-    
     handleChatResponse(data) {
-        console.log('💬 Handling chat response:', data);
-        
         // Remove temporary message if exists
         if (data.messageId && this.tempMessages.has(data.messageId)) {
             this.removeTemporaryMessage(data.messageId);
@@ -815,10 +863,9 @@ const EnhancedChatIntegration = {
             
             this.addMessage({
                 type: 'bot',
-                text: data.text,
+                text: data.text + processingInfo,
                 components: data.components,
-                timestamp: data.completedAt || new Date().toISOString(),
-                processingInfo: processingInfo,
+                timestamp: new Date(data.timestamp).toISOString(),
                 metadata: data.metadata
             });
             
@@ -827,7 +874,7 @@ const EnhancedChatIntegration = {
             this.addMessage({
                 type: 'error',
                 text: `Error: ${data.error}`,
-                timestamp: data.failedAt || new Date().toISOString()
+                timestamp: new Date(data.timestamp).toISOString()
             });
         }
     },
@@ -841,10 +888,13 @@ const EnhancedChatIntegration = {
     },
     
     addMessage(message) {
-        if (!this.messageContainer) return;
+        if (!this.messageContainer) {
+            console.warn('Message container not found');
+            return;
+        }
         
         const messageDiv = document.createElement('div');
-        messageDiv.className = `message ${message.type}`;
+        messageDiv.className = `message ${message.type || 'default'}`;
         
         if (message.messageId) {
             messageDiv.setAttribute('data-message-id', message.messageId);
@@ -869,12 +919,15 @@ const EnhancedChatIntegration = {
         
         this.messageContainer.appendChild(messageDiv);
         this.messageContainer.scrollTop = this.messageContainer.scrollHeight;
+        
+        console.log('✅ Added message to chat:', message.type, message.text.substring(0, 30));
     },
     
     removeTemporaryMessage(messageId) {
         const messageElement = document.querySelector(`[data-message-id="${messageId}"]`);
         if (messageElement && messageElement.classList.contains('temporary-message')) {
             messageElement.remove();
+            console.log('🗑️ Removed temporary message:', messageId);
         }
     },
     
@@ -902,6 +955,7 @@ const EnhancedChatIntegration = {
     }
 };
 
+// Enhanced CSS Styles
 const enhancedChatStyles = `
 <style>
 .connection-status {
@@ -955,6 +1009,12 @@ const enhancedChatStyles = `
     font-style: italic;
 }
 
+.message {
+    margin: 8px 0;
+    padding: 8px 12px;
+    border-radius: 8px;
+}
+
 .message.error {
     background: #ffebee;
     border-left: 3px solid #f44336;
@@ -977,9 +1037,16 @@ const enhancedChatStyles = `
     background: #ecfdf5;
     border-left: 3px solid #10b981;
 }
+
+.message-time {
+    font-size: 0.75em;
+    color: #666;
+    margin-top: 4px;
+}
 </style>
 `;
 
+// Initialize everything
 document.addEventListener('DOMContentLoaded', function() {
     // Add styles
     document.head.insertAdjacentHTML('beforeend', enhancedChatStyles);
@@ -997,7 +1064,8 @@ document.addEventListener('DOMContentLoaded', function() {
     console.log('🚀 Enhanced chat system ready');
 });
 
-// Export for use
+// Export for global access
 if (typeof window !== 'undefined') {
     window.ChatService = ChatService;
+    window.EnhancedChatIntegration = EnhancedChatIntegration;
 }
