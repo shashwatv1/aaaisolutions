@@ -1,202 +1,147 @@
-const axios = require('axios');
 const cors = require('cors')({origin: true});
-const {getSecret} = require('../utils/secret-manager');
-const {handleError} = require('../utils/error-handler');
+const {refreshAccessToken, revokeRefreshToken} = require('../utils/jwt-utils');
 
 /**
- * ENHANCED: Refresh access token using refresh token with better error handling
+ * JWT Token Refresh Function
+ * Uses httpOnly refresh token to generate new access token
  */
 async function refreshToken(req, res) {
-  // Handle CORS
   return cors(req, res, async () => {
-    // Handle OPTIONS request for CORS preflight
     if (req.method === 'OPTIONS') {
       res.status(204).send('');
       return;
     }
-    
-    if (req.method !== 'POST') {
-      res.status(405).send('Method Not Allowed');
-      return;
-    }
-    
+
     try {
-      // Get API key from Secret Manager
-      const apiKey = await getSecret('api-key');
-      
-      console.log('=== STANDARD REFRESH DEBUG ===');
-      console.log('Request body:', req.body);
-      console.log('Cookies received:', req.cookies);
-      
-      // Enhanced refresh token extraction
+      console.log('🔄 JWT token refresh starting...');
+
+      // Extract refresh token from httpOnly cookie
       let refreshToken = null;
-      
-      // Method 1: Request body (explicit refresh)
-      if (req.body && req.body.refresh_token) {
-        refreshToken = req.body.refresh_token;
-        console.log('Found refresh token in request body');
-      }
-      
-      // Method 2: Cookies (fallback)
-      if (!refreshToken && req.cookies && req.cookies.refresh_token) {
-        refreshToken = req.cookies.refresh_token;
-        console.log('Found refresh token in cookies');
-      }
-      
-      // Method 3: Parse cookie header manually
-      if (!refreshToken && req.headers.cookie) {
+
+      if (req.headers.cookie) {
         const cookies = req.headers.cookie.split(';');
         for (const cookie of cookies) {
           const [name, value] = cookie.trim().split('=');
           if (name === 'refresh_token' && value) {
             refreshToken = decodeURIComponent(value);
-            console.log('Found refresh token via cookie header parsing');
             break;
           }
         }
       }
-      
-      console.log('Final refresh token found:', !!refreshToken);
-      console.log('Refresh token length:', refreshToken ? refreshToken.length : 0);
-      
+
       if (!refreshToken) {
-        console.log('ERROR: No refresh token found');
-        res.status(400).json({ 
-          error: 'Refresh token is required',
-          message: 'No refresh token provided in request body or cookies',
+        console.log('❌ No refresh token found in cookies');
+        return res.status(401).json({
+          error: 'Refresh token not found',
           code: 'MISSING_REFRESH_TOKEN',
-          debug: {
-            hasBody: !!req.body,
-            hasCookies: !!req.cookies,
-            bodyKeys: req.body ? Object.keys(req.body) : [],
-            cookieKeys: req.cookies ? Object.keys(req.cookies) : []
-          }
+          action: 'login_required'
         });
-        return;
       }
-      
-      // Validate refresh token format
-      if (!refreshToken.startsWith('eyJ')) {
-        console.log('ERROR: Invalid refresh token format');
-        res.status(400).json({
-          error: 'Invalid refresh token format',
-          message: 'Refresh token does not appear to be a valid JWT',
-          code: 'INVALID_TOKEN_FORMAT'
-        });
-        return;
-      }
-      
-      // Forward the request to the main API
-      console.log('Forwarding to main API for token refresh');
-      const response = await axios.post(
-        'https://api-server-559730737995.us-central1.run.app/auth/refresh',
-        { 
-          refresh_token: refreshToken,
-          silent: req.body.silent || false
+
+      console.log('🎟️ Refresh token found, generating new access token...');
+
+      // Generate new access token
+      const tokenData = await refreshAccessToken(refreshToken);
+
+      console.log('✅ New access token generated successfully');
+
+      // Return new access token
+      const responseData = {
+        success: true,
+        message: 'Token refreshed successfully',
+        user: tokenData.user,
+        tokens: {
+          access_token: tokenData.access_token,
+          token_type: tokenData.token_type,
+          expires_in: tokenData.expires_in
         },
-        {
-          headers: {
-            'Content-Type': 'application/json',
-            'X-API-Key': apiKey,
-            // Forward original cookies for session context
-            'Cookie': req.headers.cookie || ''
-          }
+        authentication: {
+          method: 'jwt_bearer',
+          expires_at: new Date(Date.now() + (15 * 60 * 1000)).toISOString(),
+          refreshed_at: new Date().toISOString()
         }
-      );
-      
-      // If successful, set new cookies
-      if (response.data && response.data.access_token) {
-        const secure = req.headers['x-forwarded-proto'] === 'https';
-        const sameSite = 'lax';
-        
-        console.log('Token refresh successful, setting cookies');
-        
-        // Set access token cookie (shorter expiry)
-        res.cookie('access_token', response.data.access_token, {
-          httpOnly: true,
-          secure: secure,
-          sameSite: sameSite,
-          maxAge: 3600000, // 1 hour
-          path: '/'
-        });
-        
-        // Update refresh token if provided
-        if (response.data.refresh_token) {
-          res.cookie('refresh_token', response.data.refresh_token, {
-            httpOnly: true,
-            secure: secure,
-            sameSite: sameSite,
-            maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
-            path: '/'
-          });
-        }
-        
-        // Set authenticated flag
-        res.cookie('authenticated', 'true', {
-          httpOnly: false, // Accessible to JavaScript
-          secure: secure,
-          sameSite: sameSite,
-          maxAge: 3600000, // 1 hour
-          path: '/'
-        });
-        
-        // Update user info cookie if provided
-        if (response.data.user) {
-          res.cookie('user_info', JSON.stringify({
-            id: response.data.user.id,
-            email: response.data.user.email,
-            session_id: response.data.session_id || 'refreshed_session'
-          }), {
-            httpOnly: false, // Accessible to JavaScript
-            secure: secure,
-            sameSite: sameSite,
-            maxAge: 3600000, // 1 hour
-            path: '/'
-          });
-        }
-        
-        console.log('All cookies set successfully');
-      }
-      
-      // Return the response to the client
-      res.status(200).json(response.data);
-      
+      };
+
+      console.log('✅ JWT token refresh complete:', {
+        userId: tokenData.user.user_id,
+        email: tokenData.user.email,
+        expiresIn: '15 minutes'
+      });
+
+      res.status(200).json(responseData);
+
     } catch (error) {
-      console.log('Standard refresh error:', error.message);
-      
-      // Handle specific token refresh errors
-      if (error.response && error.response.status === 401) {
-        // Clear cookies on invalid refresh token
-        const cookiesToClear = [
-          'access_token', 
-          'refresh_token', 
-          'authenticated', 
-          'user_info',
-          'session_id',
-          'csrf_token'
-        ];
-        
-        const secure = req.headers['x-forwarded-proto'] === 'https';
-        
-        cookiesToClear.forEach(cookieName => {
-          res.clearCookie(cookieName, { 
-            path: '/',
-            secure: secure,
-            sameSite: 'lax'
-          });
+      console.error('💥 JWT token refresh error:', error);
+
+      // Handle specific refresh token errors
+      if (error.message.includes('Invalid or expired')) {
+        // Try to revoke the invalid token
+        try {
+          const refreshToken = extractRefreshTokenFromCookies(req.headers.cookie);
+          if (refreshToken) {
+            await revokeRefreshToken(refreshToken);
+          }
+        } catch (revokeError) {
+          console.warn('Failed to revoke invalid token:', revokeError);
+        }
+
+        // Clear the invalid refresh token cookie
+        res.setHeader('Set-Cookie', [
+          'refresh_token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT; httpOnly; secure; sameSite=lax',
+          'authenticated=false; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT; sameSite=lax'
+        ]);
+
+        return res.status(401).json({
+          error: 'Refresh token expired or invalid',
+          code: 'INVALID_REFRESH_TOKEN',
+          action: 'login_required'
         });
-        
-        res.status(401).json({
-          error: 'Invalid or expired refresh token',
-          message: 'Please log in again',
-          code: 'REFRESH_TOKEN_INVALID'
-        });
-        return;
       }
-      
-      handleError(error, res);
+
+      // Handle database/Supabase errors
+      if (error.message.includes('Supabase') || error.message.includes('database')) {
+        return res.status(503).json({
+          error: 'Authentication service temporarily unavailable',
+          code: 'SERVICE_UNAVAILABLE',
+          retry_after: 60
+        });
+      }
+
+      // Generic error
+      res.status(500).json({
+        error: 'Token refresh failed',
+        code: 'REFRESH_ERROR',
+        timestamp: new Date().toISOString()
+      });
     }
   });
 }
 
-module.exports = refreshToken;
+/**
+ * Silent token refresh (same as above, but with different endpoint name)
+ * For backward compatibility with existing frontend code
+ */
+async function refreshTokenSilent(req, res) {
+  return refreshToken(req, res);
+}
+
+/**
+ * Helper function to extract refresh token from cookie string
+ */
+function extractRefreshTokenFromCookies(cookieString) {
+  if (!cookieString) return null;
+
+  const cookies = cookieString.split(';');
+  for (const cookie of cookies) {
+    const [name, value] = cookie.trim().split('=');
+    if (name === 'refresh_token' && value) {
+      return decodeURIComponent(value);
+    }
+  }
+  return null;
+}
+
+module.exports = {
+  refreshToken,
+  refreshTokenSilent
+};

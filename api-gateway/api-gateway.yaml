@@ -1,20 +1,26 @@
 swagger: '2.0'
 info:
-  title: AAAI Solutions API
-  description: Direct API Gateway for AAAI Solutions with CORS support
-  version: 1.0.0
+  title: AAAI Solutions JWT API
+  description: JWT-based API Gateway for AAAI Solutions with Bearer token authentication
+  version: 2.0.0
 host: aaai-gateway-754x89jf.uc.gateway.dev
 schemes:
   - https
 produces:
   - application/json
+securityDefinitions:
+  bearerAuth:
+    type: apiKey
+    name: Authorization
+    in: header
+    description: 'JWT Bearer token in the format: Bearer {jwt_token}'
 x-google-endpoints:
   - name: aaai-gateway-754x89jf.uc.gateway.dev
     allowCors: true
-# Add global CORS configuration
+# Global CORS configuration for JWT
 responses:
   CorsResponse:
-    description: Default CORS response
+    description: CORS response for JWT API
     headers:
       Access-Control-Allow-Origin:
         type: string
@@ -24,7 +30,7 @@ responses:
         default: 'GET, POST, PUT, DELETE, OPTIONS'
       Access-Control-Allow-Headers:
         type: string
-        default: 'Content-Type, Authorization, X-API-Key'
+        default: 'Content-Type, Authorization'
       Access-Control-Allow-Credentials:
         type: string
         default: 'true'
@@ -79,13 +85,13 @@ paths:
           
   /auth/verify-otp:
     post:
-      summary: Verify OTP and get token
+      summary: Verify OTP and get JWT tokens
       operationId: verifyOTP
       x-google-backend:
         address: https://us-central1-aai-solutions-api-021201.cloudfunctions.net/verifyOTP
       responses:
         '200':
-          description: OTP verified successfully
+          description: OTP verified, JWT tokens issued
           headers:
             Access-Control-Allow-Origin:
               type: string
@@ -126,7 +132,7 @@ paths:
           
   /api/function/{function_name}:
     post:
-      summary: Execute a function
+      summary: Execute a function with JWT authentication
       operationId: executeFunction
       parameters:
         - name: function_name
@@ -135,9 +141,9 @@ paths:
           type: string
           description: Name of the function to execute
       x-google-backend:
-        address: https://us-central1-aai-solutions-api-021201.cloudfunctions.net/executeFunction
+        address: https://us-central1-aai-solutions-api-021201.cloudfunctions.net/functionExecutor
       security:
-        - api_key: []
+        - bearerAuth: []
       responses:
         '200':
           description: Function executed successfully
@@ -151,7 +157,7 @@ paths:
         '400':
           description: Bad request
         '401':
-          description: Unauthorized
+          description: JWT authentication failed
         '404':
           description: Function not found
         '500':
@@ -165,7 +171,7 @@ paths:
           required: true
           type: string
       x-google-backend:
-        address: https://us-central1-aai-solutions-api-021201.cloudfunctions.net/executeFunction
+        address: https://us-central1-aai-solutions-api-021201.cloudfunctions.net/functionExecutor
       responses:
         '204':
           description: CORS preflight response
@@ -178,56 +184,7 @@ paths:
               default: 'POST, OPTIONS'
             Access-Control-Allow-Headers:
               type: string
-              default: 'Content-Type, Authorization, X-API-Key'
-            Access-Control-Allow-Credentials:
-              type: string
-              default: 'true'
-            Access-Control-Max-Age:
-              type: string
-              default: '3600'
-
-  /auth/validate-session:
-    post:
-      summary: Validate user session
-      operationId: validateSession
-      x-google-backend:
-        address: https://us-central1-aai-solutions-api-021201.cloudfunctions.net/validateSession
-      security:
-        - api_key: []
-      responses:
-        '200':
-          description: Session validation successful
-          headers:
-            Access-Control-Allow-Origin:
-              type: string
-              default: 'https://aaai.solutions'
-            Access-Control-Allow-Credentials:
-              type: string
-              default: 'true'
-        '400':
-          description: Bad request
-        '401':
-          description: Unauthorized
-        '500':
-          description: Server error
-    options:
-      summary: CORS support
-      operationId: corsValidateSession
-      x-google-backend:
-        address: https://us-central1-aai-solutions-api-021201.cloudfunctions.net/validateSession
-      responses:
-        '204':
-          description: CORS preflight response
-          headers:
-            Access-Control-Allow-Origin:
-              type: string
-              default: 'https://aaai.solutions'
-            Access-Control-Allow-Methods:
-              type: string
-              default: 'POST, OPTIONS'
-            Access-Control-Allow-Headers:
-              type: string
-              default: 'Content-Type, Authorization, X-API-Key'
+              default: 'Content-Type, Authorization'
             Access-Control-Allow-Credentials:
               type: string
               default: 'true'
@@ -237,7 +194,7 @@ paths:
 
   /auth/refresh:
     post:
-      summary: Refresh access token using refresh token
+      summary: Refresh JWT access token using httpOnly refresh token
       operationId: refreshToken
       x-google-backend:
         address: https://us-central1-aai-solutions-api-021201.cloudfunctions.net/refreshToken
@@ -282,61 +239,14 @@ paths:
               type: string
               default: '3600'
 
-  /auth/refresh-silent:
-    post:
-      summary: Silent token refresh using cookies
-      operationId: refreshTokenSilent
-      x-google-backend:
-        address: https://us-central1-aai-solutions-api-021201.cloudfunctions.net/refreshTokenSilent
-      responses:
-        '200':
-          description: Token refreshed silently
-          headers:
-            Access-Control-Allow-Origin:
-              type: string
-              default: 'https://aaai.solutions'
-            Access-Control-Allow-Credentials:
-              type: string
-              default: 'true'
-        '400':
-          description: Bad request
-        '401':
-          description: Invalid refresh token
-        '500':
-          description: Server error
-    options:
-      summary: CORS support
-      operationId: corsRefreshTokenSilent
-      x-google-backend:
-        address: https://us-central1-aai-solutions-api-021201.cloudfunctions.net/refreshTokenSilent
-      responses:
-        '204':
-          description: CORS preflight response
-          headers:
-            Access-Control-Allow-Origin:
-              type: string
-              default: 'https://aaai.solutions'
-            Access-Control-Allow-Methods:
-              type: string
-              default: 'POST, OPTIONS'
-            Access-Control-Allow-Headers:
-              type: string
-              default: 'Content-Type'
-            Access-Control-Allow-Credentials:
-              type: string
-              default: 'true'
-            Access-Control-Max-Age:
-              type: string
-              default: '3600'
-
   /auth/logout:
     post:
-      summary: Logout and invalidate tokens
+      summary: Logout and revoke JWT tokens
       operationId: logout
       x-google-backend:
         address: https://us-central1-aai-solutions-api-021201.cloudfunctions.net/logout
       security:
-        - api_key: []
+        - bearerAuth: []
       responses:
         '200':
           description: Logout successful
@@ -350,7 +260,7 @@ paths:
         '400':
           description: Bad request
         '401':
-          description: Unauthorized
+          description: JWT authentication failed
         '500':
           description: Server error
     options:
@@ -370,56 +280,7 @@ paths:
               default: 'POST, OPTIONS'
             Access-Control-Allow-Headers:
               type: string
-              default: 'Content-Type, Authorization, X-API-Key'
-            Access-Control-Allow-Credentials:
-              type: string
-              default: 'true'
-            Access-Control-Max-Age:
-              type: string
-              default: '3600'
-
-  /ws/token:
-    post:
-      summary: Generate WebSocket authentication token
-      operationId: getWebSocketToken
-      x-google-backend:
-        address: https://us-central1-aai-solutions-api-021201.cloudfunctions.net/getWebSocketToken
-      security:
-        - api_key: []
-      responses:
-        '200':
-          description: Token generated successfully
-          headers:
-            Access-Control-Allow-Origin:
-              type: string
-              default: 'https://aaai.solutions'
-            Access-Control-Allow-Credentials:
-              type: string
-              default: 'true'
-        '400':
-          description: Bad request
-        '401':
-          description: Unauthorized
-        '500':
-          description: Server error
-    options:
-      summary: CORS support
-      operationId: corsGetWebSocketToken
-      x-google-backend:
-        address: https://us-central1-aai-solutions-api-021201.cloudfunctions.net/getWebSocketToken
-      responses:
-        '204':
-          description: CORS preflight response
-          headers:
-            Access-Control-Allow-Origin:
-              type: string
-              default: 'https://aaai.solutions'
-            Access-Control-Allow-Methods:
-              type: string
-              default: 'POST, OPTIONS'
-            Access-Control-Allow-Headers:
-              type: string
-              default: 'Content-Type, Authorization, X-API-Key'
+              default: 'Content-Type, Authorization'
             Access-Control-Allow-Credentials:
               type: string
               default: 'true'

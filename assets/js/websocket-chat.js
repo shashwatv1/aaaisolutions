@@ -1,10 +1,9 @@
 /**
- * Unified WebSocket Chat Service for AAAI Solutions
- * Integrates seamlessly with ProjectService and NavigationManager
- * Removes duplicates and provides clean communication layer
+ * Complete JWT-Enhanced WebSocket Chat Service for AAAI Solutions
+ * Fully integrated with JWT Bearer token authentication
  */
 const ChatService = {
-    // Core state
+    // Core WebSocket state
     socket: null,
     isConnected: false,
     isConnecting: false,
@@ -44,11 +43,11 @@ const ChatService = {
     },
     
     /**
-     * Initialize the chat service with dependencies
+     * Initialize the JWT chat service
      */
     init(authService, options = {}) {
         if (this.isInitialized) {
-            console.log('💬 ChatService already initialized');
+            console.log('💬 JWT ChatService already initialized');
             return this;
         }
         
@@ -68,14 +67,15 @@ const ChatService = {
         // Get user context
         const user = authService.getCurrentUser();
         if (user) {
-            this._log('ChatService initialized for user:', user.email);
+            this._log('JWT ChatService initialized for user:', user.email);
         }
         
         this.isInitialized = true;
         
-        this._log('ChatService initialized successfully', {
+        this._log('JWT ChatService initialized successfully', {
             userId: user?.id,
             hasProjectService: !!this.projectService,
+            authMethod: 'jwt_bearer',
             maxReconnectAttempts: this.options.maxReconnectAttempts
         });
         
@@ -83,7 +83,7 @@ const ChatService = {
     },
     
     /**
-     * Connect to WebSocket with context integration
+     * Connect to WebSocket with JWT authentication
      */
     async connect() {
         if (this.isConnected && this.isAuthenticated) {
@@ -96,9 +96,9 @@ const ChatService = {
             return false;
         }
         
-        this._log('Starting WebSocket connection...');
+        this._log('Starting JWT WebSocket connection...');
         
-        // Check authentication
+        // Check JWT authentication
         if (!this.authService.isAuthenticated()) {
             throw new Error('Not authenticated - please login first');
         }
@@ -106,6 +106,13 @@ const ChatService = {
         const user = this.authService.getCurrentUser();
         if (!user || !user.id || !user.email) {
             throw new Error('User information not available');
+        }
+        
+        // Ensure we have a valid JWT token
+        try {
+            await this.authService._ensureValidToken();
+        } catch (error) {
+            throw new Error('Failed to ensure valid JWT token: ' + error.message);
         }
         
         return new Promise((resolve, reject) => {
@@ -124,14 +131,14 @@ const ChatService = {
                 };
             }
             
-            // Build WebSocket URL with context
-            const wsUrl = this._buildWebSocketURL(user, projectContext);
-            this._log('Connecting to:', wsUrl);
+            // Build WebSocket URL with JWT authentication
+            const wsUrl = this._buildJWTWebSocketURL(user, projectContext);
+            this._log('Connecting to JWT WebSocket:', wsUrl);
             
             // Connection timeout
             const timeout = setTimeout(() => {
                 if (this.isConnecting) {
-                    this._log('Connection timeout');
+                    this._log('JWT WebSocket connection timeout');
                     this._cleanup();
                     this.isConnecting = false;
                     this._notifyStatusChange('disconnected');
@@ -140,13 +147,13 @@ const ChatService = {
             }, this.options.connectionTimeout);
             
             try {
-                // Create WebSocket
+                // Create WebSocket with JWT token in URL
                 this.socket = new WebSocket(wsUrl);
                 
                 // Handle open
                 this.socket.onopen = () => {
                     const connectionTime = Date.now() - this.connectionStartTime;
-                    this._log(`WebSocket opened in ${connectionTime}ms`);
+                    this._log(`JWT WebSocket opened in ${connectionTime}ms`);
                     this.isConnected = true;
                 };
                 
@@ -155,11 +162,11 @@ const ChatService = {
                     try {
                         const data = JSON.parse(event.data);
                         const messageTime = Date.now() - this.connectionStartTime;
-                        this._log(`Message received (${data.type}) after ${messageTime}ms`);
+                        this._log(`JWT Message received (${data.type}) after ${messageTime}ms`);
                         
-                        // Handle session establishment
+                        // Handle JWT session establishment
                         if (data.type === 'session_established') {
-                            this._log('Session established with server');
+                            this._log('JWT session established with server');
                             
                             this.isAuthenticated = true;
                             this.isConnecting = false;
@@ -176,13 +183,19 @@ const ChatService = {
                             return;
                         }
                         
-                        // Handle connection errors
+                        // Handle JWT authentication errors
                         if (data.type === 'error' && this.isConnecting) {
-                            this._log('Connection error:', data.message);
+                            this._log('JWT connection error:', data.message);
                             clearTimeout(timeout);
                             this.isConnecting = false;
                             this._cleanup();
-                            reject(new Error(`Authentication failed: ${data.message}`));
+                            
+                            // Check if it's a JWT-specific error
+                            if (data.message.includes('token') || data.message.includes('authentication')) {
+                                reject(new Error(`JWT Authentication failed: ${data.message}`));
+                            } else {
+                                reject(new Error(`Connection failed: ${data.message}`));
+                            }
                             return;
                         }
                         
@@ -190,7 +203,7 @@ const ChatService = {
                         this._handleMessage(data);
                         
                     } catch (e) {
-                        this._error('Message parse error:', e);
+                        this._error('JWT Message parse error:', e);
                         this._error('Raw message:', event.data);
                     }
                 };
@@ -198,7 +211,7 @@ const ChatService = {
                 // Handle close
                 this.socket.onclose = (event) => {
                     const connectionTime = Date.now() - this.connectionStartTime;
-                    this._log(`WebSocket closed after ${connectionTime}ms:`, event.code, event.reason);
+                    this._log(`JWT WebSocket closed after ${connectionTime}ms:`, event.code, event.reason);
                     
                     if (this.isConnecting) {
                         clearTimeout(timeout);
@@ -212,13 +225,13 @@ const ChatService = {
                 
                 // Handle errors
                 this.socket.onerror = (event) => {
-                    this._error('WebSocket error:', event);
+                    this._error('JWT WebSocket error:', event);
                     
                     if (this.isConnecting) {
                         clearTimeout(timeout);
                         this.isConnecting = false;
                         this._cleanup();
-                        reject(new Error('WebSocket connection error'));
+                        reject(new Error('JWT WebSocket connection error'));
                     }
                 };
                 
@@ -232,7 +245,7 @@ const ChatService = {
     },
     
     /**
-     * Send a message with context integration
+     * Send a message with JWT context integration
      */
     async sendMessage(text) {
         if (!text || !text.trim()) {
@@ -261,11 +274,12 @@ const ChatService = {
             message: text.trim(),
             id: messageId,
             timestamp: new Date().toISOString(),
-            context: context
+            context: context,
+            auth_method: 'jwt_bearer' // Indicate JWT authentication
         };
         
         if (this.isAuthenticated && this.socket && this.socket.readyState === WebSocket.OPEN) {
-            this._log('Sending message:', messageId);
+            this._log('Sending JWT-authenticated message:', messageId);
             this.socket.send(JSON.stringify(message));
             
             // Track as pending
@@ -276,7 +290,7 @@ const ChatService = {
             
             return messageId;
         } else if (this.isConnected && !this.isAuthenticated) {
-            throw new Error('Connected but not authenticated');
+            throw new Error('Connected but not authenticated with JWT');
         } else {
             // Queue message
             this._queueMessage(message);
@@ -286,7 +300,7 @@ const ChatService = {
                 try {
                     await this.connect();
                 } catch (e) {
-                    throw new Error(`Connection failed: ${e.message}`);
+                    throw new Error(`JWT connection failed: ${e.message}`);
                 }
             }
             
@@ -298,7 +312,7 @@ const ChatService = {
      * Update project context (called by ProjectService)
      */
     setProjectContext(chatId, projectName) {
-        this._log('Project context updated', { chatId, projectName });
+        this._log('JWT project context updated', { chatId, projectName });
         
         // Notify server about context change if connected
         if (this.isConnected && this.socket?.readyState === WebSocket.OPEN) {
@@ -309,13 +323,14 @@ const ChatService = {
                     project_name: projectName,
                     user_id: this.authService.getCurrentUser()?.id
                 },
+                auth_method: 'jwt_bearer',
                 timestamp: new Date().toISOString()
             }));
         }
     },
     
     /**
-     * Load chat history with project integration
+     * Load chat history with JWT authentication
      */
     async loadChatHistory() {
         if (!this.projectService) {
@@ -331,7 +346,7 @@ const ChatService = {
                 return [];
             }
             
-            this._log('Loading chat history for context:', context);
+            this._log('Loading JWT chat history for context:', context);
             
             const result = await this.authService.executeFunction('get_chat_messages', {
                 user_id: context.user_id,
@@ -347,7 +362,7 @@ const ChatService = {
             return [];
             
         } catch (error) {
-            this._error('Failed to load chat history:', error);
+            this._error('Failed to load JWT chat history:', error);
             return [];
         }
     },
@@ -356,7 +371,7 @@ const ChatService = {
      * Disconnect from WebSocket
      */
     disconnect() {
-        this._log('Disconnecting');
+        this._log('Disconnecting JWT WebSocket');
         
         this._cleanup();
         
@@ -374,10 +389,17 @@ const ChatService = {
     },
     
     /**
-     * Force reconnect
+     * Force reconnect with fresh JWT token
      */
     async forceReconnect() {
-        this._log('Force reconnecting');
+        this._log('Force reconnecting with JWT authentication');
+        
+        // Ensure we have a valid token before reconnecting
+        try {
+            await this.authService._ensureValidToken();
+        } catch (error) {
+            throw new Error('Cannot reconnect: JWT token validation failed');
+        }
         
         this.disconnect();
         this.reconnectAttempts = 0;
@@ -385,6 +407,31 @@ const ChatService = {
         await new Promise(resolve => setTimeout(resolve, 1000));
         
         return this.connect();
+    },
+    
+    /**
+     * Handle JWT token expiration during WebSocket connection
+     */
+    async _handleTokenExpiration() {
+        this._log('JWT token expired during WebSocket connection, refreshing...');
+        
+        try {
+            // Refresh token
+            await this.authService.refreshToken();
+            
+            // Reconnect with new token
+            this.disconnect();
+            await new Promise(resolve => setTimeout(resolve, 1000));
+            await this.connect();
+            
+            this._log('JWT token refreshed and WebSocket reconnected');
+        } catch (error) {
+            this._error('JWT token refresh failed:', error);
+            this._notifyErrorListeners({
+                type: 'jwt_token_expired',
+                message: 'Authentication expired, please login again'
+            });
+        }
     },
     
     /**
@@ -401,7 +448,9 @@ const ChatService = {
             lastPongTime: this.lastPongTime,
             socketState: this.socket ? this.socket.readyState : null,
             pendingMessages: this.pendingMessages.size,
-            deliveredMessages: this.deliveredMessages.size
+            deliveredMessages: this.deliveredMessages.size,
+            authMethod: 'jwt_bearer',
+            hasValidToken: this.authService ? this.authService._isTokenValid() : false
         };
     },
     
@@ -427,9 +476,9 @@ const ChatService = {
     // Private methods
     
     /**
-     * Build WebSocket URL with context
+     * Build JWT WebSocket URL with authentication
      */
-    _buildWebSocketURL(user, projectContext = {}) {
+    _buildJWTWebSocketURL(user, projectContext = {}) {
         const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
         let wsHost;
         
@@ -439,17 +488,29 @@ const ChatService = {
             wsHost = 'api-server-559730737995.us-central1.run.app';
         }
         
+        // Get JWT token for authentication
+        const jwtToken = this.authService.getToken();
+        if (!jwtToken) {
+            throw new Error('No JWT token available for WebSocket authentication');
+        }
+        
         const params = new URLSearchParams({
-            auth: 'true',
+            auth: 'jwt',
+            token: jwtToken,
             email: encodeURIComponent(user.email),
             user_id: user.id,
             chat_id: projectContext.chat_id || '',
             reel_id: projectContext.reel_id || '',
-            session_id: user.sessionId || 'web_session',
+            session_id: user.sessionId || 'jwt_session',
             t: Date.now()
         });
         
-        return `${wsProtocol}//${wsHost}/ws/${user.id}?${params}`;
+        const url = `${wsProtocol}//${wsHost}/ws/${user.id}?${params}`;
+        
+        // Log URL without exposing the full JWT token
+        this._log('Built JWT WebSocket URL:', url.replace(/token=[^&]+/, 'token=***JWT_TOKEN***'));
+        
+        return url;
     },
     
     /**
@@ -460,7 +521,7 @@ const ChatService = {
         
         if (data.type === 'session_established') {
             this.isAuthenticated = true;
-            this._log('Session established with context:', data.context);
+            this._log('JWT session established with context:', data.context);
             this._notifyStatusChange('connected');
             return;
         }
@@ -626,7 +687,7 @@ const ChatService = {
     },
     
     /**
-     * Handle connection close
+     * Handle connection close with JWT-specific logic
      */
     _handleClose(event) {
         this._cleanup();
@@ -635,20 +696,30 @@ const ChatService = {
         const shouldReconnect = event.code !== 1000 && // Normal closure
                               event.code !== 1001 && // Going away
                               event.code !== 4001 && // Authentication failed
+                              event.code !== 4002 && // JWT token expired
                               this.reconnectAttempts < this.options.maxReconnectAttempts &&
                               this.authService.isAuthenticated();
         
+        if (event.code === 4002) {
+            // JWT token expired during connection
+            this._log('WebSocket closed due to JWT token expiration');
+            this._handleTokenExpiration().catch(error => {
+                this._error('Token expiration handling failed:', error);
+            });
+            return;
+        }
+        
         if (shouldReconnect) {
-            this._log(`Connection lost (code ${event.code}), attempting reconnect...`);
+            this._log(`JWT connection lost (code ${event.code}), attempting reconnect...`);
             this._scheduleReconnect();
         } else if (event.code === 4001) {
-            this._error('Authentication failed - please login again');
+            this._error('JWT authentication failed - please login again');
             this._notifyErrorListeners({
-                type: 'auth_failed',
-                message: 'Authentication failed, please login again'
+                type: 'jwt_auth_failed',
+                message: 'JWT authentication failed, please login again'
             });
         } else {
-            this._log(`Connection closed permanently (code ${event.code}): ${event.reason}`);
+            this._log(`JWT connection closed permanently (code ${event.code}): ${event.reason}`);
         }
     },
     
@@ -661,6 +732,7 @@ const ChatService = {
             this.socket.send(JSON.stringify({
                 type: 'get_pending_messages',
                 user_id: this.authService.getCurrentUser()?.id,
+                auth_method: 'jwt_bearer',
                 timestamp: new Date().toISOString()
             }));
         }
@@ -678,6 +750,7 @@ const ChatService = {
                 type: 'confirm_delivery',
                 message_ids: messageIds,
                 delivery_method: 'websocket',
+                auth_method: 'jwt_bearer',
                 timestamp: new Date().toISOString()
             }));
         }
@@ -709,6 +782,7 @@ const ChatService = {
                 this._log('Sending ping to server');
                 this.socket.send(JSON.stringify({ 
                     type: 'ping',
+                    auth_method: 'jwt_bearer',
                     timestamp: Date.now()
                 }));
             }
@@ -727,6 +801,7 @@ const ChatService = {
         if (this.socket && this.socket.readyState === WebSocket.OPEN) {
             this.socket.send(JSON.stringify({ 
                 type: 'pong',
+                auth_method: 'jwt_bearer',
                 timestamp: Date.now()
             }));
         }
@@ -737,19 +812,19 @@ const ChatService = {
         let delay = this.reconnectAttempts === 1 ? 1000 : (this.options.reconnectInterval * this.reconnectAttempts);
         delay = Math.min(delay, 10000);
         
-        this._log(`Reconnecting in ${delay}ms (attempt ${this.reconnectAttempts}/${this.options.maxReconnectAttempts})`);
+        this._log(`JWT reconnecting in ${delay}ms (attempt ${this.reconnectAttempts}/${this.options.maxReconnectAttempts})`);
         this._notifyStatusChange('reconnecting');
         
         this.reconnectTimer = setTimeout(() => {
             this.connect().catch(e => {
-                this._error('Reconnect failed:', e.message);
+                this._error('JWT reconnect failed:', e.message);
                 if (this.reconnectAttempts < this.options.maxReconnectAttempts) {
                     this._scheduleReconnect();
                 } else {
-                    this._error('Max reconnect attempts reached');
+                    this._error('Max JWT reconnect attempts reached');
                     this._notifyErrorListeners({
                         type: 'max_reconnect_attempts',
-                        message: 'Maximum reconnection attempts reached'
+                        message: 'Maximum JWT reconnection attempts reached'
                     });
                 }
             });
@@ -834,18 +909,18 @@ const ChatService = {
     
     _log(...args) {
         if (this.options.debug) {
-            console.log('[ChatService]', ...args);
+            console.log('[JWT ChatService]', ...args);
         }
     },
     
     _error(...args) {
-        console.error('[ChatService]', ...args);
+        console.error('[JWT ChatService]', ...args);
     }
 };
 
 /**
  * Unified Chat Integration Manager
- * Handles UI integration without duplicating ChatService functionality
+ * Handles UI integration with JWT WebSocket service
  */
 const ChatIntegration = {
     // UI elements
@@ -865,7 +940,7 @@ const ChatIntegration = {
      */
     init(chatContainerId = 'chat-container') {
         if (this.isInitialized) {
-            console.log('💬 ChatIntegration already initialized');
+            console.log('💬 JWT ChatIntegration already initialized');
             return this;
         }
         
@@ -895,7 +970,7 @@ const ChatIntegration = {
         
         this.isInitialized = true;
         
-        console.log('💬 ChatIntegration initialized successfully', {
+        console.log('💬 JWT ChatIntegration initialized successfully', {
             hasMessageContainer: !!this.messageContainer,
             hasInputElement: !!this.inputElement,
             hasStatusElement: !!this.statusElement
@@ -905,11 +980,11 @@ const ChatIntegration = {
     },
     
     /**
-     * Initialize with project context
+     * Initialize with project context for JWT authentication
      */
     async initializeWithProject(projectId, projectName) {
         try {
-            console.log('💬 Initializing chat with project context:', { projectId, projectName });
+            console.log('💬 Initializing JWT chat with project context:', { projectId, projectName });
             
             this.currentProjectId = projectId;
             this.currentProjectName = projectName;
@@ -920,10 +995,10 @@ const ChatIntegration = {
                 if (!contextResult.success) {
                     throw new Error('Failed to switch project context');
                 }
-                console.log('✅ Project context switched for chat');
+                console.log('✅ Project context switched for JWT chat');
             }
             
-            // Initialize/connect ChatService
+            // Initialize/connect ChatService with JWT
             if (window.ChatService) {
                 if (!window.ChatService.isInitialized) {
                     window.ChatService.init(window.AuthService);
@@ -934,7 +1009,7 @@ const ChatIntegration = {
                     await window.ChatService.connect();
                 }
                 
-                console.log('✅ ChatService connected with project context');
+                console.log('✅ JWT ChatService connected with project context');
             }
             
             // Load chat history
@@ -943,13 +1018,13 @@ const ChatIntegration = {
             return true;
             
         } catch (error) {
-            console.error('❌ Failed to initialize chat with project:', error);
+            console.error('❌ Failed to initialize JWT chat with project:', error);
             return false;
         }
     },
     
     /**
-     * Load project chat history
+     * Load project chat history with JWT authentication
      */
     async loadProjectChatHistory() {
         try {
@@ -959,7 +1034,7 @@ const ChatIntegration = {
             }
             
             const messages = await window.ChatService.loadChatHistory();
-            console.log(`📚 Loaded ${messages.length} messages for project`);
+            console.log(`📚 Loaded ${messages.length} messages for project (JWT auth)`);
             
             // Display messages in chat
             if (this.messageContainer && messages.length > 0) {
@@ -976,11 +1051,11 @@ const ChatIntegration = {
                     });
                 });
                 
-                console.log('✅ Chat history displayed');
+                console.log('✅ JWT chat history displayed');
             }
             
         } catch (error) {
-            console.error('❌ Failed to load project chat history:', error);
+            console.error('❌ Failed to load JWT project chat history:', error);
         }
     },
     
@@ -1005,7 +1080,7 @@ const ChatIntegration = {
     },
     
     /**
-     * Send message
+     * Send message with JWT authentication
      */
     async sendMessage() {
         const message = this.inputElement?.value?.trim();
@@ -1019,9 +1094,9 @@ const ChatIntegration = {
                 timestamp: new Date().toISOString()
             });
             
-            // Send via ChatService
+            // Send via JWT ChatService
             const messageId = await window.ChatService.sendMessage(message);
-            console.log('📤 Message sent with ID:', messageId);
+            console.log('📤 JWT message sent with ID:', messageId);
             
             // Clear input
             if (this.inputElement) {
@@ -1029,7 +1104,7 @@ const ChatIntegration = {
             }
             
         } catch (error) {
-            console.error('❌ Failed to send message:', error);
+            console.error('❌ Failed to send JWT message:', error);
             this.addMessage({
                 type: 'error',
                 text: `Failed to send: ${error.message}`,
@@ -1039,10 +1114,10 @@ const ChatIntegration = {
     },
     
     /**
-     * Handle incoming messages
+     * Handle incoming messages from JWT WebSocket
      */
     handleMessage(data) {
-        console.log('💬 Chat integration - Message received:', data.type);
+        console.log('💬 JWT chat integration - Message received:', data.type);
         
         switch (data.type) {
             case 'message_queued':
@@ -1081,7 +1156,7 @@ const ChatIntegration = {
                         messageId: data.messageId
                     });
                 } else {
-                    console.log('🔄 Duplicate response prevented:', data.messageId);
+                    console.log('🔄 Duplicate JWT response prevented:', data.messageId);
                 }
                 break;
                 
@@ -1101,16 +1176,16 @@ const ChatIntegration = {
                 break;
                 
             default:
-                console.log('💬 Unknown message type in integration:', data.type);
+                console.log('💬 Unknown JWT message type in integration:', data.type);
                 break;
         }
     },
     
     /**
-     * Handle errors
+     * Handle errors from JWT WebSocket
      */
     handleError(error) {
-        console.error('💬 Chat integration error:', error);
+        console.error('💬 JWT chat integration error:', error);
         
         this.addMessage({
             type: 'error',
@@ -1130,7 +1205,7 @@ const ChatIntegration = {
         
         // Check for duplicates
         if (message.messageId && this.isDuplicateMessage(message.messageId)) {
-            console.log('🔄 Duplicate message prevented in addMessage:', message.messageId);
+            console.log('🔄 Duplicate JWT message prevented in addMessage:', message.messageId);
             return;
         }
         
@@ -1157,7 +1232,7 @@ const ChatIntegration = {
         this.messageContainer.appendChild(messageDiv);
         this.messageContainer.scrollTop = this.messageContainer.scrollHeight;
         
-        console.log('✅ Message added to chat:', message.type, message.text.substring(0, 30), message.messageId || 'no-id');
+        console.log('✅ JWT message added to chat:', message.type, message.text.substring(0, 30), message.messageId || 'no-id');
         
         return messageDiv;
     },
@@ -1169,7 +1244,7 @@ const ChatIntegration = {
         const messageElement = document.querySelector(`[data-message-id="${messageId}"]`);
         if (messageElement && messageElement.classList.contains('temporary-message')) {
             messageElement.remove();
-            console.log('🗑️ Removed temporary message:', messageId);
+            console.log('🗑️ Removed JWT temporary message:', messageId);
         }
     },
     
@@ -1184,14 +1259,17 @@ const ChatIntegration = {
     },
     
     /**
-     * Update connection status display
+     * Update connection status display for JWT
      */
     updateConnectionStatus(status) {
         if (!this.statusElement) return;
         
-        const pendingCount = window.ChatService?.pendingMessages?.size || 0;
-        const deliveredCount = window.ChatService?.getStatus()?.deliveredMessages || 0;
-        const statusText = `${status}${pendingCount > 0 ? ` (${pendingCount} pending)` : ''}${deliveredCount > 0 ? ` [${deliveredCount} delivered]` : ''}`;
+        const statusInfo = window.ChatService?.getStatus() || {};
+        const pendingCount = statusInfo.pendingMessages || 0;
+        const deliveredCount = statusInfo.deliveredMessages || 0;
+        const hasValidToken = statusInfo.hasValidToken ? '✓' : '✗';
+        
+        const statusText = `${status} [JWT:${hasValidToken}]${pendingCount > 0 ? ` (${pendingCount} pending)` : ''}${deliveredCount > 0 ? ` [${deliveredCount} delivered]` : ''}`;
         
         this.statusElement.textContent = statusText;
         this.statusElement.className = `connection-status ${status}`;
@@ -1218,7 +1296,7 @@ document.addEventListener('DOMContentLoaded', function() {
     // Only initialize if not on main chat page (which handles its own initialization)
     if (!document.getElementById('chatBody')) {
         ChatIntegration.init();
-        console.log('💬 Chat integration initialized for embedded use');
+        console.log('💬 JWT chat integration initialized for embedded use');
     }
 });
 
