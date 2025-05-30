@@ -137,7 +137,7 @@ const AuthService = {
     },
     
     /**
-     * Enhanced execute function with better error handling
+     * Enhanced execute function with correct Cloud Function URL pattern
      */
     async executeFunction(functionName, inputData) {
         if (!this.isAuthenticated()) {
@@ -147,7 +147,8 @@ const AuthService = {
         try {
             console.log(`ENHANCED: Executing function: ${functionName}`);
             
-            if (this.lastTokenRefresh && (Date.now() - this.lastTokenRefresh) > 600000) {
+            // Try to refresh token if it's been a while
+            if (this.lastTokenRefresh && (Date.now() - this.lastTokenRefresh) > 600000) { // 10 minutes
                 console.log('Token is getting old, refreshing before function call...');
                 await this.refreshTokenIfNeeded();
             }
@@ -155,25 +156,75 @@ const AuthService = {
             const controller = new AbortController();
             const timeoutId = setTimeout(() => controller.abort(), 60000);
             
-            // FIXED: Use Cloud Function endpoint
-            const response = await fetch(`${this.AUTH_BASE_URL}/executeFunction`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({
-                    function_name: functionName,
-                    ...inputData
-                }),
-                signal: controller.signal,
-                credentials: 'include' // Sends cookies
-            });
+            // TRY MULTIPLE URL PATTERNS TO FIND THE CORRECT ONE
+            const possibleUrls = [
+                `${this.AUTH_BASE_URL}/executeFunction`,      // Direct function name
+                `${this.AUTH_BASE_URL}/auth/executeFunction`, // With /auth/ prefix like other endpoints
+                `${this.AUTH_BASE_URL}/api/executeFunction`,  // With /api/ prefix
+            ];
+            
+            let lastError = null;
+            let response = null;
+            
+            // Try each URL pattern
+            for (const executeUrl of possibleUrls) {
+                try {
+                    console.log(`Trying URL: ${executeUrl}`);
+                    
+                    response = await fetch(executeUrl, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({
+                            function_name: functionName,
+                            ...inputData
+                        }),
+                        signal: controller.signal,
+                        credentials: 'include' // Important: This sends cookies
+                    });
+                    
+                    // If we get a non-404 response, break out of the loop
+                    if (response.status !== 404) {
+                        console.log(`✅ Found working URL: ${executeUrl} (status: ${response.status})`);
+                        break;
+                    }
+                    
+                    console.log(`❌ URL ${executeUrl} returned 404, trying next...`);
+                    
+                } catch (fetchError) {
+                    console.log(`❌ URL ${executeUrl} failed:`, fetchError.message);
+                    lastError = fetchError;
+                    continue;
+                }
+            }
             
             clearTimeout(timeoutId);
-            const data = await response.json();
+            
+            // If all URLs failed with 404 or network errors
+            if (!response || response.status === 404) {
+                throw new Error(`executeFunction Cloud Function not found. Tried URLs: ${possibleUrls.join(', ')}`);
+            }
+            
+            // Try to parse response
+            let data;
+            try {
+                const responseText = await response.text();
+                console.log(`Response text (first 200 chars): ${responseText.substring(0, 200)}`);
+                
+                // Check if response looks like HTML (404 page)
+                if (responseText.trim().startsWith('<')) {
+                    throw new Error(`Received HTML instead of JSON. This usually means the endpoint doesn't exist. Response: ${responseText.substring(0, 100)}...`);
+                }
+                
+                data = JSON.parse(responseText);
+            } catch (parseError) {
+                console.error('Failed to parse response:', parseError);
+                throw new Error(`Invalid response format: ${parseError.message}`);
+            }
             
             if (!response.ok) {
-                console.error(`Function execution failed:`, data);
+                console.error(`Enhanced function execution failed:`, data);
                 
                 if (response.status === 401) {
                     console.warn('Session expired during function execution');
@@ -184,13 +235,14 @@ const AuthService = {
                 throw new Error(data.error || data.detail || `Failed to execute function: ${functionName}`);
             }
             
+            console.log(`✅ Function ${functionName} executed successfully`);
             return data;
             
         } catch (error) {
             if (error.name === 'AbortError') {
                 throw new Error('Request timed out. Please try again.');
             }
-            console.error(`Function execution error (${functionName}):`, error);
+            console.error(`Enhanced function execution error (${functionName}):`, error);
             throw error;
         }
     },
