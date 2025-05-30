@@ -145,49 +145,91 @@ const AuthService = {
         }
         
         try {
-            console.log(`ENHANCED: Executing function: ${functionName}`);
+            console.log(`🚀 Executing function via API Gateway: ${functionName}`);
             
-            // Try to refresh token if it's been a while
-            if (this.lastTokenRefresh && (Date.now() - this.lastTokenRefresh) > 600000) { // 10 minutes
-                console.log('Token is getting old, refreshing before function call...');
+            // Refresh token if needed
+            if (this.lastTokenRefresh && (Date.now() - this.lastTokenRefresh) > 600000) {
+                console.log('🔄 Refreshing token before function call...');
                 await this.refreshTokenIfNeeded();
             }
             
             const controller = new AbortController();
             const timeoutId = setTimeout(() => controller.abort(), 60000);
             
-            const response = await fetch(`${this.API_BASE_URL}/api/function/${functionName}`, {
+            // Function name is in the URL path
+            const executeUrl = `${this.AUTH_BASE_URL}/api/function/${functionName}`;
+            
+            console.log(`📡 Making request to API Gateway: ${executeUrl}`);
+            console.log(`📝 Function: ${functionName}`);
+            console.log(`📊 Input data:`, inputData);
+            console.log(`👤 User: ${this.userEmail}`);
+            
+            const response = await fetch(executeUrl, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
                 },
-                body: JSON.stringify(inputData),
+                // FIXED: Send only input data - function name is in URL
+                body: JSON.stringify(inputData), // NO function_name in body
                 signal: controller.signal,
-                credentials: 'include'
+                credentials: 'include' // Include cookies for authentication
             });
             
             clearTimeout(timeoutId);
-            const data = await response.json();
+            
+            console.log(`📊 API Gateway response status: ${response.status}`);
+            console.log(`🌐 Final URL: ${response.url}`);
             
             if (!response.ok) {
-                console.error(`Enhanced function execution failed:`, data);
+                let errorData;
+                try {
+                    const responseText = await response.text();
+                    console.log(`💥 Error response:`, responseText.substring(0, 300));
+                    
+                    if (responseText.trim().startsWith('<')) {
+                        throw new Error(`Received HTML instead of JSON (status: ${response.status}). Check API Gateway configuration.`);
+                    }
+                    
+                    errorData = JSON.parse(responseText);
+                } catch (parseError) {
+                    throw new Error(`HTTP ${response.status}: Failed to parse error response`);
+                }
+                
+                console.error(`💥 API Gateway execution failed:`, errorData);
                 
                 if (response.status === 401) {
-                    console.warn('Session expired during function execution');
+                    console.warn('🔓 Authentication failed');
                     this._clearAuthState();
                     throw new Error('Session expired. Please log in again.');
                 }
                 
-                throw new Error(data.error || data.detail || `Failed to execute function: ${functionName}`);
+                throw new Error(errorData.error || errorData.detail || errorData.message || `Failed to execute function: ${functionName}`);
             }
             
+            // Parse successful response
+            let data;
+            try {
+                const responseText = await response.text();
+                
+                if (responseText.trim().startsWith('<')) {
+                    throw new Error('Received HTML instead of JSON - API Gateway route may not be configured properly');
+                }
+                
+                data = JSON.parse(responseText);
+            } catch (parseError) {
+                console.error('💥 Failed to parse successful response:', parseError);
+                throw new Error(`Invalid response format: ${parseError.message}`);
+            }
+            
+            console.log(`✅ Function ${functionName} executed successfully via API Gateway`);
+            console.log(`📊 Response data keys:`, Object.keys(data));
             return data;
             
         } catch (error) {
             if (error.name === 'AbortError') {
                 throw new Error('Request timed out. Please try again.');
             }
-            console.error(`Enhanced function execution error (${functionName}):`, error);
+            console.error(`💀 API Gateway execution failed (${functionName}):`, error);
             throw error;
         }
     },

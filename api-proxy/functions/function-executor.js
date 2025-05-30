@@ -13,10 +13,40 @@ async function functionExecutor(req, res) {
       // Get API key from Secret Manager
       const apiKey = await getSecret('api-key');
       
-      // Get function name from request
-      const functionName = req.body.function_name;
+      // FIXED: Extract function name from URL path instead of request body
+      const urlPath = req.url || req.path || '';
+      console.log('Request URL path:', urlPath);
+      
+      // Extract function name from path like /api/function/get_user_creds or /function/get_user_creds
+      let functionName = null;
+      
+      if (urlPath.includes('/api/function/')) {
+        functionName = urlPath.split('/api/function/')[1]?.split('?')[0];
+      } else if (urlPath.includes('/function/')) {
+        functionName = urlPath.split('/function/')[1]?.split('?')[0];
+      }
+      
+      // Fallback: check request body (for backward compatibility)
+      if (!functionName && req.body.function_name) {
+        functionName = req.body.function_name;
+        console.log('Using function name from request body (fallback)');
+      }
+      
+      console.log('Extracted function name:', functionName);
+      
       if (!functionName) {
-        res.status(400).json({ error: 'Function name is required' });
+        console.error('No function name found in URL path or request body');
+        console.error('URL path:', urlPath);
+        console.error('Request body keys:', Object.keys(req.body || {}));
+        
+        res.status(400).json({ 
+          error: 'Function name is required',
+          debug: {
+            urlPath: urlPath,
+            bodyKeys: Object.keys(req.body || {}),
+            expectedFormat: '/api/function/{functionName}'
+          }
+        });
         return;
       }
       
@@ -78,10 +108,16 @@ async function functionExecutor(req, res) {
         headers: headers
       });
       
+      // FIXED: Create clean request body without function_name (since it's in the URL)
+      const cleanRequestBody = { ...req.body };
+      delete cleanRequestBody.function_name; // Remove function_name if it exists
+      
+      console.log('Request body to forward:', cleanRequestBody);
+      
       // Forward the request to the API server
       const response = await apiClient.post(
         `/api/function/${functionName}`,
-        req.body
+        cleanRequestBody // Send clean body without function_name
       );
       
       console.log(`Function ${functionName} executed successfully`);
@@ -113,7 +149,7 @@ async function functionExecutor(req, res) {
       res.status(statusCode).json({ 
         error: errorMessage,
         timestamp: new Date().toISOString(),
-        function_name: req.body.function_name
+        function_name: req.body.function_name || 'unknown'
       });
     }
   });
