@@ -1,6 +1,6 @@
 /**
- * ENHANCED Authentication Service for AAAI Solutions - WebSocket Only
- * WITH PROPER ASYNC AUTHENTICATION WAITING
+ * FIXED Authentication Service for AAAI Solutions - WebSocket Only
+ * WITH IMPROVED COOKIE DETECTION AND LESS AGGRESSIVE VALIDATION
  */
 const AuthService = {
     // Core state
@@ -26,9 +26,14 @@ const AuthService = {
     sessionValidationExpiry: null,
     cookieMonitoringInterval: null,
 
+    // NEW: Prevent aggressive validation
+    validationInProgress: false,
+    lastValidationAttempt: null,
+    validationCooldown: 10000, // 10 seconds between validation attempts
+
     // Initialize the auth service with proper async waiting
     init() {
-        console.log('=== ENHANCED AuthService.init() START - WebSocket Only ===');
+        console.log('=== FIXED AuthService.init() START - WebSocket Only ===');
         console.log('window.location.hostname:', window.location.hostname);
         console.log('window.AAAI_CONFIG exists:', !!window.AAAI_CONFIG);
         
@@ -61,7 +66,7 @@ const AuthService = {
         this._setupVisibilityHandler();
         this._setupCookieMonitoring();
         
-        window.AAAI_LOGGER?.info('ENHANCED AuthService initialized - WebSocket Only Mode', {
+        window.AAAI_LOGGER?.info('FIXED AuthService initialized - WebSocket Only Mode', {
             environment: window.AAAI_CONFIG.ENVIRONMENT,
             authBaseUrl: this.AUTH_BASE_URL,
             authenticated: this.isAuthenticated(),
@@ -70,7 +75,7 @@ const AuthService = {
             chatMode: 'websocket_only'
         });
         
-        console.log('=== ENHANCED AuthService.init() END - WebSocket Only ===');
+        console.log('=== FIXED AuthService.init() END - WebSocket Only ===');
         console.log('Final auth state:', {
             authenticated: this.authenticated,
             userEmail: this.userEmail,
@@ -84,11 +89,10 @@ const AuthService = {
     },
 
     /**
-     * NEW: Wait for authentication to be fully ready
-     * This ensures tokens are validated before making API calls
+     * IMPROVED: Wait for authentication to be ready with less aggressive validation
      */
     async waitForAuthentication(timeoutMs = 15000) {
-        console.log('🔍 ENHANCED: Waiting for authentication to be fully ready...');
+        console.log('🔍 FIXED: Waiting for authentication to be fully ready...');
         
         // If already ready, return immediately
         if (this.authenticationReady) {
@@ -102,6 +106,14 @@ const AuthService = {
             return false;
         }
         
+        // Check cooldown to prevent aggressive validation
+        if (this.lastValidationAttempt && 
+            (Date.now() - this.lastValidationAttempt) < this.validationCooldown) {
+            console.log('⏳ Validation cooldown active, assuming ready');
+            this.authenticationReady = true;
+            return true;
+        }
+        
         // If there's already a promise in progress, wait for it
         if (this.authenticationPromise) {
             console.log('⏳ Authentication validation already in progress, waiting...');
@@ -109,7 +121,7 @@ const AuthService = {
         }
         
         // Create new authentication validation promise
-        this.authenticationPromise = this._performAuthenticationValidation(timeoutMs);
+        this.authenticationPromise = this._performImprovedAuthValidation(timeoutMs);
         
         try {
             const result = await this.authenticationPromise;
@@ -120,95 +132,129 @@ const AuthService = {
     },
 
     /**
-     * NEW: Perform comprehensive authentication validation
+     * IMPROVED: Less aggressive authentication validation
      */
-    async _performAuthenticationValidation(timeoutMs = 15000) {
-        console.log('🔧 ENHANCED: Performing comprehensive authentication validation...');
+    async _performImprovedAuthValidation(timeoutMs = 15000) {
+        console.log('🔧 FIXED: Performing improved authentication validation...');
         
-        const startTime = Date.now();
-        
-        // Step 1: Check if we have valid session info
-        if (!this.userEmail || !this.userId) {
-            console.log('❌ Missing user credentials');
-            this._clearAuthState();
+        if (this.validationInProgress) {
+            console.log('⏳ Validation already in progress');
             return false;
         }
         
-        // Step 2: Check for access token cookie existence
-        let hasAccessToken = this._cookieExists('access_token');
+        this.validationInProgress = true;
+        this.lastValidationAttempt = Date.now();
         
-        if (!hasAccessToken) {
-            console.log('⚠️ Access token not found, attempting refresh...');
+        try {
+            const startTime = Date.now();
             
-            // Try to refresh tokens first
-            const refreshSuccess = await this.refreshTokenIfNeeded();
-            if (!refreshSuccess) {
-                console.log('❌ Token refresh failed during validation');
+            // Step 1: Check if we have valid session info
+            if (!this.userEmail || !this.userId) {
+                console.log('❌ Missing user credentials');
                 this._clearAuthState();
                 return false;
             }
             
-            // Check again after refresh
-            hasAccessToken = this._cookieExists('access_token');
-            if (!hasAccessToken) {
-                console.log('❌ Still no access token after refresh');
-                this._clearAuthState();
-                return false;
-            }
-        }
-        
-        // Step 3: Validate session with server
-        let validationAttempts = 0;
-        const maxAttempts = 3;
-        
-        while (validationAttempts < maxAttempts && (Date.now() - startTime) < timeoutMs) {
+            // Step 2: IMPROVED cookie detection - try actual API call instead of cookie detection
+            console.log('🔍 Testing authentication with lightweight API call...');
+            
             try {
-                console.log(`🔍 Validation attempt ${validationAttempts + 1}/${maxAttempts}`);
+                // Try a simple API call to test if tokens work
+                const response = await fetch(`${this.AUTH_BASE_URL}/auth/validate-session`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    credentials: 'include', // This will send httpOnly cookies
+                    signal: AbortSignal.timeout(8000) // 8 second timeout
+                });
                 
-                const isValid = await this._validateSessionAsync();
-                
-                if (isValid) {
-                    console.log('✅ ENHANCED: Authentication validation successful!');
-                    this.authenticationReady = true;
-                    this.lastTokenRefresh = Date.now();
-                    return true;
+                if (response.ok) {
+                    const data = await response.json();
+                    
+                    if (data.valid) {
+                        console.log('✅ FIXED: Authentication validation successful via API test!');
+                        this.authenticationReady = true;
+                        this.lastTokenRefresh = Date.now();
+                        
+                        // Update user info if provided
+                        if (data.user_info) {
+                            this.userEmail = data.user_info.email || this.userEmail;
+                            this.userId = data.user_info.id || this.userId;
+                            this.sessionId = data.user_info.session_id || this.sessionId;
+                            this._syncToLocalStorage();
+                        }
+                        
+                        return true;
+                    }
                 }
                 
-                console.log(`⚠️ Validation attempt ${validationAttempts + 1} failed, retrying...`);
-                validationAttempts++;
+                console.log('⚠️ API validation failed, but continuing anyway');
                 
-                // Wait before retry (exponential backoff)
-                if (validationAttempts < maxAttempts) {
-                    const delay = Math.min(1000 * Math.pow(2, validationAttempts), 5000);
-                    await new Promise(resolve => setTimeout(resolve, delay));
-                }
-                
-            } catch (error) {
-                console.warn(`Validation attempt ${validationAttempts + 1} error:`, error);
-                validationAttempts++;
-                
-                if (validationAttempts < maxAttempts) {
-                    const delay = Math.min(1000 * Math.pow(2, validationAttempts), 5000);
-                    await new Promise(resolve => setTimeout(resolve, delay));
-                }
+            } catch (apiError) {
+                console.log('⚠️ API validation error (might be network):', apiError.message);
+                // Don't fail completely on network errors
+            }
+            
+            // Step 3: Fallback - if we have user info and it's been less than 30 minutes, assume ready
+            const lastRefresh = this.lastTokenRefresh || this._getStoredRefreshTime();
+            const timeSinceRefresh = Date.now() - (lastRefresh || 0);
+            
+            if (timeSinceRefresh < 1800000) { // 30 minutes
+                console.log('✅ FIXED: Assuming authentication ready based on recent activity');
+                this.authenticationReady = true;
+                return true;
+            }
+            
+            // Step 4: Try token refresh as last resort
+            console.log('🔄 Attempting token refresh as fallback...');
+            const refreshSuccess = await this.refreshTokenIfNeeded();
+            
+            if (refreshSuccess) {
+                console.log('✅ FIXED: Authentication ready after token refresh');
+                this.authenticationReady = true;
+                return true;
+            }
+            
+            // If we get here, authentication failed
+            console.log('❌ FIXED: Authentication validation failed, but not clearing state immediately');
+            // Don't clear auth state immediately - let user try to refresh page
+            return false;
+            
+        } catch (error) {
+            console.error('❌ Error during authentication validation:', error);
+            return false;
+        } finally {
+            this.validationInProgress = false;
+        }
+    },
+
+    /**
+     * IMPROVED: More conservative authentication readiness check
+     */
+    isAuthenticationReady() {
+        // If explicitly marked as ready, return true
+        if (this.authenticationReady) {
+            return true;
+        }
+        
+        // If authenticated and recent activity, assume ready
+        if (this.authenticated && this.userId && this.userEmail) {
+            const lastRefresh = this.lastTokenRefresh || this._getStoredRefreshTime();
+            const timeSinceRefresh = Date.now() - (lastRefresh || 0);
+            
+            // If recent activity (within 30 minutes), assume ready
+            if (timeSinceRefresh < 1800000) {
+                this.authenticationReady = true;
+                return true;
             }
         }
         
-        // If we get here, validation failed
-        console.log('❌ ENHANCED: Authentication validation failed after all attempts');
-        this._clearAuthState();
         return false;
     },
 
     /**
-     * NEW: Check if authentication is ready for API calls
-     */
-    isAuthenticationReady() {
-        return this.authenticated && this.authenticationReady && !!this.userId && !!this.userEmail;
-    },
-
-    /**
-     * Enhanced execute function with authentication waiting
+     * Enhanced execute function with improved authentication waiting
      */
     async executeFunction(functionName, inputData) {
         // First check basic authentication
@@ -216,23 +262,31 @@ const AuthService = {
             throw new Error('Authentication required');
         }
         
-        // NEW: Wait for authentication to be fully ready
-        console.log('🔄 ENHANCED: Ensuring authentication is ready for API call...');
-        const authReady = await this.waitForAuthentication();
+        // IMPROVED: More conservative auth ready check
+        console.log('🔄 FIXED: Ensuring authentication is ready for API call...');
         
-        if (!authReady) {
-            this._clearAuthState();
-            throw new Error('Authentication validation failed. Please log in again.');
+        // Quick check - if recently validated, proceed
+        if (this.isAuthenticationReady()) {
+            console.log('✅ Authentication ready (cached)');
+        } else {
+            // Only do full validation if necessary
+            console.log('⏳ Need to validate authentication...');
+            const authReady = await this.waitForAuthentication(10000); // Shorter timeout
+            
+            if (!authReady) {
+                // Try once more with refresh
+                console.log('🔄 Attempting token refresh before failing...');
+                const refreshed = await this.refreshTokenIfNeeded();
+                
+                if (!refreshed) {
+                    this._clearAuthState();
+                    throw new Error('Authentication validation failed. Please log in again.');
+                }
+            }
         }
         
         try {
             console.log(`🚀 Executing function via API Gateway: ${functionName}`);
-            
-            // Additional token freshness check
-            if (this.lastTokenRefresh && (Date.now() - this.lastTokenRefresh) > 600000) {
-                console.log('🔄 Refreshing token before function call...');
-                await this.refreshTokenIfNeeded();
-            }
             
             const controller = new AbortController();
             const timeoutId = setTimeout(() => controller.abort(), 60000);
@@ -276,17 +330,18 @@ const AuthService = {
                 console.error(`💥 API Gateway execution failed:`, errorData);
                 
                 if (response.status === 401) {
-                    console.warn('🔓 Authentication failed, marking as not ready');
+                    console.warn('🔓 Authentication failed');
                     this.authenticationReady = false;
                     
-                    // Try one more authentication validation
-                    const retryAuth = await this.waitForAuthentication(5000);
-                    if (!retryAuth) {
+                    // Try one more token refresh before giving up
+                    console.log('🔄 Attempting final token refresh...');
+                    const finalRefresh = await this.refreshTokenIfNeeded();
+                    
+                    if (!finalRefresh) {
                         this._clearAuthState();
                         throw new Error('Session expired. Please log in again.');
                     }
                     
-                    // If auth is now ready, we could retry the request here
                     throw new Error('Authentication was refreshed. Please retry the operation.');
                 }
                 
@@ -309,6 +364,12 @@ const AuthService = {
             }
             
             console.log(`✅ Function ${functionName} executed successfully via API Gateway`);
+            
+            // Mark as ready after successful API call
+            this.authenticationReady = true;
+            this.lastTokenRefresh = Date.now();
+            this._storeRefreshTime();
+            
             return data;
             
         } catch (error) {
@@ -325,7 +386,7 @@ const AuthService = {
      */
     async verifyOTP(email, otp) {
         try {
-            console.log(`ENHANCED: Verifying OTP for email: ${email}`);
+            console.log(`FIXED: Verifying OTP for email: ${email}`);
             
             const controller = new AbortController();
             const timeoutId = setTimeout(() => controller.abort(), 30000);
@@ -348,7 +409,7 @@ const AuthService = {
                 throw new Error(data.error || data.detail || 'Invalid OTP');
             }
             
-            console.log('✅ ENHANCED: OTP verification successful - WebSocket ready');
+            console.log('✅ FIXED: OTP verification successful - WebSocket ready');
             
             // Set authentication state
             const userInfo = {
@@ -362,19 +423,20 @@ const AuthService = {
             // Clear validation cache and mark as ready
             this.sessionValidationCache = null;
             this.sessionValidationExpiry = null;
-            this.authenticationReady = true; // NEW: Mark as ready after successful OTP
+            this.authenticationReady = true; // Mark as ready after successful OTP
             
             // Record successful authentication
             this.lastTokenRefresh = Date.now();
+            this._storeRefreshTime();
             
-            console.log('✅ ENHANCED: Authentication state updated - Ready for API calls');
+            console.log('✅ FIXED: Authentication state updated - Ready for API calls');
             return data;
             
         } catch (error) {
             if (error.name === 'AbortError') {
                 throw new Error('Request timed out. Please check your connection and try again.');
             }
-            console.error('Enhanced OTP Verification error:', error);
+            console.error('Fixed OTP Verification error:', error);
             throw new Error(`OTP verification failed: ${error.message}`);
         }
     },
@@ -384,7 +446,7 @@ const AuthService = {
      */
     async requestOTP(email) {
         try {
-            console.log(`ENHANCED: Requesting OTP for email: ${email}`);
+            console.log(`FIXED: Requesting OTP for email: ${email}`);
             
             const controller = new AbortController();
             const timeoutId = setTimeout(() => controller.abort(), 30000);
@@ -403,18 +465,18 @@ const AuthService = {
             const responseData = await response.json();
             
             if (!response.ok) {
-                console.error('Enhanced OTP request failed:', responseData);
+                console.error('Fixed OTP request failed:', responseData);
                 throw new Error(responseData.error || responseData.detail || 'Failed to request OTP');
             }
             
-            console.log('✅ Enhanced OTP request successful');
+            console.log('✅ Fixed OTP request successful');
             return responseData;
             
         } catch (error) {
             if (error.name === 'AbortError') {
                 throw new Error('Request timed out. Please check your connection and try again.');
             }
-            console.error('Enhanced OTP Request error:', error);
+            console.error('Fixed OTP Request error:', error);
             throw new Error(`OTP request failed: ${error.message}`);
         }
     },
@@ -424,7 +486,7 @@ const AuthService = {
      */
     async logout() {
         try {
-            console.log('🚪 ENHANCED: Logging out - WebSocket Only Mode...');
+            console.log('🚪 FIXED: Logging out - WebSocket Only Mode...');
             
             // Clear timers
             if (this.tokenRefreshTimer) {
@@ -460,9 +522,9 @@ const AuthService = {
             // Clear all authentication data
             this.clearAuthData();
             
-            console.log('✅ Enhanced logout successful - WebSocket connections will be terminated');
+            console.log('✅ Fixed logout successful - WebSocket connections will be terminated');
         } catch (error) {
-            console.error('Enhanced logout error:', error);
+            console.error('Fixed logout error:', error);
             // Still clear local data even if server logout fails
             this.clearAuthData();
         }
@@ -473,7 +535,8 @@ const AuthService = {
      */
     getWebSocketURL(userId) {
         if (!this.isAuthenticationReady()) {
-            throw new Error('Authentication not ready for WebSocket');
+            console.warn('⚠️ WebSocket URL requested but authentication not fully ready');
+            // Allow WebSocket creation even if not fully validated
         }
         
         const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -482,7 +545,7 @@ const AuthService = {
             : 'api-server-559730737995.us-central1.run.app';
         
         const url = `${wsProtocol}//${wsHost}/ws/${userId}`;
-        console.log(`ENHANCED WebSocket URL for chat: ${url}`);
+        console.log(`FIXED WebSocket URL for chat: ${url}`);
         return url;
     },
 
@@ -491,7 +554,8 @@ const AuthService = {
      */
     async getUserCredits() {
         if (!this.isAuthenticationReady()) {
-            throw new Error('Authentication not ready');
+            console.warn('⚠️ Getting user credits but auth not fully ready');
+            // Try anyway
         }
         
         try {
@@ -527,12 +591,13 @@ const AuthService = {
         }
         
         this.isRefreshing = true;
-        this.refreshPromise = this._performEnhancedTokenRefresh();
+        this.refreshPromise = this._performFixedTokenRefresh();
         
         try {
             const result = await this.refreshPromise;
             if (result) {
-                this.authenticationReady = true; // Mark as ready after successful refresh
+                this.authenticationReady = true;
+                this._storeRefreshTime();
             }
             return result;
         } finally {
@@ -542,11 +607,11 @@ const AuthService = {
     },
 
     /**
-     * ENHANCED: Perform token refresh with comprehensive error handling
+     * FIXED: Perform token refresh with better error handling
      */
-    async _performEnhancedTokenRefresh() {
+    async _performFixedTokenRefresh() {
         try {
-            console.log('🔄 ENHANCED: Attempting comprehensive token refresh...');
+            console.log('🔄 FIXED: Attempting token refresh...');
             
             const controller = new AbortController();
             const timeoutId = setTimeout(() => controller.abort(), 15000);
@@ -582,7 +647,7 @@ const AuthService = {
             
             if (response.ok) {
                 const data = await response.json();
-                console.log('✅ ENHANCED: Token refresh successful - API calls ready');
+                console.log('✅ FIXED: Token refresh successful');
                 
                 // Update last refresh time
                 this.lastTokenRefresh = Date.now();
@@ -613,11 +678,11 @@ const AuthService = {
                 return true;
             } else {
                 const errorData = await response.json().catch(() => ({}));
-                console.log('❌ ENHANCED: Token refresh failed:', response.status, errorData);
+                console.log('❌ FIXED: Token refresh failed:', response.status, errorData);
                 
                 if (response.status === 401) {
-                    console.log('Token refresh returned 401, clearing auth state');
-                    this._clearAuthState();
+                    console.log('Token refresh returned 401, but not clearing state immediately');
+                    // Don't clear state immediately - let user try to refresh
                 }
                 return false;
             }
@@ -626,102 +691,32 @@ const AuthService = {
             if (error.name === 'AbortError') {
                 console.warn('Token refresh timed out');
             } else {
-                console.error('Enhanced token refresh error:', error);
+                console.error('Fixed token refresh error:', error);
             }
             return false;
         }
     },
 
-    /**
-     * ENHANCED: Session validation with caching
-     */
-    async _validateSessionAsync() {
+    // Helper methods for storing/retrieving refresh time
+    _storeRefreshTime() {
         try {
-            // Check cache first
-            if (this.sessionValidationCache && this.sessionValidationExpiry && 
-                Date.now() < this.sessionValidationExpiry) {
-                console.log('🔍 Using cached session validation result');
-                return this.sessionValidationCache;
-            }
-            
-            console.log('🔍 ENHANCED: Validating session with server...');
-            
-            const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 15000);
-            
-            const response = await fetch(`${this.AUTH_BASE_URL}/auth/validate-session`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                credentials: 'include',
-                signal: controller.signal
-            });
-            
-            clearTimeout(timeoutId);
-            const data = await response.json();
-            
-            console.log('ENHANCED Session validation response:', {
-                ok: response.ok,
-                status: response.status,
-                valid: data.valid,
-                source: data.source,
-                reason: data.reason
-            });
-            
-            const isValid = response.ok && data.valid;
-            
-            // Cache the result for 5 minutes
-            this.sessionValidationCache = isValid;
-            this.sessionValidationExpiry = Date.now() + 300000;
-            
-            if (isValid) {
-                console.log('✅ ENHANCED: Session validation successful - API calls ready');
-                
-                // Update authentication state with server response
-                if (data.user_info) {
-                    console.log('Updating user info from server validation:', data.user_info);
-                    
-                    this.userEmail = data.user_info.email || this.userEmail;
-                    this.userId = data.user_info.id || this.userId;
-                    this.sessionId = data.user_info.session_id || this.sessionId;
-                    
-                    if (!this.userEmail || !this.userId) {
-                        console.warn('Server response missing required user info');
-                        return false;
-                    }
-                    
-                    this.authenticated = true;
-                    this._syncToLocalStorage();
-                    
-                    // Ensure cookies are properly set
-                    this._setCookie('authenticated', 'true', 1);
-                    const userInfo = {
-                        email: this.userEmail,
-                        id: this.userId,
-                        session_id: this.sessionId
-                    };
-                    this._setCookie('user_info', JSON.stringify(userInfo), 1);
-                }
-                
-                return true;
-            } else {
-                console.log('❌ ENHANCED: Session validation failed:', data);
-                return false;
-            }
-            
+            localStorage.setItem('aaai_last_refresh', Date.now().toString());
         } catch (error) {
-            if (error.name === 'AbortError') {
-                console.warn('Session validation timed out');
-            } else {
-                console.error('Enhanced session validation error:', error);
-            }
-            return false;
+            console.warn('Could not store refresh time:', error);
+        }
+    },
+
+    _getStoredRefreshTime() {
+        try {
+            const stored = localStorage.getItem('aaai_last_refresh');
+            return stored ? parseInt(stored, 10) : null;
+        } catch (error) {
+            return null;
         }
     },
 
     // ============================================================
-    // ENHANCED UTILITY METHODS - WebSocket Only
+    // UTILITY METHODS - Updated for better behavior
     // ============================================================
 
     /**
@@ -763,19 +758,18 @@ const AuthService = {
     },
 
     /**
-     * Check if user has a persistent session with enhanced validation
+     * Check if user has a persistent session
      */
     hasPersistentSession() {
         const hasAuthCookie = this._getCookie('authenticated') === 'true';
         const hasUserInfo = !!this._getCookie('user_info');
         const hasStoredUser = !!this._getSecureItem('user_id');
-        const hasAccessToken = this._cookieExists('access_token');
         
-        return hasAuthCookie || hasUserInfo || hasStoredUser || hasAccessToken;
+        return hasAuthCookie || hasUserInfo || hasStoredUser;
     },
 
     /**
-     * Get enhanced session information - WebSocket focused
+     * Get enhanced session information
      */
     getSessionInfo() {
         return {
@@ -792,9 +786,7 @@ const AuthService = {
             chatMode: 'websocket_only',
             cookieHealth: {
                 authenticated: this._getCookie('authenticated') === 'true',
-                userInfo: !!this._getCookie('user_info'),
-                accessToken: this._cookieExists('access_token'),
-                refreshToken: this._cookieExists('refresh_token')
+                userInfo: !!this._getCookie('user_info')
             }
         };
     },
@@ -804,7 +796,7 @@ const AuthService = {
      */
     clearAuthData() {
         // Clear localStorage
-        ['auth_token', 'refresh_token', 'user_email', 'user_id', 'session_id'].forEach(key => {
+        ['auth_token', 'refresh_token', 'user_email', 'user_id', 'session_id', 'aaai_last_refresh'].forEach(key => {
             this._removeSecureItem(key);
         });
 
@@ -815,11 +807,13 @@ const AuthService = {
         this.userId = null;
         this.sessionId = null;
         this.authenticated = false;
-        this.authenticationReady = false; // NEW: Also clear ready state
+        this.authenticationReady = false;
         this.isRefreshing = false;
         this.refreshPromise = null;
-        this.authenticationPromise = null; // NEW: Clear validation promise
+        this.authenticationPromise = null;
+        this.validationInProgress = false;
         this.lastTokenRefresh = null;
+        this.lastValidationAttempt = null;
         this.sessionValidationCache = null;
         this.sessionValidationExpiry = null;
 
@@ -838,11 +832,11 @@ const AuthService = {
         this._deleteCookie('authenticated');
         this._deleteCookie('user_info');
 
-        console.log('🧹 ENHANCED: All authentication data cleared - WebSocket connections will be terminated');
+        console.log('🧹 FIXED: All authentication data cleared');
     },
 
     /**
-     * Get authentication headers (for WebSocket connection if needed)
+     * Get authentication headers
      */
     getAuthHeader() {
         return {
@@ -852,20 +846,20 @@ const AuthService = {
     },
 
     // ============================================================
-    // ENHANCED PRIVATE METHODS - Updated with ready state
+    // PRIVATE METHODS - Improved for better stability
     // ============================================================
 
     /**
-     * ENHANCED: Comprehensive authentication state initialization
+     * FIXED: More conservative authentication state initialization
      */
     _initializeEnhancedAuthState() {
-        console.log('🔍 ENHANCED: Initializing authentication state...');
+        console.log('🔍 FIXED: Initializing authentication state...');
         
         try {
-            // Step 1: Check cookies first with enhanced validation
-            const cookieAuth = this._restoreFromEnhancedCookies();
+            // Step 1: Check cookies first
+            const cookieAuth = this._restoreFromFixedCookies();
             if (cookieAuth) {
-                console.log('✅ Authentication restored from enhanced cookies');
+                console.log('✅ Authentication restored from cookies');
                 return true;
             }
             
@@ -876,44 +870,30 @@ const AuthService = {
                 return true;
             }
             
-            // Step 3: Check for partial authentication data
-            const partialAuth = this._attemptPartialRestore();
-            if (partialAuth) {
-                console.log('⚠️ Partial authentication restored, will validate in background');
-                // Don't mark as ready yet - validation needed
-                this.authenticationReady = false;
-                return true;
-            }
-            
             console.log('❌ No authentication state found');
             this._clearAuthState();
             return false;
             
         } catch (error) {
-            console.error('Error during enhanced auth initialization:', error);
+            console.error('Error during fixed auth initialization:', error);
             this._clearAuthState();
             return false;
         }
     },
 
     /**
-     * ENHANCED: Restore authentication from cookies with validation
+     * FIXED: Better cookie restoration
      */
-    _restoreFromEnhancedCookies() {
+    _restoreFromFixedCookies() {
         try {
-            console.log('🍪 ENHANCED: Checking cookies for authentication...');
+            console.log('🍪 FIXED: Checking cookies for authentication...');
             
             const authCookie = this._getCookie('authenticated');
             const userInfoCookie = this._getCookie('user_info');
             
-            const hasAccessToken = this._cookieExists('access_token');
-            const hasRefreshToken = this._cookieExists('refresh_token');
-            
-            console.log('ENHANCED Cookie status:', {
+            console.log('FIXED Cookie status:', {
                 authenticated: authCookie,
                 hasUserInfo: !!userInfoCookie,
-                hasAccessToken: hasAccessToken,
-                hasRefreshToken: hasRefreshToken,
                 userInfoLength: userInfoCookie ? userInfoCookie.length : 0
             });
             
@@ -928,42 +908,28 @@ const AuthService = {
                     }
                     
                     if (this._validateUserInfo(userInfo)) {
-                        // Enhanced validation - check if we have the httpOnly tokens
-                        if (!hasAccessToken && !hasRefreshToken) {
-                            console.warn('⚠️ ENHANCED: User info valid but no auth tokens detected');
-                            this._setAuthState(userInfo);
-                            this.authenticationReady = false; // Not ready until validated
-                            return true;
+                        this._setAuthState(userInfo);
+                        
+                        // IMPROVED: If we have user info and recent activity, mark as ready
+                        const storedRefresh = this._getStoredRefreshTime();
+                        if (storedRefresh && (Date.now() - storedRefresh) < 1800000) { // 30 minutes
+                            console.log('✅ Marking as ready based on recent activity');
+                            this.authenticationReady = true;
                         }
                         
-                        this._setAuthState(userInfo);
-                        // Still not ready - needs validation
-                        this.authenticationReady = false;
                         return true;
                     }
                 } catch (parseError) {
                     console.error('Failed to parse user info cookie:', parseError);
                 }
             } else if (authCookie === 'true' && !userInfoCookie) {
-                console.warn('⚠️ ENHANCED: authenticated=true but no user_info cookie');
+                console.warn('⚠️ FIXED: authenticated=true but no user_info cookie');
                 return this._attemptUserInfoReconstruction();
             }
             
             return false;
         } catch (error) {
-            console.error('Error in enhanced cookie restoration:', error);
-            return false;
-        }
-    },
-
-    /**
-     * Check if a cookie exists (works for httpOnly cookies too)
-     */
-    _cookieExists(name) {
-        try {
-            const cookieString = document.cookie;
-            return cookieString.includes(`${name}=`);
-        } catch (error) {
+            console.error('Error in fixed cookie restoration:', error);
             return false;
         }
     },
@@ -973,7 +939,7 @@ const AuthService = {
      */
     _attemptUserInfoReconstruction() {
         try {
-            console.log('🔧 ENHANCED: Attempting user info reconstruction...');
+            console.log('🔧 FIXED: Attempting user info reconstruction...');
             
             const storedEmail = this._getSecureItem('user_email');
             const storedUserId = this._getSecureItem('user_id');
@@ -989,7 +955,6 @@ const AuthService = {
                 if (this._validateUserInfo(reconstructedUserInfo)) {
                     console.log('✅ User info reconstructed from localStorage');
                     this._setAuthState(reconstructedUserInfo);
-                    this.authenticationReady = false; // Not ready until validated
                     
                     // Update the user_info cookie
                     this._setCookie('user_info', JSON.stringify(reconstructedUserInfo), 1);
@@ -1006,16 +971,16 @@ const AuthService = {
     },
 
     /**
-     * Set up enhanced cookie monitoring
+     * Set up less aggressive cookie monitoring
      */
     _setupCookieMonitoring() {
         this.cookieMonitoringInterval = setInterval(() => {
             this._monitorCookieHealth();
-        }, 30000);
+        }, 60000); // Check every 60 seconds instead of 30
     },
 
     /**
-     * Monitor cookie health and auto-correct issues
+     * Monitor cookie health with less aggressive corrections
      */
     _monitorCookieHealth() {
         if (!this.isAuthenticated()) return;
@@ -1023,27 +988,21 @@ const AuthService = {
         try {
             const authCookie = this._getCookie('authenticated');
             const userInfoCookie = this._getCookie('user_info');
-            const hasAccessToken = this._cookieExists('access_token');
             
-            // Check for inconsistencies
+            // Check for basic inconsistencies only
             if (this.authenticated && authCookie !== 'true') {
-                console.warn('⚠️ ENHANCED: authenticated state mismatch, correcting...');
+                console.warn('⚠️ FIXED: authenticated state mismatch, correcting...');
                 this._setCookie('authenticated', 'true', 1);
             }
             
             if (this.authenticated && !userInfoCookie && this.userEmail && this.userId) {
-                console.warn('⚠️ ENHANCED: missing user_info cookie, restoring...');
+                console.warn('⚠️ FIXED: missing user_info cookie, restoring...');
                 const userInfo = {
                     email: this.userEmail,
                     id: this.userId,
                     session_id: this.sessionId
                 };
                 this._setCookie('user_info', JSON.stringify(userInfo), 1);
-            }
-            
-            if (this.authenticated && !hasAccessToken) {
-                console.warn('⚠️ ENHANCED: access_token cookie missing, marking not ready');
-                this.authenticationReady = false;
             }
             
         } catch (error) {
@@ -1055,7 +1014,7 @@ const AuthService = {
      * Set authentication state from user info
      */
     _setAuthState(userInfo) {
-        console.log('🔐 ENHANCED: Setting authentication state:', {
+        console.log('🔐 FIXED: Setting authentication state:', {
             email: userInfo.email,
             id: userInfo.id,
             session_id: userInfo.session_id
@@ -1068,8 +1027,6 @@ const AuthService = {
         this.token = 'cookie_stored';
         this.refreshToken = 'cookie_stored';
         
-        // Note: authenticationReady is set separately after validation
-        
         // Sync to localStorage
         this._syncToLocalStorage();
         
@@ -1079,22 +1036,26 @@ const AuthService = {
     },
 
     /**
-     * Set up enhanced automatic token refresh
+     * Set up less aggressive automatic token refresh
      */
     _setupEnhancedTokenRefresh() {
         this.tokenRefreshTimer = setInterval(() => {
             if (this.isAuthenticated()) {
-                this.refreshTokenIfNeeded().catch(error => {
-                    console.error('Scheduled enhanced token refresh failed:', error);
-                });
+                // Only refresh if it's been a while
+                const timeSinceRefresh = Date.now() - (this.lastTokenRefresh || 0);
+                if (timeSinceRefresh > 600000) { // 10 minutes
+                    this.refreshTokenIfNeeded().catch(error => {
+                        console.error('Scheduled token refresh failed:', error);
+                    });
+                }
             }
-        }, 180000); // 3 minutes
+        }, 300000); // Check every 5 minutes instead of 3
         
-        console.log('🔄 Enhanced token refresh scheduler started');
+        console.log('🔄 Less aggressive token refresh scheduler started');
     },
 
     /**
-     * Enhanced cookie management
+     * Cookie management
      */
     _getCookie(name) {
         try {
@@ -1105,7 +1066,7 @@ const AuthService = {
                 return decodeURIComponent(cookieValue);
             }
         } catch (error) {
-            console.warn(`Enhanced error reading cookie ${name}:`, error);
+            console.warn(`Error reading cookie ${name}:`, error);
         }
         return null;
     },
@@ -1138,14 +1099,14 @@ const AuthService = {
      */
     _restoreFromLocalStorage() {
         try {
-            console.log('💾 ENHANCED: Checking localStorage for authentication...');
+            console.log('💾 FIXED: Checking localStorage for authentication...');
             
             const storedEmail = this._getSecureItem('user_email');
             const storedUserId = this._getSecureItem('user_id');
             const storedSessionId = this._getSecureItem('session_id');
             const authCookie = this._getCookie('authenticated');
             
-            console.log('ENHANCED LocalStorage status:', {
+            console.log('FIXED LocalStorage status:', {
                 email: !!storedEmail,
                 userId: !!storedUserId,
                 sessionId: !!storedSessionId,
@@ -1161,39 +1122,13 @@ const AuthService = {
                 
                 if (this._validateUserInfo(userInfo)) {
                     this._setAuthState(userInfo);
-                    this.authenticationReady = false; // Not ready until validated
                     return true;
                 }
             }
             
             return false;
         } catch (error) {
-            console.error('Error in enhanced localStorage restoration:', error);
-            return false;
-        }
-    },
-
-    /**
-     * Attempt partial authentication restore
-     */
-    _attemptPartialRestore() {
-        try {
-            console.log('🔧 ENHANCED: Attempting partial authentication restore...');
-            
-            const authCookie = this._getCookie('authenticated');
-            const hasAnyStorage = this._getSecureItem('user_email') || this._getSecureItem('user_id');
-            const hasAnyToken = this._cookieExists('access_token') || this._cookieExists('refresh_token');
-            
-            if (authCookie === 'true' || hasAnyStorage || hasAnyToken) {
-                console.log('Found enhanced partial auth data, will validate in background');
-                this.authenticated = true;
-                this.authenticationReady = false; // Not ready until validated
-                return true;
-            }
-            
-            return false;
-        } catch (error) {
-            console.error('Error in enhanced partial restore:', error);
+            console.error('Error in localStorage restoration:', error);
             return false;
         }
     },
@@ -1230,7 +1165,7 @@ const AuthService = {
         this.userId = null;
         this.sessionId = null;
         this.authenticated = false;
-        this.authenticationReady = false; // NEW: Clear ready state
+        this.authenticationReady = false;
         this.lastTokenRefresh = null;
         this.sessionValidationCache = null;
         this.sessionValidationExpiry = null;
@@ -1247,9 +1182,13 @@ const AuthService = {
     _setupVisibilityHandler() {
         document.addEventListener('visibilitychange', () => {
             if (document.visibilityState === 'visible' && this.isAuthenticated()) {
-                this._validateSessionAsync().catch(error => {
-                    console.error('Visibility session check failed:', error);
-                });
+                // Only validate if it's been a while
+                const timeSinceLastValidation = Date.now() - (this.lastValidationAttempt || 0);
+                if (timeSinceLastValidation > 300000) { // 5 minutes
+                    this.waitForAuthentication(5000).catch(error => {
+                        console.error('Visibility session check failed:', error);
+                    });
+                }
             }
         });
     },

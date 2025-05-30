@@ -833,16 +833,16 @@
   <!-- Unified Projects Application Script -->
   <script>
     document.addEventListener('DOMContentLoaded', async function() {
-    console.log('🚀 Unified Projects Application starting...');
-    
-    // Application state
-    let projects = [];
-    let filteredProjects = [];
-    let currentView = 'grid';
-    let currentContext = null;
-    
-    // DOM elements
-    const elements = {
+      console.log('🚀 Unified Projects Application starting...');
+      
+      // Application state
+      let projects = [];
+      let filteredProjects = [];
+      let currentView = 'grid';
+      let currentContext = null;
+      
+      // DOM elements
+      const elements = {
         // User info
         userEmailDisplay: document.getElementById('userEmailDisplay'),
         creditsDisplay: document.getElementById('creditsDisplay'),
@@ -872,286 +872,286 @@
         envText: document.getElementById('envText'),
         contextIndicator: document.getElementById('contextIndicator'),
         contextInfo: document.getElementById('contextInfo')
-    };
-    
-    /**
-        * Initialize the application WITH AUTHENTICATION WAITING
-        */
-    async function initializeApp() {
+      };
+      
+      /**
+       * Initialize the application WITH AUTHENTICATION WAITING
+       */
+      async function initializeApp() {
         try {
-        // Initialize environment
-        initializeEnvironment();
-        
-        // Wait for unified initialization to complete
-        console.log('⏳ Waiting for unified initialization...');
-        await waitForUnifiedInitialization();
-        
-        // CRITICAL: Wait for authentication to be fully ready
-        console.log('🔐 Ensuring authentication is ready...');
-        const authReady = await ensureAuthenticationReady();
-        
-        if (!authReady) {
+          // Initialize environment
+          initializeEnvironment();
+          
+          // Wait for unified initialization to complete
+          console.log('⏳ Waiting for unified initialization...');
+          await waitForUnifiedInitialization();
+          
+          // CRITICAL: Wait for authentication to be fully ready
+          console.log('🔐 Ensuring authentication is ready...');
+          const authReady = await ensureAuthenticationReady();
+          
+          if (!authReady) {
             console.log('❌ Authentication not ready, redirecting to login');
             window.location.href = 'login.html';
             return;
-        }
-        
-        // Initialize UI
-        initializeUI();
-        
-        // Load data (now safe to make API calls)
-        await loadCurrentContext();
-        await loadProjects();
-        
-        // Setup event listeners
-        setupEventListeners();
-        
-        console.log('✅ Unified Projects Application initialized successfully');
-        
+          }
+          
+          // Initialize UI
+          initializeUI();
+          
+          // Load data (now safe to make API calls)
+          await loadCurrentContext();
+          await loadProjects();
+          
+          // Setup event listeners
+          setupEventListeners();
+          
+          console.log('✅ Unified Projects Application initialized successfully');
+          
         } catch (error) {
-        console.error('❌ Failed to initialize application:', error);
-        showToast(`Failed to initialize: ${error.message}`, 'error');
+          console.error('❌ Failed to initialize application:', error);
+          showToast(`Failed to initialize: ${error.message}`, 'error');
         }
-    }
+      }
 
-    /**
-        * NEW: Wait for unified initialization to complete
-        */
-    async function waitForUnifiedInitialization(timeoutMs = 30000) {
+      /**
+       * NEW: Wait for unified initialization to complete
+       */
+      async function waitForUnifiedInitialization(timeoutMs = 30000) {
         const startTime = Date.now();
         
         while ((Date.now() - startTime) < timeoutMs) {
-        // Check if AAAI_APP is initialized
-        if (window.AAAI_APP && window.AAAI_APP.isInitialized && window.AAAI_APP.isInitialized()) {
+          // Check if AAAI_APP is initialized
+          if (window.AAAI_APP && window.AAAI_APP.isInitialized && window.AAAI_APP.isInitialized()) {
             console.log('✅ Unified initialization complete');
             return true;
-        }
-        
-        // Wait a bit before checking again
-        await new Promise(resolve => setTimeout(resolve, 100));
+          }
+          
+          // Wait a bit before checking again
+          await new Promise(resolve => setTimeout(resolve, 100));
         }
         
         throw new Error('Unified initialization timed out');
-    }
+      }
 
-    /**
-        * NEW: Ensure authentication is fully ready for API calls
-        */
-    async function ensureAuthenticationReady(timeoutMs = 20000) {
+      /**
+       * NEW: Ensure authentication is fully ready for API calls
+       */
+      async function ensureAuthenticationReady(timeoutMs = 20000) {
         console.log('🔍 Checking authentication readiness...');
         
         // Check if AAAI_APP is available
         if (!window.AAAI_APP || !window.AAAI_APP.waitForAuth) {
-        console.error('❌ AAAI_APP not available');
-        return false;
+          console.error('❌ AAAI_APP not available');
+          return false;
         }
         
         // Get AuthService
         const authService = window.AAAI_APP.getService('AuthService');
         if (!authService) {
-        console.error('❌ AuthService not available');
-        return false;
+          console.error('❌ AuthService not available');
+          return false;
         }
         
         // Check if user is authenticated
         if (!authService.isAuthenticated()) {
-        console.log('❌ User not authenticated');
-        return false;
+          console.log('❌ User not authenticated');
+          return false;
         }
         
         console.log('🔐 User authenticated, waiting for tokens to be ready...');
         
         try {
-        // Use the unified app's waitForAuth method
-        const authReady = await window.AAAI_APP.waitForAuth(timeoutMs);
-        
-        if (authReady) {
+          // Use the unified app's waitForAuth method
+          const authReady = await window.AAAI_APP.waitForAuth(timeoutMs);
+          
+          if (authReady) {
             console.log('✅ Authentication is ready for API calls');
             return true;
-        } else {
+          } else {
             console.log('❌ Authentication validation failed');
             return false;
-        }
-        
+          }
+          
         } catch (error) {
-        console.error('❌ Error ensuring authentication ready:', error);
-        return false;
+          console.error('❌ Error ensuring authentication ready:', error);
+          return false;
         }
-    }
-    
-    /**
-        * Initialize environment features
-        */
-    function initializeEnvironment() {
+      }
+      
+      /**
+       * Initialize environment features
+       */
+      function initializeEnvironment() {
         const environment = window.AAAI_CONFIG?.ENVIRONMENT || 'production';
         
         if (environment !== 'production') {
-        elements.envIndicator.className = `env-indicator ${environment}`;
-        elements.envText.textContent = `${environment.toUpperCase()} Environment`;
-        document.body.classList.add('with-env-indicator');
+          elements.envIndicator.className = `env-indicator ${environment}`;
+          elements.envText.textContent = `${environment.toUpperCase()} Environment`;
+          document.body.classList.add('with-env-indicator');
         }
-    }
-    
-    /**
-        * Initialize UI components
-        */
-    function initializeUI() {
+      }
+      
+      /**
+       * Initialize UI components
+       */
+      function initializeUI() {
         // Display user info
         const authService = window.AAAI_APP.getService('AuthService');
         const user = authService?.getCurrentUser();
         
         if (user && elements.userEmailDisplay) {
-        elements.userEmailDisplay.textContent = user.email;
+          elements.userEmailDisplay.textContent = user.email;
         }
         
         // Load user credits
         loadUserCredits();
-    }
-    
-    /**
-        * Load user credits - NOW WITH AUTH READY CHECK
-        */
-    async function loadUserCredits() {
+      }
+      
+      /**
+       * Load user credits - NOW WITH AUTH READY CHECK
+       */
+      async function loadUserCredits() {
         try {
-        const authService = window.AAAI_APP.getService('AuthService');
-        if (!authService || !authService.isAuthenticationReady()) {
+          const authService = window.AAAI_APP.getService('AuthService');
+          if (!authService || !authService.isAuthenticationReady()) {
             elements.creditsDisplay.textContent = 'Credits: Loading...';
             return;
-        }
-        
-        // const credits = await authService.getUserCredits();
-        elements.creditsDisplay.textContent = `Credits: 0`;
+          }
+          
+          // const credits = await authService.getUserCredits();
+          elements.creditsDisplay.textContent = `Credits: 0`;
         } catch (error) {
-        console.warn('Could not load user credits:', error);
-        elements.creditsDisplay.textContent = 'Credits: --';
+          console.warn('Could not load user credits:', error);
+          elements.creditsDisplay.textContent = 'Credits: --';
         }
-    }
-    
-    /**
-        * Load current context - NOW SAFE TO CALL
-        */
-    async function loadCurrentContext() {
+      }
+      
+      /**
+       * Load current context - NOW SAFE TO CALL
+       */
+      async function loadCurrentContext() {
         try {
-        const projectService = window.AAAI_APP.getService('ProjectService');
-        if (projectService) {
+          const projectService = window.AAAI_APP.getService('ProjectService');
+          if (projectService) {
             console.log('📂 Loading current context...');
             const contextResult = await projectService.getCurrentContext();
             if (contextResult.success) {
-            currentContext = contextResult;
-            updateContextIndicator(contextResult);
-            console.log('✅ Current context loaded:', contextResult);
+              currentContext = contextResult;
+              updateContextIndicator(contextResult);
+              console.log('✅ Current context loaded:', contextResult);
             }
-        }
+          }
         } catch (error) {
-        console.warn('Could not load current context:', error);
-        // Don't show error to user, just log it
+          console.warn('Could not load current context:', error);
+          // Don't show error to user, just log it
         }
-    }
-    
-    /**
-        * Update context indicator
-        */
-    function updateContextIndicator(context) {
+      }
+      
+      /**
+       * Update context indicator
+       */
+      function updateContextIndicator(context) {
         if (context && context.current_project) {
-        elements.contextInfo.innerHTML = `
+          elements.contextInfo.innerHTML = `
             <strong>Active Project:</strong> ${context.current_project.name}<br>
             <strong>Chat ID:</strong> <code>${context.current_project.id}</code>
-        `;
-        elements.contextIndicator.classList.remove('hidden');
+          `;
+          elements.contextIndicator.classList.remove('hidden');
         } else {
-        elements.contextIndicator.classList.add('hidden');
+          elements.contextIndicator.classList.add('hidden');
         }
-    }
-    
-    /**
-        * Load projects - NOW SAFE TO CALL
-        */
-    async function loadProjects() {
+      }
+      
+      /**
+       * Load projects - NOW SAFE TO CALL
+       */
+      async function loadProjects() {
         try {
-        showLoading(true);
-        
-        const projectService = window.AAAI_APP.getService('ProjectService');
-        if (!projectService) {
+          showLoading(true);
+          
+          const projectService = window.AAAI_APP.getService('ProjectService');
+          if (!projectService) {
             throw new Error('ProjectService not available');
-        }
-        
-        console.log('📂 Loading projects...');
-        const result = await projectService.getProjects({ limit: 50 });
-        
-        if (result && result.projects) {
+          }
+          
+          console.log('📂 Loading projects...');
+          const result = await projectService.getProjects({ limit: 50 });
+          
+          if (result && result.projects) {
             projects = result.projects;
             filteredProjects = [...projects];
             renderProjects();
             console.log(`✅ Loaded ${projects.length} projects`);
-        } else {
+          } else {
             projects = [];
             filteredProjects = [];
             renderProjects();
-        }
-        
+          }
+          
         } catch (error) {
-        console.error('Error loading projects:', error);
-        showToast(`Failed to load projects: ${error.message}`, 'error');
-        
-        // Show empty state on error
-        projects = [];
-        filteredProjects = [];
-        renderProjects();
+          console.error('Error loading projects:', error);
+          showToast(`Failed to load projects: ${error.message}`, 'error');
+          
+          // Show empty state on error
+          projects = [];
+          filteredProjects = [];
+          renderProjects();
         } finally {
-        showLoading(false);
+          showLoading(false);
         }
-    }
-    
-    /**
-        * Render projects based on current view
-        */
-    function renderProjects() {
+      }
+      
+      /**
+       * Render projects based on current view
+       */
+      function renderProjects() {
         if (filteredProjects.length === 0) {
-        if (projects.length === 0) {
+          if (projects.length === 0) {
             showEmptyState(true);
-        } else {
+          } else {
             showNoResults();
-        }
-        return;
+          }
+          return;
         }
         
         showEmptyState(false);
         
         if (currentView === 'grid') {
-        renderProjectsGrid();
+          renderProjectsGrid();
         } else {
-        renderProjectsList();
+          renderProjectsList();
         }
-    }
-    
-    /**
-        * Render projects grid
-        */
-    function renderProjectsGrid() {
+      }
+      
+      /**
+       * Render projects grid
+       */
+      function renderProjectsGrid() {
         elements.projectsGrid.innerHTML = '';
         
         filteredProjects.forEach(project => {
-        const projectCard = createProjectCard(project);
-        elements.projectsGrid.appendChild(projectCard);
+          const projectCard = createProjectCard(project);
+          elements.projectsGrid.appendChild(projectCard);
         });
-    }
-    
-    /**
-        * Render projects list
-        */
-    function renderProjectsList() {
+      }
+      
+      /**
+       * Render projects list
+       */
+      function renderProjectsList() {
         elements.projectsList.innerHTML = '';
         
         filteredProjects.forEach(project => {
-        const projectItem = createProjectListItem(project);
-        elements.projectsList.appendChild(projectItem);
+          const projectItem = createProjectListItem(project);
+          elements.projectsList.appendChild(projectItem);
         });
-    }
-    
-    /**
-        * Create project card
-        */
-    function createProjectCard(project) {
+      }
+      
+      /**
+       * Create project card
+       */
+      function createProjectCard(project) {
         const card = document.createElement('div');
         card.className = 'project-card';
         card.onclick = () => openProject(project.id, project.name);
@@ -1159,36 +1159,36 @@
         const chatId = project.id;
         
         card.innerHTML = `
-        <div class="project-header">
+          <div class="project-header">
             <h3 class="project-title">${escapeHtml(project.name)}</h3>
             <button class="project-menu" onclick="event.stopPropagation(); showProjectMenu('${project.id}', event)">⋮</button>
-        </div>
-        <p class="project-description">${escapeHtml(project.description || 'No description provided')}</p>
-        <div class="project-stats">
+          </div>
+          <p class="project-description">${escapeHtml(project.description || 'No description provided')}</p>
+          <div class="project-stats">
             <div class="project-stats-left">
-            <div class="project-stat">
+              <div class="project-stat">
                 <ion-icon name="chatbubbles-outline"></ion-icon>
                 <span>${project.message_count || 0} messages</span>
-            </div>
-            <div class="project-stat">
+              </div>
+              <div class="project-stat">
                 <ion-icon name="time-outline"></ion-icon>
                 <span>${formatDate(project.created_at)}</span>
-            </div>
+              </div>
             </div>
             <div class="project-last-activity">${formatRelativeTime(project.last_accessed_at || project.created_at)}</div>
-        </div>
-        <div class="chat-id-indicator" title="Chat ID for this project">
+          </div>
+          <div class="chat-id-indicator" title="Chat ID for this project">
             ID: ${chatId.substring(0, 8)}...
-        </div>
+          </div>
         `;
         
         return card;
-    }
-    
-    /**
-        * Create project list item
-        */
-    function createProjectListItem(project) {
+      }
+      
+      /**
+       * Create project list item
+       */
+      function createProjectListItem(project) {
         const item = document.createElement('div');
         item.className = 'project-list-item';
         item.onclick = () => openProject(project.id, project.name);
@@ -1196,25 +1196,25 @@
         const chatId = project.id;
         
         item.innerHTML = `
-        <div class="project-list-header">
+          <div class="project-list-header">
             <h3 class="project-list-title">${escapeHtml(project.name)}</h3>
             <div class="project-list-stats">
-            <span>${project.message_count || 0} messages</span>
-            <span>${formatDate(project.created_at)}</span>
-            <span>${formatRelativeTime(project.last_accessed_at || project.created_at)}</span>
-            <span title="Chat ID">ID: ${chatId.substring(0, 8)}...</span>
+              <span>${project.message_count || 0} messages</span>
+              <span>${formatDate(project.created_at)}</span>
+              <span>${formatRelativeTime(project.last_accessed_at || project.created_at)}</span>
+              <span title="Chat ID">ID: ${chatId.substring(0, 8)}...</span>
             </div>
-        </div>
-        <p class="project-description">${escapeHtml(project.description || 'No description provided')}</p>
+          </div>
+          <p class="project-description">${escapeHtml(project.description || 'No description provided')}</p>
         `;
         
         return item;
-    }
-    
-    /**
-        * Setup event listeners
-        */
-    function setupEventListeners() {
+      }
+      
+      /**
+       * Setup event listeners
+       */
+      function setupEventListeners() {
         // User actions
         elements.logoutBtn?.addEventListener('click', handleLogout);
         
@@ -1229,109 +1229,109 @@
         
         // Modal controls
         elements.newProjectModal?.addEventListener('click', function(e) {
-        if (e.target === elements.newProjectModal) {
+          if (e.target === elements.newProjectModal) {
             hideNewProjectModal();
-        }
+          }
         });
-    }
-    
-    /**
-        * Handle search
-        */
-    function handleSearch(e) {
+      }
+      
+      /**
+       * Handle search
+       */
+      function handleSearch(e) {
         const query = e.target.value.toLowerCase().trim();
         
         if (query === '') {
-        filteredProjects = [...projects];
+          filteredProjects = [...projects];
         } else {
-        filteredProjects = projects.filter(project => 
+          filteredProjects = projects.filter(project => 
             project.name.toLowerCase().includes(query) ||
             (project.description && project.description.toLowerCase().includes(query)) ||
             project.id.toLowerCase().includes(query)
-        );
+          );
         }
         
         renderProjects();
-    }
-    
-    /**
-        * Switch view between grid and list
-        */
-    function switchView(view) {
+      }
+      
+      /**
+       * Switch view between grid and list
+       */
+      function switchView(view) {
         currentView = view;
         
         // Update buttons
         document.querySelectorAll('.view-toggle-btn').forEach(btn => {
-        btn.classList.remove('active');
+          btn.classList.remove('active');
         });
         
         if (view === 'grid') {
-        elements.gridViewBtn.classList.add('active');
-        elements.projectsGrid.style.display = 'grid';
-        elements.projectsList.style.display = 'none';
+          elements.gridViewBtn.classList.add('active');
+          elements.projectsGrid.style.display = 'grid';
+          elements.projectsList.style.display = 'none';
         } else {
-        elements.listViewBtn.classList.add('active');
-        elements.projectsGrid.style.display = 'none';
-        elements.projectsList.style.display = 'block';
-        elements.projectsList.classList.add('active');
+          elements.listViewBtn.classList.add('active');
+          elements.projectsGrid.style.display = 'none';
+          elements.projectsList.style.display = 'block';
+          elements.projectsList.classList.add('active');
         }
         
         renderProjects();
-    }
-    
-    /**
-        * Show/hide new project modal
-        */
-    function showNewProjectModal() {
+      }
+      
+      /**
+       * Show/hide new project modal
+       */
+      function showNewProjectModal() {
         elements.newProjectModal.style.display = 'flex';
         elements.projectName.focus();
-    }
-    
-    function hideNewProjectModal() {
+      }
+      
+      function hideNewProjectModal() {
         elements.newProjectModal.style.display = 'none';
         elements.newProjectForm.reset();
-    }
-    
-    /**
-        * Handle project creation - UNIFIED INTEGRATION POINT WITH AUTH CHECK
-        */
-    async function handleCreateProject(e) {
+      }
+      
+      /**
+       * Handle project creation - UNIFIED INTEGRATION POINT WITH AUTH CHECK
+       */
+      async function handleCreateProject(e) {
         e.preventDefault();
         
         const name = elements.projectName.value.trim();
         const description = elements.projectDescription.value.trim();
         
         if (!name) {
-        showToast('Project name is required', 'error');
-        return;
+          showToast('Project name is required', 'error');
+          return;
         }
         
         try {
-        setButtonLoading(elements.createProjectBtn, true);
-        
-        // Ensure authentication is still ready
-        const authService = window.AAAI_APP.getService('AuthService');
-        if (!authService || !authService.isAuthenticationReady()) {
+          setButtonLoading(elements.createProjectBtn, true);
+          
+          // Ensure authentication is still ready
+          const authService = window.AAAI_APP.getService('AuthService');
+          if (!authService || !authService.isAuthenticationReady()) {
             throw new Error('Authentication not ready. Please refresh the page.');
-        }
-        
-        const projectData = {
+          }
+          
+          const projectData = {
             name: name,
             description: description,
             tags: []
-        };
-        
-        console.log('📝 Creating new project with unified services:', projectData);
-        
-        // Use NavigationManager to create and navigate
-        const navigationManager = window.AAAI_APP.getService('NavigationManager');
-        if (!navigationManager) {
+          };
+          
+          console.log('📝 Creating new project with unified services:', projectData);
+          
+          // Use NavigationManager to create and navigate
+          const navigationManager = window.AAAI_APP.getService('NavigationManager');
+          if (!navigationManager) {
             throw new Error('NavigationManager not available');
-        }
-        
-        const result = await navigationManager.createProjectAndNavigate(projectData);
-        
-        if (result.success) {
+          }
+          
+          const result = await navigationManager.createProjectAndNavigate(projectData);
+          
+          if (result.success) {
             // Update local state
             projects.unshift(result.project);
             filteredProjects = [...projects];
@@ -1343,110 +1343,110 @@
             
             // Update context indicator
             updateContextIndicator({
-            current_project: result.project
+              current_project: result.project
             });
             
             console.log('✅ Project created and navigation initiated');
-        }
-        
+          }
+          
         } catch (error) {
-        console.error('❌ Error creating project:', error);
-        showToast(`Failed to create project: ${error.message}`, 'error');
+          console.error('❌ Error creating project:', error);
+          showToast(`Failed to create project: ${error.message}`, 'error');
         } finally {
-        setButtonLoading(elements.createProjectBtn, false);
+          setButtonLoading(elements.createProjectBtn, false);
         }
-    }
-    
-    /**
-        * Open existing project - UNIFIED INTEGRATION POINT WITH AUTH CHECK
-        */
-    async function openProject(projectId, projectName) {
+      }
+      
+      /**
+       * Open existing project - UNIFIED INTEGRATION POINT WITH AUTH CHECK
+       */
+      async function openProject(projectId, projectName) {
         try {
-        // Ensure authentication is still ready
-        const authService = window.AAAI_APP.getService('AuthService');
-        if (!authService || !authService.isAuthenticationReady()) {
+          // Ensure authentication is still ready
+          const authService = window.AAAI_APP.getService('AuthService');
+          if (!authService || !authService.isAuthenticationReady()) {
             showToast('Authentication not ready. Please refresh the page.', 'error');
             return;
-        }
-        
-        console.log('📂 Opening project with unified services:', { projectId, projectName });
-        
-        // Use NavigationManager to open project
-        const navigationManager = window.AAAI_APP.getService('NavigationManager');
-        if (!navigationManager) {
+          }
+          
+          console.log('📂 Opening project with unified services:', { projectId, projectName });
+          
+          // Use NavigationManager to open project
+          const navigationManager = window.AAAI_APP.getService('NavigationManager');
+          if (!navigationManager) {
             throw new Error('NavigationManager not available');
-        }
-        
-        await navigationManager.openProject(projectId, projectName);
-        
+          }
+          
+          await navigationManager.openProject(projectId, projectName);
+          
         } catch (error) {
-        console.error('❌ Error opening project:', error);
-        showToast(`Failed to open project: ${error.message}`, 'error');
+          console.error('❌ Error opening project:', error);
+          showToast(`Failed to open project: ${error.message}`, 'error');
         }
-    }
-    
-    /**
-        * Handle logout
-        */
-    async function handleLogout() {
+      }
+      
+      /**
+       * Handle logout
+       */
+      async function handleLogout() {
         if (confirm('Are you sure you want to sign out?')) {
-        try {
+          try {
             const authService = window.AAAI_APP.getService('AuthService');
             if (authService) {
-            await authService.logout();
+              await authService.logout();
             }
             window.location.href = 'login.html';
-        } catch (error) {
+          } catch (error) {
             console.error('Logout error:', error);
             window.location.href = 'login.html';
+          }
         }
-        }
-    }
-    
-    // Utility functions
-    
-    function showLoading(show) {
+      }
+      
+      // Utility functions
+      
+      function showLoading(show) {
         elements.loadingContainer.style.display = show ? 'flex' : 'none';
         elements.projectsGrid.style.display = show ? 'none' : 'grid';
         elements.projectsList.style.display = show ? 'none' : (currentView === 'list' ? 'block' : 'none');
-    }
-    
-    function showEmptyState(show) {
+      }
+      
+      function showEmptyState(show) {
         elements.emptyState.style.display = show ? 'block' : 'none';
         elements.projectsGrid.style.display = show ? 'none' : (currentView === 'grid' ? 'grid' : 'none');
         elements.projectsList.style.display = show ? 'none' : (currentView === 'list' ? 'block' : 'none');
-    }
-    
-    function showNoResults() {
+      }
+      
+      function showNoResults() {
         const noResultsHtml = `
-        <div class="empty-state">
+          <div class="empty-state">
             <div class="empty-state-icon">🔍</div>
             <h3>No Projects Found</h3>
             <p>No projects match your search criteria. Try adjusting your search terms.</p>
-        </div>
+          </div>
         `;
         
         if (currentView === 'grid') {
-        elements.projectsGrid.innerHTML = noResultsHtml;
+          elements.projectsGrid.innerHTML = noResultsHtml;
         } else {
-        elements.projectsList.innerHTML = noResultsHtml;
+          elements.projectsList.innerHTML = noResultsHtml;
         }
-    }
-    
-    function setButtonLoading(button, loading) {
+      }
+      
+      function setButtonLoading(button, loading) {
         const span = button.querySelector('span');
         if (loading) {
-        button.disabled = true;
-        button.classList.add('loading');
-        if (span) span.textContent = 'Creating...';
+          button.disabled = true;
+          button.classList.add('loading');
+          if (span) span.textContent = 'Creating...';
         } else {
-        button.disabled = false;
-        button.classList.remove('loading');
-        if (span) span.textContent = 'Create Project';
+          button.disabled = false;
+          button.classList.remove('loading');
+          if (span) span.textContent = 'Create Project';
         }
-    }
-    
-    function showToast(message, type = 'success') {
+      }
+      
+      function showToast(message, type = 'success') {
         // Remove existing toasts
         document.querySelectorAll('.toast').forEach(toast => toast.remove());
         
@@ -1461,27 +1461,27 @@
         
         // Hide toast after 5 seconds
         setTimeout(() => {
-        toast.classList.remove('show');
-        setTimeout(() => toast.remove(), 300);
+          toast.classList.remove('show');
+          setTimeout(() => toast.remove(), 300);
         }, 5000);
-    }
-    
-    function escapeHtml(text) {
+      }
+      
+      function escapeHtml(text) {
         const div = document.createElement('div');
         div.textContent = text;
         return div.innerHTML;
-    }
-    
-    function formatDate(dateString) {
+      }
+      
+      function formatDate(dateString) {
         const date = new Date(dateString);
         return date.toLocaleDateString('en-US', { 
-        year: 'numeric', 
-        month: 'short', 
-        day: 'numeric' 
+          year: 'numeric', 
+          month: 'short', 
+          day: 'numeric' 
         });
-    }
-    
-    function formatRelativeTime(dateString) {
+      }
+      
+      function formatRelativeTime(dateString) {
         const date = new Date(dateString);
         const now = new Date();
         const diffInMinutes = Math.floor((now - date) / (1000 * 60));
@@ -1496,24 +1496,24 @@
         if (diffInDays < 7) return `${diffInDays}d ago`;
         
         return formatDate(dateString);
-    }
-    
-    // Global functions for onclick handlers
-    window.showNewProjectModal = showNewProjectModal;
-    window.hideNewProjectModal = hideNewProjectModal;
-    window.openProject = openProject;
-    window.showProjectMenu = function(projectId, event) {
+      }
+      
+      // Global functions for onclick handlers
+      window.showNewProjectModal = showNewProjectModal;
+      window.hideNewProjectModal = hideNewProjectModal;
+      window.openProject = openProject;
+      window.showProjectMenu = function(projectId, event) {
         console.log('Show project menu for:', projectId);
         // TODO: Implement project context menu
-    };
-    
-    // Listen for authentication ready events
-    document.addEventListener('aaai:initialized', function(event) {
+      };
+      
+      // Listen for authentication ready events
+      document.addEventListener('aaai:initialized', function(event) {
         console.log('📡 Received AAAI initialization event:', event.detail.authenticationReady);
-    });
-    
-    // Initialize the application
-    await initializeApp();
+      });
+      
+      // Initialize the application
+      await initializeApp();
     });
   </script>
 </body>
