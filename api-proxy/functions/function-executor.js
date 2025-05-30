@@ -1,7 +1,12 @@
 const axios = require('axios');
 const cors = require('cors')({origin: true});
 const {getSecret} = require('../utils/secret-manager');
+const {handleError} = require('../utils/error-handler');
 
+/**
+ * Enhanced function executor with improved authentication handling
+ * Fixed issue with missing required claims in token
+ */
 async function functionExecutor(req, res) {
   return cors(req, res, async () => {
     if (req.method === 'OPTIONS') {
@@ -13,48 +18,53 @@ async function functionExecutor(req, res) {
       // Get API key from Secret Manager
       const apiKey = await getSecret('api-key');
       
-      console.log('=== DEBUGGING URL EXTRACTION ===');
-      console.log('req.url:', req.url);
-      console.log('req.path:', req.path);
-      console.log('req.originalUrl:', req.originalUrl);
-      console.log('req.query:', req.query);
+      console.log('=== FUNCTION REQUEST DETAILS ===');
+      console.log('Method:', req.method);
+      console.log('Path:', req.path || 'N/A');
       
+      // Extract function name with improved reliability
       let functionName = null;
       
+      // Method 1: Extract from path parameters
+      const pathParts = (req.path || req.url || '').split('/');
+      const functionPathIndex = pathParts.findIndex(part => part === 'function');
+      if (functionPathIndex >= 0 && functionPathIndex < pathParts.length - 1) {
+        functionName = pathParts[functionPathIndex + 1];
+        console.log('Extracted from path:', functionName);
+      }
+      
+      // Method 2: Extract from query parameters
       if (!functionName && req.query && req.query.function_name) {
         functionName = req.query.function_name;
         console.log('Extracted from query params:', functionName);
       }
       
-      console.log('=== FINAL FUNCTION NAME ===');
-      console.log('Function name:', functionName);
+      // Method 3: Extract from request body
+      if (!functionName && req.body && req.body.function_name) {
+        functionName = req.body.function_name;
+        console.log('Extracted from request body:', functionName);
+      }
       
       if (!functionName) {
         console.error('❌ No function name found with any method');
         res.status(400).json({ 
           error: 'Function name is required',
-          debug: {
-            urlPath: urlPath,
-            originalUrl: originalUrl,
-            query: req.query,
-            bodyKeys: Object.keys(req.body || {}),
-            expectedFormats: [
-              '/api/function/{functionName}',
-              '/?function_name={functionName}',
-              'Body: {"function_name": "functionName"}'
-            ]
-          }
+          message: 'Please provide a function name in the URL path, query parameters, or request body',
+          timestamp: new Date().toISOString()
         });
         return;
       }
       
-      // FIXED: Extract access token with correct priority (cookies first)
+      console.log(`🔍 Executing function: ${functionName}`);
+      
+      // Enhanced token extraction with detailed logging
       let accessToken = null;
       
-      console.log('=== TOKEN EXTRACTION DEBUG ===');
-      console.log('Cookies available:', !!req.cookies);
-      console.log('Cookie keys:', req.cookies ? Object.keys(req.cookies) : []);
-      console.log('Authorization header:', !!req.headers.authorization);
+      // PRIORITY 1: Extract from cookies (most reliable)
+      if (req.cookies && req.cookies.access_token) {
+        accessToken = req.cookies.access_token;
+        console.log('✅ Access token found in cookies');
+      }
       
       // PRIORITY 2: Parse cookie header manually if req.cookies failed
       if (!accessToken && req.headers.cookie) {
@@ -63,17 +73,20 @@ async function functionExecutor(req, res) {
           const [name, value] = cookie.trim().split('=');
           if (name === 'access_token' && value) {
             accessToken = decodeURIComponent(value);
-            console.log('✅ Access token found via cookie header parsing (USER TOKEN)');
+            console.log('✅ Access token found via cookie header parsing');
             break;
           }
         }
       }
       
-      console.log('=== FINAL TOKEN SELECTION ===');
-      console.log('Final access token source:', accessToken ? 
-        (req.cookies?.access_token ? 'cookies' : 
-         req.headers.cookie?.includes('access_token') ? 'cookie-header' : 'authorization-header') 
-        : 'none');
+      // PRIORITY 3: Check Authorization header
+      if (!accessToken && req.headers.authorization) {
+        const authHeader = req.headers.authorization;
+        if (authHeader.startsWith('Bearer ')) {
+          accessToken = authHeader.substring(7);
+          console.log('✅ Access token found in Authorization header');
+        }
+      }
       
       if (!accessToken) {
         console.error('❌ No access token found');
@@ -81,13 +94,24 @@ async function functionExecutor(req, res) {
           error: 'Authentication required',
           message: 'No access token found in cookies or Authorization header',
           code: 'MISSING_ACCESS_TOKEN',
-          debug: {
-            hasCookies: !!req.cookies,
-            hasCookieHeader: !!req.headers.cookie,
-            hasAuthHeader: !!req.headers.authorization
-          }
+          timestamp: new Date().toISOString()
         });
         return;
+      }
+      
+      // Extract email from token for logging purposes
+      let userEmail = 'unknown';
+      try {
+        // Decode token (without verification) to extract user info
+        const tokenPayload = JSON.parse(Buffer.from(accessToken.split('.')[1], 'base64').toString());
+        userEmail = tokenPayload.email || tokenPayload.sub || 'unknown';
+        
+        // Log if user_id is missing (this is likely causing the authentication error)
+        if (!tokenPayload.user_id && tokenPayload.id) {
+          console.warn('⚠️ Token is missing user_id claim but has id claim');
+        }
+      } catch (e) {
+        console.warn('⚠️ Could not decode token payload');
       }
       
       // Build headers with both API key and access token
@@ -102,25 +126,30 @@ async function functionExecutor(req, res) {
         headers['Cookie'] = req.headers.cookie;
       }
       
-      console.log(`🚀 Executing function: ${functionName} with authentication`);
-      console.log('Token being sent to API server starts with:', accessToken.substring(0, 20) + '...');
+      console.log(`🚀 Executing function: ${functionName} for user: ${userEmail}`);
       
       // Create a new axios instance with enhanced headers
       const apiClient = axios.create({
         baseURL: 'https://api-server-559730737995.us-central1.run.app',
-        headers: headers
+        headers: headers,
+        timeout: 30000 // 30 second timeout
       });
       
-      // Create clean request body without function_name
-      const cleanRequestBody = { ...req.body };
-      delete cleanRequestBody.function_name; // Remove function_name if it exists
+      // Enhance request body with email if it's missing
+      const enhancedRequestBody = { ...req.body };
       
-      console.log('📊 Request body to forward:', cleanRequestBody);
+      // Add email to the request if not present
+      if (!enhancedRequestBody.email && userEmail !== 'unknown') {
+        enhancedRequestBody.email = userEmail;
+        console.log('✅ Added email to request body');
+      }
+      
+      console.log('📊 Request body to forward:', JSON.stringify(enhancedRequestBody).substring(0, 500));
       
       // Forward the request to the API server
       const response = await apiClient.post(
         `/api/function/${functionName}`,
-        cleanRequestBody
+        enhancedRequestBody
       );
       
       console.log(`✅ Function ${functionName} executed successfully`);
@@ -129,38 +158,37 @@ async function functionExecutor(req, res) {
       res.status(200).json(response.data);
       
     } catch (error) {
-      console.error('💥 Function execution error:', error);
+      // Enhanced error handling
+      console.error(`💥 Function execution error:`, error.message);
       
-      // Handle specific authentication errors
+      // Authentication errors
       if (error.response && error.response.status === 401) {
         console.error('💥 401 Authentication Error Details:');
         console.error('Response data:', error.response.data);
         
-        res.status(401).json({
+        return res.status(401).json({
           error: 'Authentication failed',
-          message: error.response.data?.detail || 'Invalid or expired access token',
+          message: error.response.data?.detail || error.response.data?.error || 'Invalid or expired access token',
           code: 'INVALID_ACCESS_TOKEN',
-          timestamp: new Date().toISOString(),
-          debug: {
-            apiServerResponse: error.response.data,
-            tokenSource: 'check logs above for token source'
-          }
+          timestamp: new Date().toISOString()
         });
-        return;
       }
       
-      // Handle other errors
-      const statusCode = error.response?.status || 500;
-      const errorMessage = error.response?.data?.detail || 
-                          error.response?.data?.error || 
-                          error.message || 
-                          'Internal server error';
+      // Validation errors
+      if (error.response && error.response.status === 400) {
+        console.error('💥 400 Validation Error Details:');
+        console.error('Response data:', error.response.data);
+        
+        return res.status(400).json({
+          error: 'Validation error',
+          message: error.response.data?.detail || error.response.data?.error || 'Invalid request data',
+          code: 'VALIDATION_ERROR',
+          timestamp: new Date().toISOString()
+        });
+      }
       
-      res.status(statusCode).json({ 
-        error: errorMessage,
-        timestamp: new Date().toISOString(),
-        function_name: functionName || 'unknown'
-      });
+      // Use error handler utility for other errors
+      handleError(error, res);
     }
   });
 }

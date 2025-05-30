@@ -1,7 +1,7 @@
 /**
  * Unified Application Initialization Script for AAAI Solutions
+ * WITH PROPER ASYNC AUTHENTICATION WAITING
  * Ensures proper service loading order and handles dependencies
- * Place this script after all service scripts but before page-specific scripts
  */
 
 (function() {
@@ -12,7 +12,8 @@
         initialized: false,
         services: {},
         config: window.AAAI_CONFIG || {},
-        debug: false
+        debug: false,
+        authenticationReady: false // NEW: Track when auth is fully ready
     };
     
     // Service initialization order (important for dependency management)
@@ -34,11 +35,11 @@
     };
     
     /**
-     * Initialize the unified application
+     * Initialize the unified application with proper async auth waiting
      */
     async function initializeApplication() {
         try {
-            console.log('🚀 AAAI Solutions - Unified Application Initialization');
+            console.log('🚀 AAAI Solutions - Unified Application Initialization with Async Auth');
             
             // Set debug mode
             window.AAAI_APP.debug = window.AAAI_CONFIG?.ENABLE_DEBUG || false;
@@ -53,31 +54,106 @@
             // Initialize services in correct order
             await initializeServicesInOrder();
             
+            // NEW: Wait for authentication to be fully ready before proceeding
+            if (currentPage !== 'login') {
+                const authReady = await waitForAuthenticationReady();
+                if (!authReady) {
+                    console.log('❌ Authentication not ready, redirecting to login');
+                    redirectToLogin('Authentication validation failed');
+                    return;
+                }
+                window.AAAI_APP.authenticationReady = true;
+            }
+            
             // Setup global error handling
             setupGlobalErrorHandling();
             
             // Setup cross-service communication
             setupServiceCommunication();
             
-            // Page-specific initialization
+            // Page-specific initialization (now after auth is ready)
             await initializePageSpecific(currentPage);
             
             window.AAAI_APP.initialized = true;
             
             console.log('✅ AAAI Solutions application initialized successfully');
             console.log('🔍 Available services:', Object.keys(window.AAAI_APP.services));
+            console.log('🔐 Authentication ready:', window.AAAI_APP.authenticationReady);
             
             // Notify page scripts that initialization is complete
             document.dispatchEvent(new CustomEvent('aaai:initialized', {
                 detail: { 
                     services: window.AAAI_APP.services,
-                    config: window.AAAI_APP.config
+                    config: window.AAAI_APP.config,
+                    authenticationReady: window.AAAI_APP.authenticationReady
                 }
             }));
             
         } catch (error) {
             console.error('❌ Failed to initialize AAAI application:', error);
             handleInitializationError(error);
+        }
+    }
+
+    /**
+     * NEW: Wait for authentication to be fully ready for API calls
+     */
+    async function waitForAuthenticationReady(timeoutMs = 20000) {
+        const authService = window.AAAI_APP.services.AuthService;
+        
+        if (!authService) {
+            console.error('❌ AuthService not available');
+            return false;
+        }
+        
+        // If not authenticated at all, don't wait
+        if (!authService.isAuthenticated()) {
+            console.log('❌ User not authenticated');
+            return false;
+        }
+        
+        console.log('⏳ Waiting for authentication to be fully ready...');
+        const startTime = Date.now();
+        
+        try {
+            // Use the new waitForAuthentication method
+            const result = await authService.waitForAuthentication(timeoutMs);
+            
+            if (result) {
+                const duration = Date.now() - startTime;
+                console.log(`✅ Authentication ready after ${duration}ms`);
+                return true;
+            } else {
+                console.log('❌ Authentication validation failed');
+                return false;
+            }
+            
+        } catch (error) {
+            console.error('❌ Error waiting for authentication:', error);
+            return false;
+        }
+    }
+
+    /**
+     * Redirect to login page
+     */
+    function redirectToLogin(reason = 'Authentication required') {
+        console.log(`🔓 Redirecting to login: ${reason}`);
+        
+        // Try NavigationManager first
+        if (window.AAAI_APP.services.NavigationManager) {
+            window.AAAI_APP.services.NavigationManager.goToLogin(reason);
+        } else {
+            // Fallback to direct redirect
+            const currentUrl = window.location.href;
+            const loginUrl = new URL('login.html', window.location.origin);
+            
+            // Add return URL if not already on login page
+            if (!currentUrl.includes('login.html')) {
+                loginUrl.searchParams.set('return', encodeURIComponent(currentUrl));
+            }
+            
+            window.location.href = loginUrl.href;
         }
     }
     
@@ -234,7 +310,8 @@
             
             // Check if it's an authentication error
             if (event.error?.message?.includes('authentication') || 
-                event.error?.message?.includes('login')) {
+                event.error?.message?.includes('login') ||
+                event.error?.message?.includes('Session expired')) {
                 handleAuthenticationError();
             }
         });
@@ -245,7 +322,8 @@
             
             // Check if it's an authentication error
             if (event.reason?.message?.includes('authentication') || 
-                event.reason?.message?.includes('login')) {
+                event.reason?.message?.includes('login') ||
+                event.reason?.message?.includes('Session expired')) {
                 handleAuthenticationError();
             }
         });
@@ -306,15 +384,22 @@
         if (!authService) return;
         
         // Monitor authentication state changes
-        const originalIsAuthenticated = authService.isAuthenticated;
         let lastAuthState = authService.isAuthenticated();
+        let lastAuthReady = authService.isAuthenticationReady ? authService.isAuthenticationReady() : false;
         
         setInterval(() => {
             const currentAuthState = authService.isAuthenticated();
-            if (currentAuthState !== lastAuthState) {
+            const currentAuthReady = authService.isAuthenticationReady ? authService.isAuthenticationReady() : false;
+            
+            if (currentAuthState !== lastAuthState || currentAuthReady !== lastAuthReady) {
                 lastAuthState = currentAuthState;
+                lastAuthReady = currentAuthReady;
+                
                 window.AAAI_EVENTS.dispatchEvent(new CustomEvent('auth:changed', {
-                    detail: { authenticated: currentAuthState }
+                    detail: { 
+                        authenticated: currentAuthState,
+                        authenticationReady: currentAuthReady
+                    }
                 }));
             }
         }, 5000); // Check every 5 seconds
@@ -360,12 +445,16 @@
         if (!event.detail.authenticated) {
             // User logged out, redirect to login
             setTimeout(() => {
-                if (window.AAAI_APP.services.NavigationManager) {
-                    window.AAAI_APP.services.NavigationManager.goToLogin('Session expired');
-                } else {
-                    window.location.href = 'login.html';
-                }
+                redirectToLogin('Session expired');
             }, 1000);
+        } else if (!event.detail.authenticationReady) {
+            // Authentication state changed but not ready yet
+            console.log('⏳ Authentication state changed, but not ready for API calls');
+            window.AAAI_APP.authenticationReady = false;
+        } else {
+            // Authentication is ready
+            console.log('✅ Authentication is now ready for API calls');
+            window.AAAI_APP.authenticationReady = true;
         }
     }
     
@@ -389,7 +478,7 @@
     }
     
     /**
-     * Page-specific initialization
+     * Page-specific initialization - NOW WITH AUTH WAITING
      */
     async function initializePageSpecific(pageType) {
         console.log(`🎯 Initializing page-specific features for: ${pageType}`);
@@ -414,45 +503,51 @@
     }
     
     /**
-     * Initialize project page
+     * Initialize project page - WITH AUTH WAITING
      */
     async function initializeProjectPage() {
         const authService = window.AAAI_APP.services.AuthService;
         const projectService = window.AAAI_APP.services.ProjectService;
         
         if (!authService?.isAuthenticated()) {
-            if (window.AAAI_APP.services.NavigationManager) {
-                window.AAAI_APP.services.NavigationManager.goToLogin();
-            } else {
-                window.location.href = 'login.html';
-            }
+            redirectToLogin('Authentication required for projects page');
             return;
         }
         
-        // Load current context
+        // NEW: Ensure authentication is ready before making API calls
+        if (!window.AAAI_APP.authenticationReady) {
+            console.log('⚠️ Authentication not ready for project page initialization');
+            return;
+        }
+        
+        // Load current context - NOW SAFE TO MAKE API CALLS
         if (projectService) {
             try {
+                console.log('📂 Loading project context...');
                 await projectService.getCurrentContext();
                 console.log('✅ Project page context loaded');
             } catch (error) {
                 console.warn('⚠️ Could not load project context:', error);
+                // Don't fail completely, just warn
             }
         }
     }
     
     /**
-     * Initialize chat page
+     * Initialize chat page - WITH AUTH WAITING
      */
     async function initializeChatPage() {
         const authService = window.AAAI_APP.services.AuthService;
         const projectService = window.AAAI_APP.services.ProjectService;
         
         if (!authService?.isAuthenticated()) {
-            if (window.AAAI_APP.services.NavigationManager) {
-                window.AAAI_APP.services.NavigationManager.goToLogin();
-            } else {
-                window.location.href = 'login.html';
-            }
+            redirectToLogin('Authentication required for chat page');
+            return;
+        }
+        
+        // NEW: Ensure authentication is ready
+        if (!window.AAAI_APP.authenticationReady) {
+            console.log('⚠️ Authentication not ready for chat page initialization');
             return;
         }
         
@@ -470,9 +565,10 @@
             return;
         }
         
-        // Switch to project context
+        // Switch to project context - NOW SAFE TO MAKE API CALLS
         if (projectService) {
             try {
+                console.log('📂 Loading chat page project context...');
                 const projectName = urlParams.get('project_name');
                 await projectService.switchToProject(
                     projectId, 
@@ -481,6 +577,8 @@
                 console.log('✅ Chat page project context loaded');
             } catch (error) {
                 console.error('❌ Failed to load project context for chat:', error);
+                // Redirect to projects page on error
+                redirectToLogin('Failed to load project context');
             }
         }
     }
@@ -527,8 +625,20 @@
                     border-radius: 5px;
                     cursor: pointer;
                     font-size: 16px;
+                    margin-right: 10px;
                 ">
                     Refresh Page
+                </button>
+                <button onclick="window.location.href='login.html'" style="
+                    background: #e74c3c;
+                    color: white;
+                    border: none;
+                    padding: 10px 20px;
+                    border-radius: 5px;
+                    cursor: pointer;
+                    font-size: 16px;
+                ">
+                    Go to Login
                 </button>
             </div>
         `;
@@ -543,11 +653,7 @@
         console.warn('🔐 Authentication error detected, redirecting to login');
         
         setTimeout(() => {
-            if (window.AAAI_APP.services.NavigationManager) {
-                window.AAAI_APP.services.NavigationManager.goToLogin('Authentication error');
-            } else {
-                window.location.href = 'login.html';
-            }
+            redirectToLogin('Authentication error');
         }, 1000);
     }
     
@@ -575,8 +681,37 @@
         return window.AAAI_APP.initialized;
     };
     
+    window.AAAI_APP.isAuthenticationReady = function() {
+        return window.AAAI_APP.authenticationReady;
+    };
+    
     window.AAAI_APP.getConfig = function() {
         return window.AAAI_APP.config;
+    };
+
+    /**
+     * NEW: Wait for authentication to be ready (for external use)
+     */
+    window.AAAI_APP.waitForAuth = async function(timeoutMs = 15000) {
+        if (window.AAAI_APP.authenticationReady) {
+            return true;
+        }
+        
+        const authService = window.AAAI_APP.services.AuthService;
+        if (!authService) {
+            return false;
+        }
+        
+        try {
+            const result = await authService.waitForAuthentication(timeoutMs);
+            if (result) {
+                window.AAAI_APP.authenticationReady = true;
+            }
+            return result;
+        } catch (error) {
+            console.error('Error waiting for authentication:', error);
+            return false;
+        }
     };
     
     // Wait for DOM to be ready, then initialize
@@ -587,6 +722,6 @@
         setTimeout(initializeApplication, 0);
     }
     
-    console.log('🎬 AAAI Application initialization script loaded');
+    console.log('🎬 AAAI Application initialization script loaded with Async Auth Support');
     
 })();

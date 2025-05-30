@@ -1,5 +1,6 @@
 /**
  * Unified Project Service for AAAI Solutions
+ * WITH AUTHENTICATION READY CHECKS
  * Consolidated project management with context handling and chat integration
  */
 const ProjectService = {
@@ -85,6 +86,52 @@ const ProjectService = {
         
         return this;
     },
+
+    /**
+     * NEW: Check if authentication is ready for API calls
+     */
+    _ensureAuthReady() {
+        if (!this.authService) {
+            throw new Error('AuthService not available');
+        }
+        
+        if (!this.authService.isAuthenticated()) {
+            throw new Error('User not authenticated');
+        }
+        
+        // Check if AuthService has the isAuthenticationReady method
+        if (typeof this.authService.isAuthenticationReady === 'function' && 
+            !this.authService.isAuthenticationReady()) {
+            throw new Error('Authentication not ready for API calls. Please wait for validation to complete.');
+        }
+        
+        return true;
+    },
+
+    /**
+     * NEW: Wait for authentication to be ready before making API calls
+     */
+    async _waitForAuthReady(timeoutMs = 15000) {
+        if (!this.authService) {
+            throw new Error('AuthService not available');
+        }
+        
+        if (!this.authService.isAuthenticated()) {
+            throw new Error('User not authenticated');
+        }
+        
+        // If AuthService has waitForAuthentication method, use it
+        if (typeof this.authService.waitForAuthentication === 'function') {
+            const result = await this.authService.waitForAuthentication(timeoutMs);
+            if (!result) {
+                throw new Error('Authentication validation failed');
+            }
+            return true;
+        }
+        
+        // Fallback: just check if authenticated
+        return this.authService.isAuthenticated();
+    },
     
     /**
      * Create a new project with proper context management
@@ -93,6 +140,9 @@ const ProjectService = {
         try {
             this._requireAuth();
             this._validateProjectData(projectData);
+            
+            // NEW: Wait for authentication to be ready
+            await this._waitForAuthReady();
             
             const result = await this.authService.executeFunction('create_project_with_context', {
                 name: projectData.name,
@@ -149,6 +199,9 @@ const ProjectService = {
     async getProjects(options = {}) {
         try {
             this._requireAuth();
+            
+            // NEW: Wait for authentication to be ready
+            await this._waitForAuthReady();
             
             const {
                 limit = 20,
@@ -233,6 +286,9 @@ const ProjectService = {
                 }
             }
             
+            // NEW: Wait for authentication to be ready
+            await this._waitForAuthReady();
+            
             this.stats.cacheMisses++;
             
             const result = await this.authService.executeFunction('get_project_details', {
@@ -269,6 +325,9 @@ const ProjectService = {
         try {
             this._requireAuth();
             
+            // NEW: Wait for authentication to be ready
+            await this._waitForAuthReady();
+            
             const result = await this.authService.executeFunction('switch_project_context', {
                 email: this.authService.getCurrentUser().email,
                 project_id: projectId,
@@ -289,10 +348,13 @@ const ProjectService = {
                 // Update ChatService context if available
                 if (window.ChatService && window.ChatService.isInitialized) {
                     window.ChatService.setProjectContext(chat_id, project.name);
-                    await window.ChatService.saveContext();
                     
-                    // Reconnect if already connected
-                    if (window.ChatService.isConnected) {
+                    // Only try to reconnect if ChatService has these methods
+                    if (typeof window.ChatService.saveContext === 'function') {
+                        await window.ChatService.saveContext();
+                    }
+                    
+                    if (window.ChatService.isConnected && typeof window.ChatService.forceReconnect === 'function') {
                         await window.ChatService.forceReconnect();
                     }
                 }
@@ -325,6 +387,9 @@ const ProjectService = {
     async getCurrentContext() {
         try {
             this._requireAuth();
+            
+            // NEW: Wait for authentication to be ready
+            await this._waitForAuthReady();
             
             const result = await this.authService.executeFunction('get_user_context', {
                 email: this.authService.getCurrentUser().email
@@ -364,6 +429,9 @@ const ProjectService = {
         try {
             this._requireAuth();
             this._validateProjectData(updateData, false);
+            
+            // NEW: Wait for authentication to be ready
+            await this._waitForAuthReady();
             
             const result = await this.authService.executeFunction('update_project', {
                 project_id: projectId,
@@ -413,6 +481,9 @@ const ProjectService = {
     async deleteProject(projectId) {
         try {
             this._requireAuth();
+            
+            // NEW: Wait for authentication to be ready
+            await this._waitForAuthReady();
             
             const result = await this.authService.executeFunction('delete_project', {
                 project_id: projectId,
@@ -516,7 +587,7 @@ const ProjectService = {
     // Private methods
     
     _requireAuth() {
-        if (!this.authService.isAuthenticated()) {
+        if (!this.authService || !this.authService.isAuthenticated()) {
             throw new Error('Authentication required');
         }
     },
@@ -684,8 +755,17 @@ const ProjectService = {
         if (!this.options.autoSync) return;
         
         setInterval(async () => {
-            if (this.authService.isAuthenticated() && document.visibilityState === 'visible') {
+            if (this.authService && this.authService.isAuthenticated() && 
+                document.visibilityState === 'visible') {
+                
+                // NEW: Check if auth is ready before auto-sync
                 try {
+                    if (typeof this.authService.isAuthenticationReady === 'function' && 
+                        !this.authService.isAuthenticationReady()) {
+                        this._log('Auto-sync skipped: authentication not ready');
+                        return;
+                    }
+                    
                     await this.getProjects({ limit: 10, offset: 0, forceRefresh: true });
                     this._log('Background project sync completed');
                 } catch (error) {
