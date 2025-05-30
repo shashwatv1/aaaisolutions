@@ -1122,6 +1122,77 @@ const EnhancedChatIntegration = {
         console.log('🎯 Enhanced WebSocket-Only Chat Integration initialized with delivery tracking');
     },
     
+    async initializeWithProject(projectId, projectName) {
+        try {
+            console.log('🎯 Initializing chat with project context:', { projectId, projectName });
+            
+            // Switch to project context first
+            if (window.EnhancedProjectService) {
+                const contextResult = await window.EnhancedProjectService.switchToProject(projectId, projectName);
+                if (!contextResult.success) {
+                    throw new Error('Failed to switch project context');
+                }
+                console.log('✅ Project context switched successfully');
+            }
+            
+            // Initialize chat service if not already done
+            if (window.ChatService && window.AuthService) {
+                if (!window.ChatService.authService) {
+                    window.ChatService.init(window.AuthService);
+                }
+                
+                // Set project context in chat service
+                window.ChatService.setProjectContext(projectId, projectName);
+                
+                // Connect if not connected
+                if (!window.ChatService.isConnected) {
+                    await window.ChatService.connect();
+                }
+                
+                console.log('✅ Chat service initialized with project context');
+            }
+            
+            // Load chat history for this project
+            await this.loadProjectChatHistory();
+            
+            return true;
+            
+        } catch (error) {
+            console.error('❌ Failed to initialize chat with project:', error);
+            return false;
+        }
+    },
+    
+    async loadProjectChatHistory() {
+        try {
+            if (!window.ChatService) return;
+            
+            const messages = await window.ChatService.loadChatHistory();
+            console.log(`📚 Loaded ${messages.length} messages for project`);
+            
+            // Display messages in chat
+            if (this.messageContainer && messages.length > 0) {
+                // Clear existing messages
+                this.messageContainer.innerHTML = '';
+                
+                // Add each message
+                messages.forEach(message => {
+                    this.addMessage({
+                        type: message.sender || 'system',
+                        text: message.content,
+                        timestamp: message.timestamp,
+                        messageId: message.message_id
+                    });
+                });
+                
+                console.log('✅ Chat history displayed');
+            }
+            
+        } catch (error) {
+            console.error('❌ Failed to load project chat history:', error);
+        }
+    },
+
     setupInputHandler() {
         const form = this.inputElement?.closest('form');
         if (form) {

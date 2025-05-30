@@ -62,7 +62,7 @@ const ProjectService = {
             // Validate input
             this._validateProjectData(projectData);
             
-            const result = await this.authService.executeFunction('create_project', {
+            const result = await this.authService.executeFunction('create_project_with_context', {
                 name: projectData.name,
                 description: projectData.description || null,
                 tags: projectData.tags || [],
@@ -71,6 +71,7 @@ const ProjectService = {
             
             if (result.status === 'success' && result.data.success) {
                 const project = result.data.project;
+                const chat_id = result.data.chat_id;
                 
                 // Cache the new project
                 this._cacheProject(project);
@@ -78,24 +79,43 @@ const ProjectService = {
                 // Clear list cache to force refresh
                 this._clearListCache();
                 
+                // Update chat service context immediately
+                if (window.ChatService) {
+                    window.ChatService.setProjectContext(chat_id, project.name);
+                    await window.ChatService.saveContext();
+                }
+                
+                // Update navigation manager context
+                if (window.NavigationManager) {
+                    window.NavigationManager.updatePageParams({
+                        project: chat_id,
+                        project_name: encodeURIComponent(project.name)
+                    });
+                }
+                
                 // Notify listeners
                 this._notifyUpdateListeners('project_created', project);
                 
                 this.stats.apiCalls++;
                 
-                window.AAAI_LOGGER?.info('Project created successfully', {
+                window.AAAI_LOGGER?.info('Project created successfully with chat_id', {
                     projectId: project.id,
+                    chatId: chat_id,
                     name: project.name
                 });
                 
-                return project;
+                return {
+                    project: project,
+                    chat_id: chat_id,
+                    success: true
+                };
             } else {
                 throw new Error(result.data?.message || 'Failed to create project');
             }
             
         } catch (error) {
             this.stats.errors++;
-            window.AAAI_LOGGER?.error('Error creating project:', error);
+            window.AAAI_LOGGER?.error('Error creating project with context:', error);
             throw new Error(`Failed to create project: ${error.message}`);
         }
     },
@@ -175,6 +195,93 @@ const ProjectService = {
         }
     },
     
+    
+    /**
+     * Switch to project context (when opening a project)
+     */
+    async switchToProject(projectId, projectName = null) {
+        try {
+            if (!this.authService.isAuthenticated()) {
+                throw new Error('Authentication required');
+            }
+            
+            const result = await this.authService.executeFunction('switch_project_context', {
+                email: this.authService.getCurrentUser().email,
+                project_id: projectId,
+                reel_id: null // Reset reel_id when switching projects
+            });
+            
+            if (result.status === 'success' && result.data.success) {
+                const project = result.data.project;
+                const chat_id = result.data.chat_id;
+                
+                // Update chat service context
+                if (window.ChatService) {
+                    window.ChatService.setProjectContext(chat_id, project.name);
+                    await window.ChatService.saveContext();
+                    
+                    // Reconnect chat service with new context
+                    if (window.ChatService.isConnected) {
+                        await window.ChatService.forceReconnect();
+                    }
+                }
+                
+                // Update navigation manager
+                if (window.NavigationManager) {
+                    window.NavigationManager.updatePageParams({
+                        project: chat_id,
+                        project_name: encodeURIComponent(project.name)
+                    });
+                }
+                
+                window.AAAI_LOGGER?.info('Switched to project context', {
+                    projectId: project.id,
+                    chatId: chat_id,
+                    name: project.name
+                });
+                
+                return {
+                    project: project,
+                    chat_id: chat_id,
+                    context: result.data.context,
+                    success: true
+                };
+            } else {
+                throw new Error(result.data?.message || 'Failed to switch project context');
+            }
+            
+        } catch (error) {
+            window.AAAI_LOGGER?.error('Error switching project context:', error);
+            throw new Error(`Failed to switch to project: ${error.message}`);
+        }
+    },
+
+    async getCurrentContext() {
+        try {
+            if (!this.authService.isAuthenticated()) {
+                throw new Error('Authentication required');
+            }
+            
+            const result = await this.authService.executeFunction('get_user_context', {
+                email: this.authService.getCurrentUser().email
+            });
+            
+            if (result.status === 'success' && result.data.success) {
+                return {
+                    context: result.data.context,
+                    current_project: result.data.current_project,
+                    user_id: result.data.user_id,
+                    success: true
+                };
+            } else {
+                throw new Error(result.data?.message || 'Failed to get user context');
+            }
+            
+        } catch (error) {
+            window.AAAI_LOGGER?.error('Error getting user context:', error);
+            return { success: false, error: error.message };
+        }
+    },
     /**
      * Get a specific project by ID with caching
      */
@@ -658,7 +765,198 @@ if (typeof window !== 'undefined') {
     });
 }
 
+
+const ProjectContextManager = {
+    /**
+     * Handle new project creation from project.html
+     */
+    async handleCreateProject(formData) {
+        try {
+            console.log('📝 Creating new project:', formData);
+            
+            const result = await window.EnhancedProjectService.createProjectWithContext(formData);
+            
+            if (result.success) {
+                console.log('✅ Project created with chat_id:', result.chat_id);
+                
+                // Show success message
+                this.showSuccess(`Project "${formData.name}" created successfully!`);
+                
+                // Navigate to the new project's chat
+                setTimeout(async () => {
+                    try {
+                        await window.EnhancedNavigationManager.goToChatWithProject(
+                            result.chat_id, 
+                            result.project.name
+                        );
+                    } catch (navError) {
+                        console.error('❌ Navigation after project creation failed:', navError);
+                        // Fallback navigation
+                        window.location.href = `chat.html?project=${result.chat_id}&project_name=${encodeURIComponent(result.project.name)}`;
+                    }
+                }, 1000);
+                
+                return result;
+            } else {
+                throw new Error('Project creation failed');
+            }
+            
+        } catch (error) {
+            console.error('❌ Project creation failed:', error);
+            this.showError(`Failed to create project: ${error.message}`);
+            throw error;
+        }
+    },
+    
+    /**
+     * Handle opening existing project from project.html
+     */
+    async handleOpenProject(projectId, projectName = null) {
+        try {
+            console.log('📂 Opening project:', { projectId, projectName });
+            
+            // Switch to project context
+            const result = await window.EnhancedProjectService.switchToProject(projectId, projectName);
+            
+            if (result.success) {
+                console.log('✅ Project context switched, navigating to chat');
+                
+                // Navigate to chat with project context
+                await window.EnhancedNavigationManager.goToChatWithProject(
+                    result.chat_id, 
+                    result.project.name
+                );
+                
+                return result;
+            } else {
+                throw new Error('Failed to switch project context');
+            }
+            
+        } catch (error) {
+            console.error('❌ Project opening failed:', error);
+            this.showError(`Failed to open project: ${error.message}`);
+            throw error;
+        }
+    },
+    
+    /**
+     * Initialize project context on page load
+     */
+    async initializePageContext() {
+        try {
+            // Check if we're on a page with project context
+            const urlParams = new URLSearchParams(window.location.search);
+            const projectId = urlParams.get('project');
+            const projectName = urlParams.get('project_name');
+            
+            if (projectId) {
+                console.log('🎯 Page loaded with project context:', { projectId, projectName });
+                
+                // Switch to project context
+                await window.EnhancedProjectService.switchToProject(
+                    projectId, 
+                    projectName ? decodeURIComponent(projectName) : null
+                );
+                
+                // Initialize chat if on chat page
+                if (window.location.pathname.includes('chat.html')) {
+                    await window.EnhancedChatIntegration.initializeWithProject(
+                        projectId, 
+                        projectName ? decodeURIComponent(projectName) : null
+                    );
+                }
+                
+                console.log('✅ Page context initialized successfully');
+            } else {
+                // Try to get current context from backend
+                const contextResult = await window.EnhancedProjectService.getCurrentContext();
+                if (contextResult.success && contextResult.current_project) {
+                    console.log('🔄 Restoring context from backend:', contextResult.current_project.name);
+                    
+                    // Update chat service with restored context
+                    if (window.ChatService) {
+                        window.ChatService.setProjectContext(
+                            contextResult.current_project.id,
+                            contextResult.current_project.name
+                        );
+                    }
+                }
+            }
+            
+        } catch (error) {
+            console.error('❌ Page context initialization failed:', error);
+        }
+    },
+    
+    // Utility functions
+    showSuccess(message) {
+        // Simple alert for now - can be enhanced with toast notification
+        alert(`Success: ${message}`);
+    },
+    
+    showError(message) {
+        // Simple alert for now - can be enhanced with toast notification
+        alert(`Error: ${message}`);
+    }
+};
+
+document.addEventListener('DOMContentLoaded', async function() {
+    console.log('🚀 Enhanced Project Context Manager initializing...');
+    
+    try {
+        // Replace existing services with enhanced versions
+        if (window.ProjectService) {
+            window.EnhancedProjectService = { ...window.ProjectService, ...EnhancedProjectService };
+            window.ProjectService = window.EnhancedProjectService;
+        }
+        
+        if (window.NavigationManager) {
+            window.EnhancedNavigationManager = { ...window.NavigationManager, ...EnhancedNavigationManager };
+            window.NavigationManager = window.EnhancedNavigationManager;
+        }
+        
+        if (window.EnhancedChatIntegration) {
+            const originalIntegration = window.EnhancedChatIntegration;
+            window.EnhancedChatIntegration = { ...originalIntegration, ...EnhancedChatIntegration };
+        }
+        
+        // Initialize page context
+        await ProjectContextManager.initializePageContext();
+        
+        // Set up event handlers for project.html
+        if (window.location.pathname.includes('project.html')) {
+            // Override existing project creation handler
+            const newProjectForm = document.getElementById('newProjectForm');
+            if (newProjectForm) {
+                newProjectForm.removeEventListener('submit', window.handleCreateProject);
+                newProjectForm.addEventListener('submit', async (e) => {
+                    e.preventDefault();
+                    
+                    const formData = {
+                        name: document.getElementById('projectName').value.trim(),
+                        description: document.getElementById('projectDescription').value.trim(),
+                        tags: [] // Can be enhanced to parse tags
+                    };
+                    
+                    await ProjectContextManager.handleCreateProject(formData);
+                });
+            }
+            
+            // Override existing project opening handler
+            window.openProject = async function(projectId, projectName = null) {
+                await ProjectContextManager.handleOpenProject(projectId, projectName);
+            };
+        }
+        
+        console.log('✅ Enhanced Project Context Manager initialized successfully');
+        
+    } catch (error) {
+        console.error('❌ Enhanced Project Context Manager initialization failed:', error);
+    }
+});
+
 // Export for module environments
 if (typeof module !== 'undefined' && module.exports) {
     module.exports = ProjectService;
+    module.exports = ProjectContextManager;
 }

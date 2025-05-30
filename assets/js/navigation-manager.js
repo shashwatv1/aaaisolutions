@@ -189,7 +189,6 @@ const NavigationManager = {
             return false;
         }
     },
-    
     /**
      * Navigate to login page
      */
@@ -222,18 +221,44 @@ const NavigationManager = {
      * Navigate to chat page for a specific project
      */
     async goToChat(projectId, projectName = null, options = {}) {
-        if (!projectId) {
-            throw new Error('Project ID is required for chat navigation');
+        try {
+            console.log('🧭 Navigating to chat with project:', { projectId, projectName });
+            
+            // Switch project context first
+            if (window.EnhancedProjectService) {
+                const contextResult = await window.EnhancedProjectService.switchToProject(projectId, projectName);
+                if (!contextResult.success) {
+                    throw new Error('Failed to switch project context');
+                }
+                console.log('✅ Project context switched for navigation');
+            }
+            
+            // Navigate to chat page with project parameter
+            const params = { 
+                project: projectId,
+                ...options.params 
+            };
+            
+            if (projectName) {
+                params.project_name = encodeURIComponent(projectName);
+            }
+            
+            const state = { 
+                projectName: projectName,
+                chatId: projectId,
+                ...options.state 
+            };
+            
+            return this.navigateTo('chat', {
+                params,
+                state,
+                ...options
+            });
+            
+        } catch (error) {
+            console.error('❌ Navigation with project context failed:', error);
+            throw error;
         }
-        
-        const params = { project: projectId };
-        const state = { projectName };
-        
-        return this.navigateTo('chat', {
-            params,
-            state,
-            ...options
-        });
     },
     
     /**
