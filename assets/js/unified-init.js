@@ -157,14 +157,17 @@
             
             console.log(`🔧 Initializing ${serviceName}...`);
             
-            // Initialize the service
+            // Get the service object
             let service = window[serviceName];
             
+            // Initialize the service and store the service object (not the return value)
             switch (serviceName) {
                 case 'AuthService':
                     if (typeof service.init === 'function') {
-                        service.init();
+                        service.init(); // Call init but don't use return value
                     }
+                    // Store the actual service object
+                    window.AAAI_APP.services[serviceName] = service;
                     break;
                     
                 case 'ProjectService':
@@ -173,6 +176,8 @@
                             debug: window.AAAI_APP.debug
                         });
                     }
+                    // Store the actual service object
+                    window.AAAI_APP.services[serviceName] = service;
                     break;
                     
                 case 'NavigationManager':
@@ -183,6 +188,8 @@
                             { debug: window.AAAI_APP.debug }
                         );
                     }
+                    // Store the actual service object
+                    window.AAAI_APP.services[serviceName] = service;
                     break;
                     
                 case 'ChatService':
@@ -191,17 +198,23 @@
                             debug: window.AAAI_APP.debug
                         });
                     }
+                    // Store the actual service object
+                    window.AAAI_APP.services[serviceName] = service;
                     break;
                     
                 case 'ChatIntegration':
                     if (typeof service.init === 'function' && !service.isInitialized) {
                         service.init();
                     }
+                    // Store the actual service object
+                    window.AAAI_APP.services[serviceName] = service;
+                    break;
+                    
+                default:
+                    // For any other services, just store them
+                    window.AAAI_APP.services[serviceName] = service;
                     break;
             }
-            
-            // Store initialized service
-            window.AAAI_APP.services[serviceName] = service;
             
             console.log(`✅ ${serviceName} initialized successfully`);
             
