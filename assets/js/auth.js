@@ -1151,6 +1151,11 @@ const AuthService = {
     }
 };
 
+// Export for global access - THIS WAS MISSING!
+if (typeof window !== 'undefined') {
+    window.AuthService = AuthService;
+}
+
 // Export the service for module usage
 if (typeof module !== 'undefined' && module.exports) {
     module.exports = AuthService;
