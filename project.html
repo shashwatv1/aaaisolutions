@@ -12,16 +12,17 @@
   <link href="https://fonts.googleapis.com/css2?family=Barlow:wght@600;700&family=Open+Sans:wght@400;500;700&family=Poppins:wght@400;600&display=swap" rel="stylesheet">
   
   <!-- Load configuration -->
-  <script>
-    try {
-      document.head.appendChild(document.createElement('script')).src = './assets/js/config.js';
-    } catch (e) {
-      console.log('Config.js not found, using default configuration');
-    }
-  </script>
+  <script src="./assets/js/config.js"></script>
   
   <!-- Enhanced Projects-specific styles -->
   <style>
+    :root {
+      --primary-gradient: linear-gradient(135deg, var(--indigo) 0%, var(--klein-blue) 100%);
+      --card-gradient: linear-gradient(135deg, var(--independence) 0%, var(--cadet-blue-crayola) 100%);
+      --success-gradient: linear-gradient(135deg, #4CAF50, #45a049);
+      --error-gradient: linear-gradient(135deg, #f44336, #d32f2f);
+    }
+
     /* Environment indicator */
     .env-indicator {
       position: fixed;
@@ -56,7 +57,7 @@
       position: fixed;
       bottom: 20px;
       right: 20px;
-      background: linear-gradient(135deg, var(--indigo) 0%, var(--klein-blue) 100%);
+      background: var(--primary-gradient);
       color: white;
       padding: 8px 12px;
       border-radius: 8px;
@@ -65,10 +66,13 @@
       box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
       max-width: 300px;
       word-wrap: break-word;
+      transition: all 0.3s ease;
     }
 
     .context-indicator.hidden {
-      display: none;
+      opacity: 0;
+      transform: translateY(20px);
+      pointer-events: none;
     }
 
     /* Main content styles */
@@ -80,7 +84,7 @@
 
     /* Projects header */
     .projects-header {
-      background: linear-gradient(135deg, var(--indigo) 0%, var(--klein-blue) 100%);
+      background: var(--primary-gradient);
       padding: 60px 0;
       text-align: center;
       position: relative;
@@ -159,9 +163,127 @@
       border-color: rgba(255, 255, 255, 0.5);
     }
 
-    /* Enhanced project card with chat_id indicator */
+    /* Project container */
+    .projects-container {
+      padding: 40px 0;
+    }
+
+    .projects-controls {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 30px;
+      padding: 0 20px;
+      flex-wrap: wrap;
+      gap: 20px;
+    }
+
+    .projects-title {
+      color: var(--white);
+      font-size: 1.8rem;
+      margin: 0;
+    }
+
+    .projects-actions {
+      display: flex;
+      align-items: center;
+      gap: 15px;
+      flex-wrap: wrap;
+    }
+
+    .search-container {
+      position: relative;
+      display: flex;
+      align-items: center;
+    }
+
+    .search-icon {
+      position: absolute;
+      left: 12px;
+      color: rgba(255, 255, 255, 0.6);
+      z-index: 1;
+    }
+
+    .search-input {
+      background: rgba(255, 255, 255, 0.1);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      color: var(--white);
+      padding: 10px 15px 10px 40px;
+      border-radius: 25px;
+      font-size: 0.9rem;
+      width: 250px;
+      transition: all 0.3s ease;
+    }
+
+    .search-input:focus {
+      outline: none;
+      background: rgba(255, 255, 255, 0.15);
+      border-color: var(--orange-soda);
+    }
+
+    .search-input::placeholder {
+      color: rgba(255, 255, 255, 0.6);
+    }
+
+    .view-toggle {
+      display: flex;
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      border-radius: 6px;
+      overflow: hidden;
+    }
+
+    .view-toggle-btn {
+      background: transparent;
+      border: none;
+      color: rgba(255, 255, 255, 0.6);
+      padding: 8px 12px;
+      cursor: pointer;
+      transition: all 0.3s ease;
+    }
+
+    .view-toggle-btn.active {
+      background: var(--orange-soda);
+      color: white;
+    }
+
+    .new-project-btn {
+      background: var(--primary-gradient);
+      color: white;
+      border: none;
+      padding: 10px 20px;
+      border-radius: 25px;
+      cursor: pointer;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      transition: all 0.3s ease;
+    }
+
+    .new-project-btn:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
+    }
+
+    /* Project cards */
+    .projects-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
+      gap: 25px;
+      padding: 0 20px;
+    }
+
+    .projects-list {
+      display: none;
+      padding: 0 20px;
+    }
+
+    .projects-list.active {
+      display: block;
+    }
+
     .project-card {
-      background: linear-gradient(135deg, var(--independence) 0%, var(--cadet-blue-crayola) 100%);
+      background: var(--card-gradient);
       border-radius: var(--radius-15);
       padding: 25px;
       cursor: pointer;
@@ -249,7 +371,6 @@
       font-style: italic;
     }
 
-    /* NEW: Chat ID indicator */
     .chat-id-indicator {
       position: absolute;
       bottom: 8px;
@@ -262,7 +383,7 @@
       font-family: monospace;
     }
 
-    /* Enhanced loading and status indicators */
+    /* Loading states */
     .loading-container {
       display: flex;
       justify-content: center;
@@ -284,7 +405,35 @@
       100% { transform: rotate(360deg); }
     }
 
-    /* Enhanced modal styles */
+    /* Empty state */
+    .empty-state {
+      text-align: center;
+      padding: 60px 20px;
+      color: rgba(255, 255, 255, 0.6);
+    }
+
+    .empty-state-icon {
+      font-size: 4rem;
+      margin-bottom: 20px;
+      opacity: 0.7;
+    }
+
+    .empty-state h3 {
+      color: var(--white);
+      font-size: 1.5rem;
+      margin-bottom: 10px;
+    }
+
+    .empty-state p {
+      font-size: 1rem;
+      margin-bottom: 30px;
+      max-width: 400px;
+      margin-left: auto;
+      margin-right: auto;
+      line-height: 1.6;
+    }
+
+    /* Modal styles */
     .modal-overlay {
       position: fixed;
       top: 0;
@@ -300,7 +449,7 @@
     }
     
     .modal {
-      background: linear-gradient(135deg, var(--independence) 0%, var(--space-cadet) 100%);
+      background: var(--card-gradient);
       border-radius: var(--radius-15);
       padding: 30px;
       max-width: 500px;
@@ -322,8 +471,135 @@
       margin: 0;
     }
 
-    /* Success/Error messages */
-    .message-toast {
+    .modal-close {
+      background: transparent;
+      border: none;
+      color: rgba(255, 255, 255, 0.6);
+      font-size: 1.5rem;
+      cursor: pointer;
+      padding: 5px;
+      border-radius: 4px;
+      transition: all 0.3s ease;
+    }
+
+    .modal-close:hover {
+      background: rgba(255, 255, 255, 0.1);
+      color: var(--white);
+    }
+
+    .modal-form {
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+
+    .form-group {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .form-label {
+      color: var(--white);
+      font-weight: 600;
+      font-size: 0.9rem;
+    }
+
+    .form-input, .form-textarea {
+      background: rgba(255, 255, 255, 0.1);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      color: var(--white);
+      padding: 12px 15px;
+      border-radius: 8px;
+      font-size: 1rem;
+      transition: all 0.3s ease;
+      resize: vertical;
+    }
+
+    .form-input:focus, .form-textarea:focus {
+      outline: none;
+      background: rgba(255, 255, 255, 0.15);
+      border-color: var(--orange-soda);
+    }
+
+    .form-input::placeholder, .form-textarea::placeholder {
+      color: rgba(255, 255, 255, 0.6);
+    }
+
+    .form-textarea {
+      min-height: 80px;
+      max-height: 150px;
+    }
+
+    .modal-actions {
+      display: flex;
+      gap: 15px;
+      justify-content: flex-end;
+      margin-top: 10px;
+    }
+
+    .btn-secondary {
+      background: transparent;
+      border: 1px solid rgba(255, 255, 255, 0.3);
+      color: var(--white);
+      padding: 12px 24px;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: all 0.3s ease;
+      font-weight: 500;
+    }
+
+    .btn-secondary:hover {
+      background: rgba(255, 255, 255, 0.1);
+      border-color: rgba(255, 255, 255, 0.5);
+    }
+
+    .btn-primary {
+      background: var(--primary-gradient);
+      color: white;
+      border: none;
+      padding: 12px 24px;
+      border-radius: 8px;
+      cursor: pointer;
+      font-weight: 600;
+      transition: all 0.3s ease;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .btn-primary:hover:not(:disabled) {
+      transform: translateY(-2px);
+      box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
+    }
+
+    .btn-primary:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+      transform: none;
+    }
+
+    .btn-primary.loading {
+      position: relative;
+      color: transparent;
+    }
+
+    .btn-primary.loading::after {
+      content: '';
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      width: 16px;
+      height: 16px;
+      border: 2px solid rgba(255, 255, 255, 0.3);
+      border-top: 2px solid white;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+    }
+
+    /* Toast notifications */
+    .toast {
       position: fixed;
       top: 20px;
       right: 20px;
@@ -338,16 +614,16 @@
       word-wrap: break-word;
     }
 
-    .message-toast.show {
+    .toast.show {
       transform: translateX(0);
     }
 
-    .message-toast.success {
-      background: linear-gradient(135deg, #4CAF50, #45a049);
+    .toast.success {
+      background: var(--success-gradient);
     }
 
-    .message-toast.error {
-      background: linear-gradient(135deg, #f44336, #d32f2f);
+    .toast.error {
+      background: var(--error-gradient);
     }
 
     /* Responsive design */
@@ -368,6 +644,10 @@
       .projects-actions {
         justify-content: space-between;
       }
+
+      .search-input {
+        width: 200px;
+      }
       
       .context-indicator {
         bottom: 10px;
@@ -375,6 +655,11 @@
         font-size: 0.7rem;
         padding: 6px 8px;
         max-width: 250px;
+      }
+
+      .projects-grid {
+        grid-template-columns: 1fr;
+        padding: 0 10px;
       }
     }
   </style>
@@ -419,7 +704,7 @@
     <section class="projects-header">
       <div class="container">
         <h1>My AI Projects</h1>
-        <p>Organize your conversations and manage your AI interactions with automatic chat_id assignment</p>
+        <p>Organize your conversations and manage your AI interactions with seamless context management</p>
         <div class="user-info-bar">
           <div class="user-info-item">
             <ion-icon name="person-outline"></ion-icon>
@@ -438,58 +723,60 @@
 
     <!-- Projects Container -->
     <section class="projects-container">
-      <!-- Projects Controls -->
-      <div class="projects-controls">
-        <h2 class="projects-title">Your Projects</h2>
-        <div class="projects-actions">
-          <div class="search-container">
-            <ion-icon name="search-outline" class="search-icon"></ion-icon>
-            <input type="text" class="search-input" id="searchInput" placeholder="Search projects...">
-          </div>
-          <div class="view-toggle">
-            <button class="view-toggle-btn active" id="gridViewBtn" data-view="grid">
-              <ion-icon name="grid-outline"></ion-icon>
+      <div class="container">
+        <!-- Projects Controls -->
+        <div class="projects-controls">
+          <h2 class="projects-title">Your Projects</h2>
+          <div class="projects-actions">
+            <div class="search-container">
+              <ion-icon name="search-outline" class="search-icon"></ion-icon>
+              <input type="text" class="search-input" id="searchInput" placeholder="Search projects...">
+            </div>
+            <div class="view-toggle">
+              <button class="view-toggle-btn active" id="gridViewBtn" data-view="grid">
+                <ion-icon name="grid-outline"></ion-icon>
+              </button>
+              <button class="view-toggle-btn" id="listViewBtn" data-view="list">
+                <ion-icon name="list-outline"></ion-icon>
+              </button>
+            </div>
+            <button class="new-project-btn" id="newProjectBtn">
+              <ion-icon name="add-outline"></ion-icon>
+              <span>New Project</span>
             </button>
-            <button class="view-toggle-btn" id="listViewBtn" data-view="list">
-              <ion-icon name="list-outline"></ion-icon>
-            </button>
           </div>
-          <button class="new-project-btn" id="newProjectBtn">
+        </div>
+
+        <!-- Loading State -->
+        <div class="loading-container" id="loadingContainer">
+          <div class="loading-spinner"></div>
+        </div>
+
+        <!-- Projects Grid -->
+        <div class="projects-grid" id="projectsGrid">
+          <!-- Projects will be inserted here -->
+        </div>
+
+        <!-- Projects List -->
+        <div class="projects-list" id="projectsList">
+          <!-- Projects will be inserted here -->
+        </div>
+
+        <!-- Empty State -->
+        <div class="empty-state" id="emptyState" style="display: none;">
+          <div class="empty-state-icon">💬</div>
+          <h3>No Projects Yet</h3>
+          <p>Create your first AI project to start organizing your conversations. Each project gets a unique chat_id for seamless context management.</p>
+          <button class="new-project-btn" onclick="showNewProjectModal()">
             <ion-icon name="add-outline"></ion-icon>
-            <span>New Project</span>
+            <span>Create Your First Project</span>
           </button>
         </div>
-      </div>
-
-      <!-- Loading State -->
-      <div class="loading-container" id="loadingContainer">
-        <div class="loading-spinner"></div>
-      </div>
-
-      <!-- Projects Grid -->
-      <div class="projects-grid" id="projectsGrid">
-        <!-- Projects will be inserted here -->
-      </div>
-
-      <!-- Projects List -->
-      <div class="projects-list" id="projectsList">
-        <!-- Projects will be inserted here -->
-      </div>
-
-      <!-- Empty State -->
-      <div class="empty-state" id="emptyState" style="display: none;">
-        <div class="empty-state-icon">💬</div>
-        <h3>No Projects Yet</h3>
-        <p>Create your first AI project to start organizing your conversations. Each project gets a unique chat_id for seamless context management.</p>
-        <button class="new-project-btn" onclick="showNewProjectModal()">
-          <ion-icon name="add-outline"></ion-icon>
-          <span>Create Your First Project</span>
-        </button>
       </div>
     </section>
   </main>
 
-  <!-- Enhanced New Project Modal -->
+  <!-- New Project Modal -->
   <div class="modal-overlay" id="newProjectModal">
     <div class="modal">
       <div class="modal-header">
@@ -539,153 +826,162 @@
   <script src="./assets/js/project-service.js"></script>
   <script src="./assets/js/navigation-manager.js"></script>
   <script src="./assets/js/websocket-chat.js"></script>
+  <script src="./assets/js/unified-init.js"></script>     
   <script type="module" src="https://unpkg.com/ionicons@5.5.2/dist/ionicons/ionicons.esm.js"></script>
   <script nomodule src="https://unpkg.com/ionicons@5.5.2/dist/ionicons/ionicons.js"></script>
   
-  <!-- Enhanced Projects application script with context management -->
+  <!-- Unified Projects Application Script -->
   <script>
     document.addEventListener('DOMContentLoaded', async function() {
-      console.log('🚀 Enhanced Projects application starting with context management...');
+      console.log('🚀 Unified Projects Application starting...');
       
-      // Initialize environment features
-      function initEnvironmentFeatures() {
-        const hasConfig = window.AAAI_CONFIG && window.AAAI_CONFIG.ENVIRONMENT;
-        
-        if (hasConfig) {
-          const environment = window.AAAI_CONFIG.ENVIRONMENT;
-          
-          if (environment !== 'production') {
-            const envIndicator = document.getElementById('envIndicator');
-            const envText = document.getElementById('envText');
-            
-            envIndicator.className = `env-indicator ${environment}`;
-            envText.textContent = `${environment.toUpperCase()} Environment`;
-            document.body.classList.add('with-env-indicator');
-          }
-        }
-      }
-      
-      // Enhanced context indicator
-      function updateContextIndicator(context) {
-        const indicator = document.getElementById('contextIndicator');
-        const info = document.getElementById('contextInfo');
-        
-        if (context && context.current_project) {
-          info.innerHTML = `
-            <strong>Active Project:</strong> ${context.current_project.name}<br>
-            <strong>Chat ID:</strong> <code>${context.current_project.id}</code>
-          `;
-          indicator.classList.remove('hidden');
-        } else if (context && context.context && context.context.current_chat_id) {
-          info.innerHTML = `
-            <strong>Chat ID:</strong> <code>${context.context.current_chat_id}</code>
-          `;
-          indicator.classList.remove('hidden');
-        } else {
-          indicator.classList.add('hidden');
-        }
-      }
-      
-      // Enhanced toast notification system
-      function showToast(message, type = 'success') {
-        // Remove existing toasts
-        const existingToasts = document.querySelectorAll('.message-toast');
-        existingToasts.forEach(toast => toast.remove());
-        
-        const toast = document.createElement('div');
-        toast.className = `message-toast ${type}`;
-        toast.textContent = message;
-        
-        document.body.appendChild(toast);
-        
-        // Show toast
-        setTimeout(() => toast.classList.add('show'), 100);
-        
-        // Hide toast after 5 seconds
-        setTimeout(() => {
-          toast.classList.remove('show');
-          setTimeout(() => toast.remove(), 300);
-        }, 5000);
-      }
-      
-      // Initialize environment features
-      initEnvironmentFeatures();
-      
-      // Check authentication
-      if (!window.AuthService || !window.AuthService.init()) {
-        window.location.href = 'login.html';
-        return;
-      }
-      
-      // Get DOM elements
-      const userEmailDisplay = document.getElementById('userEmailDisplay');
-      const creditsDisplay = document.getElementById('creditsDisplay');
-      const logoutBtn = document.getElementById('logoutBtn');
-      const searchInput = document.getElementById('searchInput');
-      const gridViewBtn = document.getElementById('gridViewBtn');
-      const listViewBtn = document.getElementById('listViewBtn');
-      const newProjectBtn = document.getElementById('newProjectBtn');
-      const projectsGrid = document.getElementById('projectsGrid');
-      const projectsList = document.getElementById('projectsList');
-      const emptyState = document.getElementById('emptyState');
-      const loadingContainer = document.getElementById('loadingContainer');
-      const newProjectModal = document.getElementById('newProjectModal');
-      const newProjectForm = document.getElementById('newProjectForm');
-      const projectName = document.getElementById('projectName');
-      const projectDescription = document.getElementById('projectDescription');
-      const createProjectBtn = document.getElementById('createProjectBtn');
-      
+      // Application state
       let projects = [];
       let filteredProjects = [];
       let currentView = 'grid';
       let currentContext = null;
       
-      // Initialize user info
-      const user = window.AuthService.getCurrentUser();
-      userEmailDisplay.textContent = user.email || 'user@example.com';
+      // DOM elements
+      const elements = {
+        // User info
+        userEmailDisplay: document.getElementById('userEmailDisplay'),
+        creditsDisplay: document.getElementById('creditsDisplay'),
+        logoutBtn: document.getElementById('logoutBtn'),
+        
+        // Search and controls
+        searchInput: document.getElementById('searchInput'),
+        gridViewBtn: document.getElementById('gridViewBtn'),
+        listViewBtn: document.getElementById('listViewBtn'),
+        newProjectBtn: document.getElementById('newProjectBtn'),
+        
+        // Content areas
+        projectsGrid: document.getElementById('projectsGrid'),
+        projectsList: document.getElementById('projectsList'),
+        emptyState: document.getElementById('emptyState'),
+        loadingContainer: document.getElementById('loadingContainer'),
+        
+        // Modal
+        newProjectModal: document.getElementById('newProjectModal'),
+        newProjectForm: document.getElementById('newProjectForm'),
+        projectName: document.getElementById('projectName'),
+        projectDescription: document.getElementById('projectDescription'),
+        createProjectBtn: document.getElementById('createProjectBtn'),
+        
+        // Indicators
+        envIndicator: document.getElementById('envIndicator'),
+        envText: document.getElementById('envText'),
+        contextIndicator: document.getElementById('contextIndicator'),
+        contextInfo: document.getElementById('contextInfo')
+      };
       
-      // Load user credits
-      loadUserCredits();
+      /**
+       * Initialize the application
+       */
+      async function initializeApp() {
+        try {
+          // Initialize environment
+          initializeEnvironment();
+          
+          // Check authentication
+          if (!window.AuthService || !window.AuthService.init()) {
+            window.location.href = 'login.html';
+            return;
+          }
+          
+          // Initialize services with proper dependency injection
+          await initializeServices();
+          
+          // Initialize UI
+          initializeUI();
+          
+          // Load current context and projects
+          await loadCurrentContext();
+          await loadProjects();
+          
+          // Setup event listeners
+          setupEventListeners();
+          
+          console.log('✅ Unified Projects Application initialized successfully');
+          
+        } catch (error) {
+          console.error('❌ Failed to initialize application:', error);
+          showToast(`Failed to initialize: ${error.message}`, 'error');
+        }
+      }
       
-      // Initialize services
-      try {
-        if (window.ProjectService) {
-          window.ProjectService.init(window.AuthService);
+      /**
+       * Initialize environment features
+       */
+      function initializeEnvironment() {
+        const environment = window.AAAI_CONFIG?.ENVIRONMENT || 'production';
+        
+        if (environment !== 'production') {
+          elements.envIndicator.className = `env-indicator ${environment}`;
+          elements.envText.textContent = `${environment.toUpperCase()} Environment`;
+          document.body.classList.add('with-env-indicator');
+        }
+      }
+      
+      /**
+       * Initialize services with proper integration
+       */
+      async function initializeServices() {
+        // Initialize ProjectService with AuthService
+        if (window.ProjectService && !window.ProjectService.isInitialized) {
+          window.ProjectService.init(window.AuthService, {
+            debug: window.AAAI_CONFIG?.ENABLE_DEBUG || false
+          });
         }
         
-        if (window.ChatService) {
+        // Initialize NavigationManager with both services
+        if (window.NavigationManager && !window.NavigationManager.isInitialized) {
+          window.NavigationManager.init(window.AuthService, window.ProjectService, {
+            debug: window.AAAI_CONFIG?.ENABLE_DEBUG || false
+          });
+        }
+        
+        // Initialize ChatService if available (for context management)
+        if (window.ChatService && !window.ChatService.isInitialized) {
           window.ChatService.init(window.AuthService);
         }
         
         console.log('✅ Services initialized successfully');
-      } catch (error) {
-        console.error('❌ Service initialization failed:', error);
       }
       
-      // Load current context and projects
-      await loadCurrentContext();
-      await loadProjects();
-      
-      // Event listeners
-      logoutBtn.addEventListener('click', handleLogout);
-      searchInput.addEventListener('input', handleSearch);
-      gridViewBtn.addEventListener('click', () => switchView('grid'));
-      listViewBtn.addEventListener('click', () => switchView('list'));
-      newProjectBtn.addEventListener('click', showNewProjectModal);
-      newProjectForm.addEventListener('submit', handleCreateProject);
-      
-      // Close modal when clicking outside
-      newProjectModal.addEventListener('click', function(e) {
-        if (e.target === newProjectModal) {
-          hideNewProjectModal();
+      /**
+       * Initialize UI components
+       */
+      function initializeUI() {
+        // Display user info
+        const user = window.AuthService.getCurrentUser();
+        if (user && elements.userEmailDisplay) {
+          elements.userEmailDisplay.textContent = user.email;
         }
-      });
+        
+        // Load user credits
+        loadUserCredits();
+      }
       
-      // Functions
+      /**
+       * Load user credits
+       */
+      async function loadUserCredits() {
+        try {
+          const credits = await window.AuthService.getUserCredits();
+          elements.creditsDisplay.textContent = `Credits: ${credits}`;
+        } catch (error) {
+          console.warn('Could not load user credits:', error);
+          elements.creditsDisplay.textContent = 'Credits: --';
+        }
+      }
+      
+      /**
+       * Load current context
+       */
       async function loadCurrentContext() {
         try {
-          if (window.EnhancedProjectService) {
-            const contextResult = await window.EnhancedProjectService.getCurrentContext();
+          if (window.ProjectService) {
+            const contextResult = await window.ProjectService.getCurrentContext();
             if (contextResult.success) {
               currentContext = contextResult;
               updateContextIndicator(contextResult);
@@ -697,24 +993,29 @@
         }
       }
       
-      async function loadUserCredits() {
-        try {
-          const credits = await window.AuthService.getUserCredits();
-          creditsDisplay.textContent = `Credits: ${credits}`;
-        } catch (error) {
-          console.warn('Could not load user credits:', error);
-          creditsDisplay.textContent = 'Credits: --';
+      /**
+       * Update context indicator
+       */
+      function updateContextIndicator(context) {
+        if (context && context.current_project) {
+          elements.contextInfo.innerHTML = `
+            <strong>Active Project:</strong> ${context.current_project.name}<br>
+            <strong>Chat ID:</strong> <code>${context.current_project.id}</code>
+          `;
+          elements.contextIndicator.classList.remove('hidden');
+        } else {
+          elements.contextIndicator.classList.add('hidden');
         }
       }
       
+      /**
+       * Load projects
+       */
       async function loadProjects() {
         try {
           showLoading(true);
           
-          // Use enhanced project service if available
-          const projectService = window.EnhancedProjectService || window.ProjectService;
-          
-          const result = await projectService.getProjects({ limit: 50 });
+          const result = await window.ProjectService.getProjects({ limit: 50 });
           
           if (result && result.projects) {
             projects = result.projects;
@@ -735,6 +1036,9 @@
         }
       }
       
+      /**
+       * Render projects based on current view
+       */
       function renderProjects() {
         if (filteredProjects.length === 0) {
           if (projects.length === 0) {
@@ -754,30 +1058,38 @@
         }
       }
       
+      /**
+       * Render projects grid
+       */
       function renderProjectsGrid() {
-        projectsGrid.innerHTML = '';
+        elements.projectsGrid.innerHTML = '';
         
         filteredProjects.forEach(project => {
           const projectCard = createProjectCard(project);
-          projectsGrid.appendChild(projectCard);
+          elements.projectsGrid.appendChild(projectCard);
         });
       }
       
+      /**
+       * Render projects list
+       */
       function renderProjectsList() {
-        projectsList.innerHTML = '';
+        elements.projectsList.innerHTML = '';
         
         filteredProjects.forEach(project => {
           const projectItem = createProjectListItem(project);
-          projectsList.appendChild(projectItem);
+          elements.projectsList.appendChild(projectItem);
         });
       }
       
+      /**
+       * Create project card
+       */
       function createProjectCard(project) {
         const card = document.createElement('div');
         card.className = 'project-card';
         card.onclick = () => openProject(project.id, project.name);
         
-        // Extract chat_id (which is the same as project.id)
         const chatId = project.id;
         
         card.innerHTML = `
@@ -807,6 +1119,9 @@
         return card;
       }
       
+      /**
+       * Create project list item
+       */
       function createProjectListItem(project) {
         const item = document.createElement('div');
         item.className = 'project-list-item';
@@ -830,28 +1145,33 @@
         return item;
       }
       
-      function switchView(view) {
-        currentView = view;
+      /**
+       * Setup event listeners
+       */
+      function setupEventListeners() {
+        // User actions
+        elements.logoutBtn?.addEventListener('click', handleLogout);
         
-        // Update buttons
-        document.querySelectorAll('.view-toggle-btn').forEach(btn => {
-          btn.classList.remove('active');
+        // Search and view controls
+        elements.searchInput?.addEventListener('input', handleSearch);
+        elements.gridViewBtn?.addEventListener('click', () => switchView('grid'));
+        elements.listViewBtn?.addEventListener('click', () => switchView('list'));
+        
+        // Project creation
+        elements.newProjectBtn?.addEventListener('click', showNewProjectModal);
+        elements.newProjectForm?.addEventListener('submit', handleCreateProject);
+        
+        // Modal controls
+        elements.newProjectModal?.addEventListener('click', function(e) {
+          if (e.target === elements.newProjectModal) {
+            hideNewProjectModal();
+          }
         });
-        
-        if (view === 'grid') {
-          gridViewBtn.classList.add('active');
-          projectsGrid.style.display = 'grid';
-          projectsList.style.display = 'none';
-        } else {
-          listViewBtn.classList.add('active');
-          projectsGrid.style.display = 'none';
-          projectsList.style.display = 'block';
-          projectsList.classList.add('active');
-        }
-        
-        renderProjects();
       }
       
+      /**
+       * Handle search
+       */
       function handleSearch(e) {
         const query = e.target.value.toLowerCase().trim();
         
@@ -868,21 +1188,52 @@
         renderProjects();
       }
       
+      /**
+       * Switch view between grid and list
+       */
+      function switchView(view) {
+        currentView = view;
+        
+        // Update buttons
+        document.querySelectorAll('.view-toggle-btn').forEach(btn => {
+          btn.classList.remove('active');
+        });
+        
+        if (view === 'grid') {
+          elements.gridViewBtn.classList.add('active');
+          elements.projectsGrid.style.display = 'grid';
+          elements.projectsList.style.display = 'none';
+        } else {
+          elements.listViewBtn.classList.add('active');
+          elements.projectsGrid.style.display = 'none';
+          elements.projectsList.style.display = 'block';
+          elements.projectsList.classList.add('active');
+        }
+        
+        renderProjects();
+      }
+      
+      /**
+       * Show/hide new project modal
+       */
       function showNewProjectModal() {
-        newProjectModal.style.display = 'flex';
-        projectName.focus();
+        elements.newProjectModal.style.display = 'flex';
+        elements.projectName.focus();
       }
       
       function hideNewProjectModal() {
-        newProjectModal.style.display = 'none';
-        newProjectForm.reset();
+        elements.newProjectModal.style.display = 'none';
+        elements.newProjectForm.reset();
       }
       
+      /**
+       * Handle project creation - UNIFIED INTEGRATION POINT
+       */
       async function handleCreateProject(e) {
         e.preventDefault();
         
-        const name = projectName.value.trim();
-        const description = projectDescription.value.trim();
+        const name = elements.projectName.value.trim();
+        const description = elements.projectDescription.value.trim();
         
         if (!name) {
           showToast('Project name is required', 'error');
@@ -890,99 +1241,64 @@
         }
         
         try {
-          setButtonLoading(createProjectBtn, 'Creating...');
+          setButtonLoading(elements.createProjectBtn, true);
           
-          // Use enhanced project service for context management
-          const projectService = window.EnhancedProjectService || window.ProjectService;
+          const projectData = {
+            name: name,
+            description: description,
+            tags: []
+          };
           
-          let result;
-          if (projectService.createProjectWithContext) {
-            console.log('Using enhanced project creation with context...');
-            result = await projectService.createProjectWithContext({
-              name: name,
-              description: description,
-              tags: []
-            });
-          } else {
-            console.log('Using standard project creation...');
-            result = await projectService.createProject({
-              name: name,
-              description: description,
-              tags: []
-            });
-          }
+          console.log('📝 Creating new project with unified services:', projectData);
           
-          if (result.success || result.project) {
-            const project = result.project;
-            const chatId = result.chat_id || project.id;
-            
-            projects.unshift(project);
+          // Use NavigationManager to create and navigate
+          const result = await window.NavigationManager.createProjectAndNavigate(projectData);
+          
+          if (result.success) {
+            // Update local state
+            projects.unshift(result.project);
             filteredProjects = [...projects];
             
             hideNewProjectModal();
             renderProjects();
             
-            showToast(`Project "${name}" created successfully with chat_id: ${chatId.substring(0, 8)}...`, 'success');
+            showToast(`Project "${name}" created successfully!`, 'success');
             
             // Update context indicator
             updateContextIndicator({
-              current_project: project
+              current_project: result.project
             });
             
-            console.log('✅ Project created successfully:', {
-              name: project.name,
-              id: project.id,
-              chatId: chatId
-            });
-            
-            // Navigate to new project after a short delay
-            setTimeout(() => {
-              openProject(project.id, project.name);
-            }, 2000);
-            
-          } else {
-            throw new Error('Project creation failed');
+            console.log('✅ Project created and navigation initiated');
           }
           
         } catch (error) {
-          console.error('Error creating project:', error);
+          console.error('❌ Error creating project:', error);
           showToast(`Failed to create project: ${error.message}`, 'error');
         } finally {
-          setButtonLoading(createProjectBtn, 'Create Project', false);
+          setButtonLoading(elements.createProjectBtn, false);
         }
       }
       
+      /**
+       * Open existing project - UNIFIED INTEGRATION POINT
+       */
       async function openProject(projectId, projectName) {
         try {
-          console.log('📂 Opening project:', { projectId, projectName });
+          console.log('📂 Opening project with unified services:', { projectId, projectName });
           
-          // Use enhanced navigation if available
-          if (window.ProjectContextManager) {
-            await window.ProjectContextManager.handleOpenProject(projectId, projectName);
-          } else if (window.EnhancedNavigationManager) {
-            await window.EnhancedNavigationManager.goToChatWithProject(projectId, projectName);
-          } else {
-            // Fallback navigation
-            const params = new URLSearchParams({
-              project: projectId
-            });
-            
-            if (projectName) {
-              params.set('project_name', encodeURIComponent(projectName));
-            }
-            
-            window.location.href = `chat.html?${params.toString()}`;
-          }
+          // Use NavigationManager to open project
+          await window.NavigationManager.openProject(projectId, projectName);
           
         } catch (error) {
           console.error('❌ Error opening project:', error);
           showToast(`Failed to open project: ${error.message}`, 'error');
-          
-          // Fallback navigation on error
-          window.location.href = `chat.html?project=${projectId}&project_name=${encodeURIComponent(projectName || 'Project')}`;
         }
       }
       
+      /**
+       * Handle logout
+       */
       async function handleLogout() {
         if (confirm('Are you sure you want to sign out?')) {
           try {
@@ -995,34 +1311,67 @@
         }
       }
       
+      // Utility functions
+      
       function showLoading(show) {
-        loadingContainer.style.display = show ? 'flex' : 'none';
-        projectsGrid.style.display = show ? 'none' : 'grid';
-        projectsList.style.display = show ? 'none' : (currentView === 'list' ? 'block' : 'none');
+        elements.loadingContainer.style.display = show ? 'flex' : 'none';
+        elements.projectsGrid.style.display = show ? 'none' : 'grid';
+        elements.projectsList.style.display = show ? 'none' : (currentView === 'list' ? 'block' : 'none');
       }
       
       function showEmptyState(show) {
-        emptyState.style.display = show ? 'block' : 'none';
-        projectsGrid.style.display = show ? 'none' : (currentView === 'grid' ? 'grid' : 'none');
-        projectsList.style.display = show ? 'none' : (currentView === 'list' ? 'block' : 'none');
+        elements.emptyState.style.display = show ? 'block' : 'none';
+        elements.projectsGrid.style.display = show ? 'none' : (currentView === 'grid' ? 'grid' : 'none');
+        elements.projectsList.style.display = show ? 'none' : (currentView === 'list' ? 'block' : 'none');
       }
       
       function showNoResults() {
-        projectsGrid.innerHTML = '<div class="empty-state"><div class="empty-state-icon">🔍</div><h3>No Projects Found</h3><p>No projects match your search criteria. Try adjusting your search terms.</p></div>';
-        projectsList.innerHTML = '<div class="empty-state"><div class="empty-state-icon">🔍</div><h3>No Projects Found</h3><p>No projects match your search criteria. Try adjusting your search terms.</p></div>';
+        const noResultsHtml = `
+          <div class="empty-state">
+            <div class="empty-state-icon">🔍</div>
+            <h3>No Projects Found</h3>
+            <p>No projects match your search criteria. Try adjusting your search terms.</p>
+          </div>
+        `;
+        
+        if (currentView === 'grid') {
+          elements.projectsGrid.innerHTML = noResultsHtml;
+        } else {
+          elements.projectsList.innerHTML = noResultsHtml;
+        }
       }
       
-      function setButtonLoading(button, text, loading = true) {
+      function setButtonLoading(button, loading) {
         const span = button.querySelector('span');
-        if (span) {
-          span.textContent = text;
-        }
-        button.disabled = loading;
         if (loading) {
+          button.disabled = true;
           button.classList.add('loading');
+          if (span) span.textContent = 'Creating...';
         } else {
+          button.disabled = false;
           button.classList.remove('loading');
+          if (span) span.textContent = 'Create Project';
         }
+      }
+      
+      function showToast(message, type = 'success') {
+        // Remove existing toasts
+        document.querySelectorAll('.toast').forEach(toast => toast.remove());
+        
+        const toast = document.createElement('div');
+        toast.className = `toast ${type}`;
+        toast.textContent = message;
+        
+        document.body.appendChild(toast);
+        
+        // Show toast
+        setTimeout(() => toast.classList.add('show'), 100);
+        
+        // Hide toast after 5 seconds
+        setTimeout(() => {
+          toast.classList.remove('show');
+          setTimeout(() => toast.remove(), 300);
+        }, 5000);
       }
       
       function escapeHtml(text) {
@@ -1057,20 +1406,19 @@
         return formatDate(dateString);
       }
       
-      // Make functions globally available
+      // Global functions for onclick handlers
       window.showNewProjectModal = showNewProjectModal;
       window.hideNewProjectModal = hideNewProjectModal;
+      window.openProject = openProject;
       window.showProjectMenu = function(projectId, event) {
         console.log('Show project menu for:', projectId);
         // TODO: Implement project context menu
       };
       
-      console.log('✅ Enhanced Projects application initialized successfully with context management');
+      // Initialize the application
+      await initializeApp();
     });
   </script>
-
-  <!-- Load the enhanced context management script -->
-  <script src="./assets/js/enhanced-project-context.js"></script>
 </body>
 
 </html>

@@ -1,49 +1,85 @@
 /**
- * Enhanced Project Management Service for AAAI Solutions
- * Handles project CRUD operations, real-time updates, and caching
+ * Unified Project Service for AAAI Solutions
+ * Consolidated project management with context handling and chat integration
  */
 const ProjectService = {
-    // Initialize the project service
+    // Core service state
+    authService: null,
+    isInitialized: false,
+    
+    // Configuration
+    options: {
+        cacheExpiry: 300000, // 5 minutes
+        maxCacheSize: 1000,
+        enableRealTimeUpdates: true,
+        autoSync: true,
+        syncInterval: 30000, // 30 seconds
+        debug: false
+    },
+    
+    // Cache management
+    projectCache: new Map(),
+    cacheTimestamps: new Map(),
+    searchCache: new Map(),
+    
+    // Context management
+    currentContext: {
+        user_id: null,
+        current_project: null,
+        chat_id: null,
+        project_name: null
+    },
+    
+    // Event listeners
+    updateListeners: [],
+    contextListeners: [],
+    
+    // Performance tracking
+    stats: {
+        cacheHits: 0,
+        cacheMisses: 0,
+        apiCalls: 0,
+        lastSync: null,
+        errors: 0
+    },
+    
+    /**
+     * Initialize the unified project service
+     */
     init(authService, options = {}) {
         if (!authService) {
             throw new Error('AuthService is required for ProjectService initialization');
         }
         
+        if (this.isInitialized) {
+            console.log('📦 ProjectService already initialized');
+            return this;
+        }
+        
         this.authService = authService;
-        this.options = Object.assign({
-            cacheExpiry: 300000, // 5 minutes
-            maxCacheSize: 1000,
-            enableRealTimeUpdates: true,
-            autoSync: true,
-            syncInterval: 30000, // 30 seconds
-            debug: window.AAAI_CONFIG?.ENABLE_DEBUG || false
-        }, options);
+        this.options = { ...this.options, ...options };
         
-        // Cache management
-        this.projectCache = new Map();
-        this.cacheTimestamps = new Map();
-        this.searchCache = new Map();
+        // Set debug mode from global config
+        if (window.AAAI_CONFIG?.ENABLE_DEBUG) {
+            this.options.debug = true;
+        }
         
-        // Real-time updates
-        this.updateListeners = [];
-        this.syncTimer = null;
+        // Get user context
+        const user = authService.getCurrentUser();
+        if (user) {
+            this.currentContext.user_id = user.id;
+        }
         
-        // Performance tracking
-        this.stats = {
-            cacheHits: 0,
-            cacheMisses: 0,
-            apiCalls: 0,
-            lastSync: null,
-            errors: 0
-        };
-        
-        // Initialize
+        // Initialize subsystems
         this._setupAutoSync();
         this._setupCacheCleanup();
+        this._loadStoredContext();
         
-        window.AAAI_LOGGER?.info('ProjectService initialized', {
+        this.isInitialized = true;
+        
+        this._log('ProjectService initialized successfully', {
+            userId: this.currentContext.user_id,
             cacheEnabled: true,
-            realTimeUpdates: this.options.enableRealTimeUpdates,
             autoSync: this.options.autoSync
         });
         
@@ -51,15 +87,11 @@ const ProjectService = {
     },
     
     /**
-     * Create a new project
+     * Create a new project with proper context management
      */
     async createProject(projectData) {
         try {
-            if (!this.authService.isAuthenticated()) {
-                throw new Error('Authentication required to create project');
-            }
-            
-            // Validate input
+            this._requireAuth();
             this._validateProjectData(projectData);
             
             const result = await this.authService.executeFunction('create_project_with_context', {
@@ -75,39 +107,30 @@ const ProjectService = {
                 
                 // Cache the new project
                 this._cacheProject(project);
-                
-                // Clear list cache to force refresh
                 this._clearListCache();
                 
-                // Update chat service context immediately
-                if (window.ChatService) {
-                    window.ChatService.setProjectContext(chat_id, project.name);
-                    await window.ChatService.saveContext();
-                }
-                
-                // Update navigation manager context
-                if (window.NavigationManager) {
-                    window.NavigationManager.updatePageParams({
-                        project: chat_id,
-                        project_name: encodeURIComponent(project.name)
-                    });
-                }
+                // Update context
+                await this._updateContext({
+                    current_project: project,
+                    chat_id: chat_id,
+                    project_name: project.name
+                });
                 
                 // Notify listeners
-                this._notifyUpdateListeners('project_created', project);
+                this._notifyUpdateListeners('project_created', { project, chat_id });
                 
                 this.stats.apiCalls++;
                 
-                window.AAAI_LOGGER?.info('Project created successfully with chat_id', {
+                this._log('Project created successfully', {
                     projectId: project.id,
                     chatId: chat_id,
                     name: project.name
                 });
                 
                 return {
+                    success: true,
                     project: project,
-                    chat_id: chat_id,
-                    success: true
+                    chat_id: chat_id
                 };
             } else {
                 throw new Error(result.data?.message || 'Failed to create project');
@@ -115,19 +138,17 @@ const ProjectService = {
             
         } catch (error) {
             this.stats.errors++;
-            window.AAAI_LOGGER?.error('Error creating project with context:', error);
+            this._error('Error creating project:', error);
             throw new Error(`Failed to create project: ${error.message}`);
         }
     },
     
     /**
-     * Get all projects for the current user with caching
+     * Get all projects with caching
      */
     async getProjects(options = {}) {
         try {
-            if (!this.authService.isAuthenticated()) {
-                throw new Error('Authentication required to get projects');
-            }
+            this._requireAuth();
             
             const {
                 limit = 20,
@@ -137,15 +158,14 @@ const ProjectService = {
                 forceRefresh = false
             } = options;
             
-            // Generate cache key
             const cacheKey = this._generateCacheKey('list', { limit, offset, search, tagFilter });
             
-            // Check cache first (unless force refresh)
+            // Check cache first
             if (!forceRefresh) {
                 const cached = this._getCachedData(cacheKey);
                 if (cached) {
                     this.stats.cacheHits++;
-                    window.AAAI_LOGGER?.debug('Projects retrieved from cache');
+                    this._log('Projects retrieved from cache');
                     return cached;
                 }
             }
@@ -169,16 +189,14 @@ const ProjectService = {
                     offset: offset
                 };
                 
-                // Cache individual projects
+                // Cache individual projects and list result
                 result.data.projects.forEach(project => this._cacheProject(project));
-                
-                // Cache list result
                 this._setCachedData(cacheKey, projectData);
                 
                 this.stats.apiCalls++;
                 this.stats.lastSync = Date.now();
                 
-                window.AAAI_LOGGER?.info('Projects retrieved from API', {
+                this._log('Projects retrieved from API', {
                     count: result.data.projects.length,
                     total: result.data.total
                 });
@@ -190,106 +208,17 @@ const ProjectService = {
             
         } catch (error) {
             this.stats.errors++;
-            window.AAAI_LOGGER?.error('Error getting projects:', error);
+            this._error('Error getting projects:', error);
             throw new Error(`Failed to get projects: ${error.message}`);
         }
     },
     
-    
     /**
-     * Switch to project context (when opening a project)
-     */
-    async switchToProject(projectId, projectName = null) {
-        try {
-            if (!this.authService.isAuthenticated()) {
-                throw new Error('Authentication required');
-            }
-            
-            const result = await this.authService.executeFunction('switch_project_context', {
-                email: this.authService.getCurrentUser().email,
-                project_id: projectId,
-                reel_id: null // Reset reel_id when switching projects
-            });
-            
-            if (result.status === 'success' && result.data.success) {
-                const project = result.data.project;
-                const chat_id = result.data.chat_id;
-                
-                // Update chat service context
-                if (window.ChatService) {
-                    window.ChatService.setProjectContext(chat_id, project.name);
-                    await window.ChatService.saveContext();
-                    
-                    // Reconnect chat service with new context
-                    if (window.ChatService.isConnected) {
-                        await window.ChatService.forceReconnect();
-                    }
-                }
-                
-                // Update navigation manager
-                if (window.NavigationManager) {
-                    window.NavigationManager.updatePageParams({
-                        project: chat_id,
-                        project_name: encodeURIComponent(project.name)
-                    });
-                }
-                
-                window.AAAI_LOGGER?.info('Switched to project context', {
-                    projectId: project.id,
-                    chatId: chat_id,
-                    name: project.name
-                });
-                
-                return {
-                    project: project,
-                    chat_id: chat_id,
-                    context: result.data.context,
-                    success: true
-                };
-            } else {
-                throw new Error(result.data?.message || 'Failed to switch project context');
-            }
-            
-        } catch (error) {
-            window.AAAI_LOGGER?.error('Error switching project context:', error);
-            throw new Error(`Failed to switch to project: ${error.message}`);
-        }
-    },
-
-    async getCurrentContext() {
-        try {
-            if (!this.authService.isAuthenticated()) {
-                throw new Error('Authentication required');
-            }
-            
-            const result = await this.authService.executeFunction('get_user_context', {
-                email: this.authService.getCurrentUser().email
-            });
-            
-            if (result.status === 'success' && result.data.success) {
-                return {
-                    context: result.data.context,
-                    current_project: result.data.current_project,
-                    user_id: result.data.user_id,
-                    success: true
-                };
-            } else {
-                throw new Error(result.data?.message || 'Failed to get user context');
-            }
-            
-        } catch (error) {
-            window.AAAI_LOGGER?.error('Error getting user context:', error);
-            return { success: false, error: error.message };
-        }
-    },
-    /**
-     * Get a specific project by ID with caching
+     * Get specific project by ID
      */
     async getProject(projectId, forceRefresh = false) {
         try {
-            if (!this.authService.isAuthenticated()) {
-                throw new Error('Authentication required to get project');
-            }
+            this._requireAuth();
             
             if (!projectId) {
                 throw new Error('Project ID is required');
@@ -313,13 +242,10 @@ const ProjectService = {
             
             if (result.status === 'success' && result.data.success) {
                 const project = result.data.project;
-                
-                // Cache the project
                 this._cacheProject(project);
-                
                 this.stats.apiCalls++;
                 
-                window.AAAI_LOGGER?.info('Project details retrieved', {
+                this._log('Project details retrieved', {
                     projectId: project.id,
                     name: project.name
                 });
@@ -331,8 +257,103 @@ const ProjectService = {
             
         } catch (error) {
             this.stats.errors++;
-            window.AAAI_LOGGER?.error('Error getting project:', error);
+            this._error('Error getting project:', error);
             throw new Error(`Failed to get project: ${error.message}`);
+        }
+    },
+    
+    /**
+     * Switch to project context - unified method
+     */
+    async switchToProject(projectId, projectName = null) {
+        try {
+            this._requireAuth();
+            
+            const result = await this.authService.executeFunction('switch_project_context', {
+                email: this.authService.getCurrentUser().email,
+                project_id: projectId,
+                reel_id: null // Reset reel when switching projects
+            });
+            
+            if (result.status === 'success' && result.data.success) {
+                const project = result.data.project;
+                const chat_id = result.data.chat_id;
+                
+                // Update local context
+                await this._updateContext({
+                    current_project: project,
+                    chat_id: chat_id,
+                    project_name: project.name
+                });
+                
+                // Update ChatService context if available
+                if (window.ChatService && window.ChatService.isInitialized) {
+                    window.ChatService.setProjectContext(chat_id, project.name);
+                    await window.ChatService.saveContext();
+                    
+                    // Reconnect if already connected
+                    if (window.ChatService.isConnected) {
+                        await window.ChatService.forceReconnect();
+                    }
+                }
+                
+                this._log('Switched to project context', {
+                    projectId: project.id,
+                    chatId: chat_id,
+                    name: project.name
+                });
+                
+                return {
+                    success: true,
+                    project: project,
+                    chat_id: chat_id,
+                    context: result.data.context
+                };
+            } else {
+                throw new Error(result.data?.message || 'Failed to switch project context');
+            }
+            
+        } catch (error) {
+            this._error('Error switching project context:', error);
+            throw new Error(`Failed to switch to project: ${error.message}`);
+        }
+    },
+    
+    /**
+     * Get current user context
+     */
+    async getCurrentContext() {
+        try {
+            this._requireAuth();
+            
+            const result = await this.authService.executeFunction('get_user_context', {
+                email: this.authService.getCurrentUser().email
+            });
+            
+            if (result.status === 'success' && result.data.success) {
+                // Update local context
+                this.currentContext = {
+                    ...this.currentContext,
+                    current_project: result.data.current_project,
+                    chat_id: result.data.context?.current_chat_id,
+                    project_name: result.data.current_project?.name
+                };
+                
+                this._saveContextToStorage();
+                
+                return {
+                    success: true,
+                    context: result.data.context,
+                    current_project: result.data.current_project,
+                    user_id: result.data.user_id
+                };
+            } else {
+                throw new Error(result.data?.message || 'Failed to get user context');
+            }
+            
+        } catch (error) {
+            this._error('Error getting user context:', error);
+            return { success: false, error: error.message };
         }
     },
     
@@ -341,15 +362,7 @@ const ProjectService = {
      */
     async updateProject(projectId, updateData) {
         try {
-            if (!this.authService.isAuthenticated()) {
-                throw new Error('Authentication required to update project');
-            }
-            
-            if (!projectId) {
-                throw new Error('Project ID is required');
-            }
-            
-            // Validate update data
+            this._requireAuth();
             this._validateProjectData(updateData, false);
             
             const result = await this.authService.executeFunction('update_project', {
@@ -363,18 +376,21 @@ const ProjectService = {
             if (result.status === 'success' && result.data.success) {
                 const project = result.data.project;
                 
-                // Update cache
                 this._cacheProject(project);
-                
-                // Clear list cache to force refresh
                 this._clearListCache();
                 
-                // Notify listeners
-                this._notifyUpdateListeners('project_updated', project);
+                // Update context if this is the current project
+                if (this.currentContext.current_project?.id === projectId) {
+                    await this._updateContext({
+                        current_project: project,
+                        project_name: project.name
+                    });
+                }
                 
+                this._notifyUpdateListeners('project_updated', project);
                 this.stats.apiCalls++;
                 
-                window.AAAI_LOGGER?.info('Project updated successfully', {
+                this._log('Project updated successfully', {
                     projectId: project.id,
                     name: project.name
                 });
@@ -386,7 +402,7 @@ const ProjectService = {
             
         } catch (error) {
             this.stats.errors++;
-            window.AAAI_LOGGER?.error('Error updating project:', error);
+            this._error('Error updating project:', error);
             throw new Error(`Failed to update project: ${error.message}`);
         }
     },
@@ -396,13 +412,7 @@ const ProjectService = {
      */
     async deleteProject(projectId) {
         try {
-            if (!this.authService.isAuthenticated()) {
-                throw new Error('Authentication required to delete project');
-            }
-            
-            if (!projectId) {
-                throw new Error('Project ID is required');
-            }
+            this._requireAuth();
             
             const result = await this.authService.executeFunction('delete_project', {
                 project_id: projectId,
@@ -410,20 +420,22 @@ const ProjectService = {
             });
             
             if (result.status === 'success' && result.data.success) {
-                // Remove from cache
                 this._removeCachedProject(projectId);
-                
-                // Clear list cache to force refresh
                 this._clearListCache();
                 
-                // Notify listeners
-                this._notifyUpdateListeners('project_deleted', { id: projectId });
+                // Clear context if this was the current project
+                if (this.currentContext.current_project?.id === projectId) {
+                    await this._updateContext({
+                        current_project: null,
+                        chat_id: null,
+                        project_name: null
+                    });
+                }
                 
+                this._notifyUpdateListeners('project_deleted', { id: projectId });
                 this.stats.apiCalls++;
                 
-                window.AAAI_LOGGER?.info('Project deleted successfully', {
-                    projectId: projectId
-                });
+                this._log('Project deleted successfully', { projectId });
                 
                 return true;
             } else {
@@ -432,47 +444,40 @@ const ProjectService = {
             
         } catch (error) {
             this.stats.errors++;
-            window.AAAI_LOGGER?.error('Error deleting project:', error);
+            this._error('Error deleting project:', error);
             throw new Error(`Failed to delete project: ${error.message}`);
         }
     },
     
     /**
-     * Search projects with advanced filtering
+     * Get current context (synchronous)
      */
-    async searchProjects(query, filters = {}) {
-        try {
-            const searchOptions = {
-                search: query,
-                tagFilter: filters.tags || [],
-                limit: filters.limit || 50,
-                offset: filters.offset || 0
-            };
-            
-            return await this.getProjects(searchOptions);
-            
-        } catch (error) {
-            window.AAAI_LOGGER?.error('Error searching projects:', error);
-            throw new Error(`Failed to search projects: ${error.message}`);
-        }
+    getContext() {
+        return { ...this.currentContext };
     },
     
     /**
-     * Get project statistics
+     * Event listeners
      */
-    async getProjectStats(projectId) {
-        try {
-            const project = await this.getProject(projectId);
-            return project.statistics || {
-                total_messages: 0,
-                processed_messages: 0,
-                pending_messages: 0,
-                error_messages: 0,
-                last_activity: project.created_at
-            };
-        } catch (error) {
-            window.AAAI_LOGGER?.error('Error getting project stats:', error);
-            throw new Error(`Failed to get project statistics: ${error.message}`);
+    onUpdate(callback) {
+        if (typeof callback === 'function') {
+            this.updateListeners.push(callback);
+        }
+    },
+    
+    onContextChange(callback) {
+        if (typeof callback === 'function') {
+            this.contextListeners.push(callback);
+        }
+    },
+    
+    removeListener(type, callback) {
+        if (type === 'update') {
+            const index = this.updateListeners.indexOf(callback);
+            if (index > -1) this.updateListeners.splice(index, 1);
+        } else if (type === 'context') {
+            const index = this.contextListeners.indexOf(callback);
+            if (index > -1) this.contextListeners.splice(index, 1);
         }
     },
     
@@ -486,32 +491,11 @@ const ProjectService = {
         this.cacheTimestamps.clear();
         this.searchCache.clear();
         
-        // Reset cache stats
         this.stats.cacheHits = 0;
         this.stats.cacheMisses = 0;
         
-        window.AAAI_LOGGER?.info(`Cleared ${clearedItems} items from project cache`);
-        
+        this._log(`Cleared ${clearedItems} items from project cache`);
         return clearedItems;
-    },
-    
-    /**
-     * Add listener for real-time updates
-     */
-    onUpdate(callback) {
-        if (typeof callback === 'function') {
-            this.updateListeners.push(callback);
-        }
-    },
-    
-    /**
-     * Remove update listener
-     */
-    removeUpdateListener(callback) {
-        const index = this.updateListeners.indexOf(callback);
-        if (index > -1) {
-            this.updateListeners.splice(index, 1);
-        }
     },
     
     /**
@@ -525,15 +509,18 @@ const ProjectService = {
             hitRate: this.stats.cacheHits + this.stats.cacheMisses > 0 
                 ? Math.round((this.stats.cacheHits / (this.stats.cacheHits + this.stats.cacheMisses)) * 100) 
                 : 0,
-            uptime: Date.now() - (this.initTime || Date.now())
+            context: this.currentContext
         };
     },
     
     // Private methods
     
-    /**
-     * Validate project data
-     */
+    _requireAuth() {
+        if (!this.authService.isAuthenticated()) {
+            throw new Error('Authentication required');
+        }
+    },
+    
     _validateProjectData(data, isCreate = true) {
         if (isCreate && (!data.name || data.name.trim().length === 0)) {
             throw new Error('Project name is required');
@@ -552,41 +539,57 @@ const ProjectService = {
         }
     },
     
-    /**
-     * Generate cache key
-     */
+    async _updateContext(updates) {
+        Object.assign(this.currentContext, updates);
+        this._saveContextToStorage();
+        this._notifyContextListeners('context_updated', this.currentContext);
+    },
+    
+    _saveContextToStorage() {
+        try {
+            sessionStorage.setItem('aaai_project_context', JSON.stringify({
+                context: this.currentContext,
+                timestamp: Date.now()
+            }));
+        } catch (error) {
+            this._error('Failed to save context to storage:', error);
+        }
+    },
+    
+    _loadStoredContext() {
+        try {
+            const stored = sessionStorage.getItem('aaai_project_context');
+            if (stored) {
+                const data = JSON.parse(stored);
+                if (data.context && (Date.now() - data.timestamp) < 3600000) { // 1 hour
+                    Object.assign(this.currentContext, data.context);
+                }
+            }
+        } catch (error) {
+            this._error('Failed to load stored context:', error);
+        }
+    },
+    
     _generateCacheKey(type, params = {}) {
         const keyParts = [type];
-        
-        Object.keys(params)
-            .sort()
-            .forEach(key => {
-                if (params[key] !== undefined && params[key] !== null) {
-                    keyParts.push(`${key}:${JSON.stringify(params[key])}`);
-                }
-            });
-        
+        Object.keys(params).sort().forEach(key => {
+            if (params[key] !== undefined && params[key] !== null) {
+                keyParts.push(`${key}:${JSON.stringify(params[key])}`);
+            }
+        });
         return keyParts.join('|');
     },
     
-    /**
-     * Cache a project
-     */
     _cacheProject(project) {
         if (!project || !project.id) return;
-        
         this.projectCache.set(project.id, project);
         this.cacheTimestamps.set(project.id, Date.now());
         
-        // Cleanup if cache is too large
         if (this.projectCache.size > this.options.maxCacheSize) {
             this._cleanupCache();
         }
     },
     
-    /**
-     * Get cached project
-     */
     _getCachedProject(projectId) {
         if (!this.projectCache.has(projectId)) return null;
         
@@ -600,17 +603,11 @@ const ProjectService = {
         return this.projectCache.get(projectId);
     },
     
-    /**
-     * Remove cached project
-     */
     _removeCachedProject(projectId) {
         this.projectCache.delete(projectId);
         this.cacheTimestamps.delete(projectId);
     },
     
-    /**
-     * Cache generic data
-     */
     _setCachedData(key, data) {
         this.searchCache.set(key, {
             data: data,
@@ -622,9 +619,6 @@ const ProjectService = {
         }
     },
     
-    /**
-     * Get cached data
-     */
     _getCachedData(key) {
         const cached = this.searchCache.get(key);
         if (!cached) return null;
@@ -637,11 +631,7 @@ const ProjectService = {
         return cached.data;
     },
     
-    /**
-     * Clear list cache
-     */
     _clearListCache() {
-        // Remove all list-related cache entries
         for (const [key] of this.searchCache.entries()) {
             if (key.startsWith('list|')) {
                 this.searchCache.delete(key);
@@ -649,9 +639,6 @@ const ProjectService = {
         }
     },
     
-    /**
-     * Cleanup old cache entries
-     */
     _cleanupCache() {
         const now = Date.now();
         const expiredKeys = [];
@@ -666,15 +653,8 @@ const ProjectService = {
             this.projectCache.delete(key);
             this.cacheTimestamps.delete(key);
         });
-        
-        if (expiredKeys.length > 0) {
-            window.AAAI_LOGGER?.debug(`Cleaned up ${expiredKeys.length} expired project cache entries`);
-        }
     },
     
-    /**
-     * Cleanup search cache
-     */
     _cleanupSearchCache() {
         const now = Date.now();
         const expiredKeys = [];
@@ -689,7 +669,6 @@ const ProjectService = {
             this.searchCache.delete(key);
         });
         
-        // If still too large, remove oldest entries
         if (this.searchCache.size > this.options.maxCacheSize) {
             const entries = Array.from(this.searchCache.entries())
                 .sort((a, b) => a[1].timestamp - b[1].timestamp)
@@ -701,33 +680,21 @@ const ProjectService = {
         }
     },
     
-    /**
-     * Setup automatic synchronization
-     */
     _setupAutoSync() {
         if (!this.options.autoSync) return;
         
-        this.syncTimer = setInterval(async () => {
+        setInterval(async () => {
             if (this.authService.isAuthenticated() && document.visibilityState === 'visible') {
                 try {
-                    // Sync recent projects in background
-                    await this.getProjects({ 
-                        limit: 10, 
-                        offset: 0, 
-                        forceRefresh: true 
-                    });
-                    
-                    window.AAAI_LOGGER?.debug('Background project sync completed');
+                    await this.getProjects({ limit: 10, offset: 0, forceRefresh: true });
+                    this._log('Background project sync completed');
                 } catch (error) {
-                    window.AAAI_LOGGER?.debug('Background sync error:', error);
+                    this._log('Background sync error:', error);
                 }
             }
         }, this.options.syncInterval);
     },
     
-    /**
-     * Setup cache cleanup interval
-     */
     _setupCacheCleanup() {
         setInterval(() => {
             this._cleanupCache();
@@ -735,228 +702,43 @@ const ProjectService = {
         }, 300000); // Every 5 minutes
     },
     
-    /**
-     * Notify update listeners
-     */
     _notifyUpdateListeners(eventType, data) {
         this.updateListeners.forEach(callback => {
             try {
                 callback(eventType, data);
             } catch (error) {
-                window.AAAI_LOGGER?.error('Error in update listener:', error);
+                this._error('Error in update listener:', error);
             }
         });
+    },
+    
+    _notifyContextListeners(eventType, data) {
+        this.contextListeners.forEach(callback => {
+            try {
+                callback(eventType, data);
+            } catch (error) {
+                this._error('Error in context listener:', error);
+            }
+        });
+    },
+    
+    _log(...args) {
+        if (this.options.debug) {
+            console.log('[ProjectService]', ...args);
+        }
+    },
+    
+    _error(...args) {
+        console.error('[ProjectService]', ...args);
     }
 };
 
-// Auto-initialize if dependencies are available
+// Export for global access
 if (typeof window !== 'undefined') {
     window.ProjectService = ProjectService;
-    
-    // Auto-initialize when AuthService is available
-    document.addEventListener('DOMContentLoaded', () => {
-        if (typeof AuthService !== 'undefined' && AuthService.isAuthenticated()) {
-            try {
-                ProjectService.init(AuthService);
-            } catch (error) {
-                window.AAAI_LOGGER?.warn('Failed to auto-initialize ProjectService:', error);
-            }
-        }
-    });
 }
-
-
-const ProjectContextManager = {
-    /**
-     * Handle new project creation from project.html
-     */
-    async handleCreateProject(formData) {
-        try {
-            console.log('📝 Creating new project:', formData);
-            
-            const result = await window.EnhancedProjectService.createProjectWithContext(formData);
-            
-            if (result.success) {
-                console.log('✅ Project created with chat_id:', result.chat_id);
-                
-                // Show success message
-                this.showSuccess(`Project "${formData.name}" created successfully!`);
-                
-                // Navigate to the new project's chat
-                setTimeout(async () => {
-                    try {
-                        await window.EnhancedNavigationManager.goToChatWithProject(
-                            result.chat_id, 
-                            result.project.name
-                        );
-                    } catch (navError) {
-                        console.error('❌ Navigation after project creation failed:', navError);
-                        // Fallback navigation
-                        window.location.href = `chat.html?project=${result.chat_id}&project_name=${encodeURIComponent(result.project.name)}`;
-                    }
-                }, 1000);
-                
-                return result;
-            } else {
-                throw new Error('Project creation failed');
-            }
-            
-        } catch (error) {
-            console.error('❌ Project creation failed:', error);
-            this.showError(`Failed to create project: ${error.message}`);
-            throw error;
-        }
-    },
-    
-    /**
-     * Handle opening existing project from project.html
-     */
-    async handleOpenProject(projectId, projectName = null) {
-        try {
-            console.log('📂 Opening project:', { projectId, projectName });
-            
-            // Switch to project context
-            const result = await window.EnhancedProjectService.switchToProject(projectId, projectName);
-            
-            if (result.success) {
-                console.log('✅ Project context switched, navigating to chat');
-                
-                // Navigate to chat with project context
-                await window.EnhancedNavigationManager.goToChatWithProject(
-                    result.chat_id, 
-                    result.project.name
-                );
-                
-                return result;
-            } else {
-                throw new Error('Failed to switch project context');
-            }
-            
-        } catch (error) {
-            console.error('❌ Project opening failed:', error);
-            this.showError(`Failed to open project: ${error.message}`);
-            throw error;
-        }
-    },
-    
-    /**
-     * Initialize project context on page load
-     */
-    async initializePageContext() {
-        try {
-            // Check if we're on a page with project context
-            const urlParams = new URLSearchParams(window.location.search);
-            const projectId = urlParams.get('project');
-            const projectName = urlParams.get('project_name');
-            
-            if (projectId) {
-                console.log('🎯 Page loaded with project context:', { projectId, projectName });
-                
-                // Switch to project context
-                await window.EnhancedProjectService.switchToProject(
-                    projectId, 
-                    projectName ? decodeURIComponent(projectName) : null
-                );
-                
-                // Initialize chat if on chat page
-                if (window.location.pathname.includes('chat.html')) {
-                    await window.EnhancedChatIntegration.initializeWithProject(
-                        projectId, 
-                        projectName ? decodeURIComponent(projectName) : null
-                    );
-                }
-                
-                console.log('✅ Page context initialized successfully');
-            } else {
-                // Try to get current context from backend
-                const contextResult = await window.EnhancedProjectService.getCurrentContext();
-                if (contextResult.success && contextResult.current_project) {
-                    console.log('🔄 Restoring context from backend:', contextResult.current_project.name);
-                    
-                    // Update chat service with restored context
-                    if (window.ChatService) {
-                        window.ChatService.setProjectContext(
-                            contextResult.current_project.id,
-                            contextResult.current_project.name
-                        );
-                    }
-                }
-            }
-            
-        } catch (error) {
-            console.error('❌ Page context initialization failed:', error);
-        }
-    },
-    
-    // Utility functions
-    showSuccess(message) {
-        // Simple alert for now - can be enhanced with toast notification
-        alert(`Success: ${message}`);
-    },
-    
-    showError(message) {
-        // Simple alert for now - can be enhanced with toast notification
-        alert(`Error: ${message}`);
-    }
-};
-
-document.addEventListener('DOMContentLoaded', async function() {
-    console.log('🚀 Enhanced Project Context Manager initializing...');
-    
-    try {
-        // Replace existing services with enhanced versions
-        if (window.ProjectService) {
-            window.EnhancedProjectService = { ...window.ProjectService, ...EnhancedProjectService };
-            window.ProjectService = window.EnhancedProjectService;
-        }
-        
-        if (window.NavigationManager) {
-            window.EnhancedNavigationManager = { ...window.NavigationManager, ...EnhancedNavigationManager };
-            window.NavigationManager = window.EnhancedNavigationManager;
-        }
-        
-        if (window.EnhancedChatIntegration) {
-            const originalIntegration = window.EnhancedChatIntegration;
-            window.EnhancedChatIntegration = { ...originalIntegration, ...EnhancedChatIntegration };
-        }
-        
-        // Initialize page context
-        await ProjectContextManager.initializePageContext();
-        
-        // Set up event handlers for project.html
-        if (window.location.pathname.includes('project.html')) {
-            // Override existing project creation handler
-            const newProjectForm = document.getElementById('newProjectForm');
-            if (newProjectForm) {
-                newProjectForm.removeEventListener('submit', window.handleCreateProject);
-                newProjectForm.addEventListener('submit', async (e) => {
-                    e.preventDefault();
-                    
-                    const formData = {
-                        name: document.getElementById('projectName').value.trim(),
-                        description: document.getElementById('projectDescription').value.trim(),
-                        tags: [] // Can be enhanced to parse tags
-                    };
-                    
-                    await ProjectContextManager.handleCreateProject(formData);
-                });
-            }
-            
-            // Override existing project opening handler
-            window.openProject = async function(projectId, projectName = null) {
-                await ProjectContextManager.handleOpenProject(projectId, projectName);
-            };
-        }
-        
-        console.log('✅ Enhanced Project Context Manager initialized successfully');
-        
-    } catch (error) {
-        console.error('❌ Enhanced Project Context Manager initialization failed:', error);
-    }
-});
 
 // Export for module environments
 if (typeof module !== 'undefined' && module.exports) {
     module.exports = ProjectService;
-    module.exports = ProjectContextManager;
 }

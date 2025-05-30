@@ -1,66 +1,75 @@
 /**
- * Enhanced Navigation Manager for AAAI Solutions Multi-Page Application
- * Handles seamless page transitions, state persistence, and deep linking
+ * Unified Navigation Manager for AAAI Solutions
+ * Handles seamless navigation with proper context management
  */
 const NavigationManager = {
-    // Initialize navigation manager
-    init(authService, projectService, options = {}) {
+    // Core state
+    authService: null,
+    projectService: null,
+    isInitialized: false,
+    
+    // Navigation state
+    currentPage: null,
+    currentProject: null,
+    navigationHistory: [],
+    breadcrumbs: [],
+    
+    // Configuration
+    options: {
+        enableTransitions: true,
+        enableDeepLinking: true,
+        enableStatePeristence: true,
+        transitionDuration: 300,
+        debug: false
+    },
+    
+    // Page definitions
+    pages: {
+        login: {
+            path: 'login.html',
+            title: 'Login - AAAI Solutions',
+            requiresAuth: false,
+            requiresProject: false
+        },
+        project: {
+            path: 'project.html',
+            title: 'My Projects - AAAI Solutions',
+            requiresAuth: true,
+            requiresProject: false
+        },
+        chat: {
+            path: 'chat.html',
+            title: 'AI Chat - AAAI Solutions',
+            requiresAuth: true,
+            requiresProject: true
+        }
+    },
+    
+    // Event listeners
+    navigationListeners: [],
+    stateChangeListeners: [],
+    
+    /**
+     * Initialize the navigation manager
+     */
+    init(authService, projectService = null, options = {}) {
+        if (this.isInitialized) {
+            console.log('🧭 NavigationManager already initialized');
+            return this;
+        }
+        
+        if (!authService) {
+            throw new Error('AuthService is required for NavigationManager');
+        }
+        
         this.authService = authService;
-        this.projectService = projectService;
+        this.projectService = projectService || window.ProjectService;
+        this.options = { ...this.options, ...options };
         
-        this.options = Object.assign({
-            enableTransitions: true,
-            enableDeepLinking: true,
-            enableStatePeristence: true,
-            transitionDuration: 300,
-            enableAnalytics: false,
-            debug: window.AAAI_CONFIG?.ENABLE_DEBUG || false
-        }, options);
-        
-        // Navigation state
-        this.currentPage = null;
-        this.currentProject = null;
-        this.navigationHistory = [];
-        this.pageStates = new Map();
-        this.breadcrumbs = [];
-        
-        // Page definitions
-        this.pages = {
-            login: {
-                path: 'login.html',
-                title: 'Login - AAAI Solutions',
-                requiresAuth: false,
-                component: 'LoginPage',
-                preload: []
-            },
-            project: {
-                path: 'project.html',
-                title: 'My Project - AAAI Solutions',
-                requiresAuth: true,
-                component: 'ProjectPage',
-                preload: ['project_details']
-            },
-            chat: {
-                path: 'chat.html',
-                title: 'AI Chat - AAAI Solutions',
-                requiresAuth: true,
-                component: 'ChatPage',
-                preload: ['project_details', 'chat_history']
-            }
-        };
-        
-        // Event listeners
-        this.navigationListeners = [];
-        this.stateChangeListeners = [];
-        
-        // Performance tracking
-        this.metrics = {
-            totalNavigations: 0,
-            averageLoadTime: 0,
-            pageViews: {},
-            errors: 0,
-            lastNavigation: null
-        };
+        // Set debug mode
+        if (window.AAAI_CONFIG?.ENABLE_DEBUG) {
+            this.options.debug = true;
+        }
         
         // Initialize
         this._setupEventListeners();
@@ -71,7 +80,9 @@ const NavigationManager = {
             this._setupDeepLinking();
         }
         
-        window.AAAI_LOGGER?.info('NavigationManager initialized', {
+        this.isInitialized = true;
+        
+        this._log('NavigationManager initialized', {
             currentPage: this.currentPage,
             deepLinking: this.options.enableDeepLinking,
             statePeristence: this.options.enableStatePeristence
@@ -81,159 +92,77 @@ const NavigationManager = {
     },
     
     /**
-     * Navigate to a specific page with enhanced features
-     */
-    async navigateTo(pageName, options = {}) {
-        const startTime = Date.now();
-        
-        try {
-            // Validate page
-            if (!this.pages[pageName]) {
-                throw new Error(`Unknown page: ${pageName}`);
-            }
-            
-            const page = this.pages[pageName];
-            const {
-                params = {},
-                state = {},
-                replace = false,
-                preload = true,
-                transition = this.options.enableTransitions
-            } = options;
-            
-            // Check authentication requirements
-            if (page.requiresAuth && !this.authService.isAuthenticated()) {
-                window.AAAI_LOGGER?.warn(`Page ${pageName} requires authentication, redirecting to login`);
-                return this.navigateTo('login', { 
-                    state: { returnTo: pageName, returnParams: params } 
-                });
-            }
-            
-            // Check if already on the same page with same params
-            if (this.currentPage === pageName && this._compareParams(this.getPageParams(), params)) {
-                window.AAAI_LOGGER?.debug(`Already on page ${pageName} with same params`);
-                return true;
-            }
-            
-            // Store current page state
-            this._saveCurrentPageState();
-            
-            // Add to navigation history (unless replacing)
-            if (!replace && this.currentPage) {
-                this._addToHistory(this.currentPage, this.getPageParams(), this.getPageState());
-            }
-            
-            // Preload data if requested
-            if (preload && page.preload.length > 0) {
-                await this._preloadPageData(pageName, params);
-            }
-            
-            // Build URL
-            const url = this._buildPageUrl(page.path, params);
-            
-            // Update page state
-            this.currentPage = pageName;
-            this.currentProject = params.project || null;
-            
-            // Update browser history
-            if (replace) {
-                window.history.replaceState({ page: pageName, params, state }, page.title, url);
-            } else {
-                window.history.pushState({ page: pageName, params, state }, page.title, url);
-            }
-            
-            // Update document title
-            document.title = this._buildPageTitle(page.title, params);
-            
-            // Store page state
-            this.pageStates.set(pageName, { params, state, timestamp: Date.now() });
-            
-            // Update breadcrumbs
-            this._updateBreadcrumbs(pageName, params);
-            
-            // Perform navigation
-            if (transition) {
-                await this._performTransition(url);
-            } else {
-                window.location.href = url;
-            }
-            
-            // Track metrics
-            const loadTime = Date.now() - startTime;
-            this._trackNavigation(pageName, loadTime);
-            
-            // Notify listeners
-            this._notifyNavigationListeners('navigate', {
-                from: this.navigationHistory[this.navigationHistory.length - 1]?.page,
-                to: pageName,
-                params: params,
-                state: state,
-                loadTime: loadTime
-            });
-            
-            window.AAAI_LOGGER?.info(`Navigated to ${pageName}`, {
-                params,
-                loadTime,
-                preloaded: preload
-            });
-            
-            return true;
-            
-        } catch (error) {
-            this.metrics.errors++;
-            window.AAAI_LOGGER?.error('Navigation error:', error);
-            
-            // Show user-friendly error
-            this._showNavigationError(`Failed to navigate to ${pageName}: ${error.message}`);
-            
-            return false;
-        }
-    },
-    /**
-     * Navigate to login page
+     * Navigate to login page with proper context
      */
     async goToLogin(reason = null, returnTo = null) {
-        const state = {};
-        
-        if (reason) {
-            state.reason = reason;
+        try {
+            const state = {};
+            
+            if (reason) {
+                state.reason = reason;
+            }
+            
+            if (returnTo) {
+                state.returnTo = returnTo;
+                state.returnParams = this.getPageParams();
+            } else if (this.currentPage && this.currentPage !== 'login') {
+                state.returnTo = this.currentPage;
+                state.returnParams = this.getPageParams();
+            }
+            
+            return this._navigateToPage('login', {}, state, true);
+            
+        } catch (error) {
+            this._error('Failed to navigate to login:', error);
+            window.location.href = 'login.html';
         }
-        
-        if (returnTo) {
-            state.returnTo = returnTo;
-            state.returnParams = this.getPageParams();
-        } else if (this.currentPage && this.currentPage !== 'login') {
-            state.returnTo = this.currentPage;
-            state.returnParams = this.getPageParams();
-        }
-        
-        return this.navigateTo('login', { state, replace: true });
     },
     
     /**
      * Navigate to projects page
      */
-    async goToProject(options = {}) {
-        return this.navigateTo('project', options);
+    async goToProject() {
+        try {
+            this._requireAuth();
+            return this._navigateToPage('project');
+            
+        } catch (error) {
+            this._error('Failed to navigate to projects:', error);
+            return this.goToLogin('Authentication required');
+        }
     },
     
     /**
-     * Navigate to chat page for a specific project
+     * Navigate to chat with project context - MAIN INTEGRATION POINT
      */
     async goToChat(projectId, projectName = null, options = {}) {
         try {
-            console.log('🧭 Navigating to chat with project:', { projectId, projectName });
+            this._requireAuth();
             
-            // Switch project context first
-            if (window.EnhancedProjectService) {
-                const contextResult = await window.EnhancedProjectService.switchToProject(projectId, projectName);
+            if (!projectId) {
+                throw new Error('Project ID is required for chat navigation');
+            }
+            
+            this._log('Navigating to chat with project context', { projectId, projectName });
+            
+            // Switch to project context first
+            if (this.projectService) {
+                const contextResult = await this.projectService.switchToProject(projectId, projectName);
                 if (!contextResult.success) {
                     throw new Error('Failed to switch project context');
                 }
-                console.log('✅ Project context switched for navigation');
+                
+                // Use the chat_id from the context switch
+                projectId = contextResult.chat_id;
+                projectName = contextResult.project.name;
+                
+                this._log('Project context switched successfully', {
+                    chatId: projectId,
+                    projectName: projectName
+                });
             }
             
-            // Navigate to chat page with project parameter
+            // Build navigation parameters
             const params = { 
                 project: projectId,
                 ...options.params 
@@ -249,24 +178,81 @@ const NavigationManager = {
                 ...options.state 
             };
             
-            return this.navigateTo('chat', {
-                params,
-                state,
-                ...options
-            });
+            // Navigate to chat page
+            return this._navigateToPage('chat', params, state, options.replace);
             
         } catch (error) {
-            console.error('❌ Navigation with project context failed:', error);
+            this._error('Failed to navigate to chat:', error);
             throw error;
         }
     },
     
     /**
-     * Go back to previous page
+     * Create new project and navigate to it - INTEGRATION POINT
+     */
+    async createProjectAndNavigate(projectData) {
+        try {
+            this._requireAuth();
+            
+            if (!this.projectService) {
+                throw new Error('ProjectService not available');
+            }
+            
+            this._log('Creating new project and navigating', projectData);
+            
+            // Create project
+            const result = await this.projectService.createProject(projectData);
+            
+            if (result.success) {
+                this._log('Project created successfully, navigating to chat', {
+                    projectId: result.project.id,
+                    chatId: result.chat_id
+                });
+                
+                // Navigate to the new project's chat after a brief delay
+                setTimeout(() => {
+                    this.goToChat(result.chat_id, result.project.name);
+                }, 1000);
+                
+                return result;
+            } else {
+                throw new Error('Project creation failed');
+            }
+            
+        } catch (error) {
+            this._error('Failed to create project and navigate:', error);
+            throw error;
+        }
+    },
+    
+    /**
+     * Open existing project - INTEGRATION POINT
+     */
+    async openProject(projectId, projectName = null) {
+        try {
+            this._requireAuth();
+            
+            if (!projectId) {
+                throw new Error('Project ID is required');
+            }
+            
+            this._log('Opening existing project', { projectId, projectName });
+            
+            // Navigate to chat with project context
+            return this.goToChat(projectId, projectName);
+            
+        } catch (error) {
+            this._error('Failed to open project:', error);
+            throw error;
+        }
+    },
+    
+    /**
+     * Handle browser back/forward navigation
      */
     async goBack() {
         if (this.navigationHistory.length === 0) {
-            // No history, go to default page
+            // No history, go to appropriate default page
             if (this.authService.isAuthenticated()) {
                 return this.goToProject();
             } else {
@@ -275,33 +261,25 @@ const NavigationManager = {
         }
         
         const previous = this.navigationHistory.pop();
-        
-        return this.navigateTo(previous.page, {
-            params: previous.params,
-            state: previous.state,
-            replace: true
-        });
+        return this._navigateToPage(previous.page, previous.params, previous.state, true);
     },
     
     /**
      * Reload current page with fresh data
      */
     async reload(forceRefresh = true) {
-        if (!this.currentPage) return false;
+        if (!this.currentPage) {
+            return false;
+        }
         
         const currentParams = this.getPageParams();
-        const currentState = this.getPageState();
+        const currentState = this._getStoredPageState();
         
-        return this.navigateTo(this.currentPage, {
-            params: currentParams,
-            state: currentState,
-            replace: true,
-            preload: forceRefresh
-        });
+        return this._navigateToPage(this.currentPage, currentParams, currentState, true);
     },
     
     /**
-     * Get current page parameters
+     * Get current page parameters from URL
      */
     getPageParams() {
         const urlParams = new URLSearchParams(window.location.search);
@@ -312,17 +290,6 @@ const NavigationManager = {
         }
         
         return params;
-    },
-    
-    /**
-     * Get current page state
-     */
-    getPageState() {
-        if (!this.currentPage || !this.pageStates.has(this.currentPage)) {
-            return {};
-        }
-        
-        return this.pageStates.get(this.currentPage).state || {};
     },
     
     /**
@@ -344,32 +311,19 @@ const NavigationManager = {
         const page = this.pages[this.currentPage];
         const url = this._buildPageUrl(page.path, newParams);
         
+        const historyState = { 
+            page: this.currentPage, 
+            params: newParams, 
+            state: this._getStoredPageState() 
+        };
+        
         if (replace) {
-            window.history.replaceState(
-                { page: this.currentPage, params: newParams, state: this.getPageState() },
-                document.title,
-                url
-            );
+            window.history.replaceState(historyState, document.title, url);
         } else {
-            window.history.pushState(
-                { page: this.currentPage, params: newParams, state: this.getPageState() },
-                document.title,
-                url
-            );
+            window.history.pushState(historyState, document.title, url);
         }
         
-        // Update stored state
-        const pageState = this.pageStates.get(this.currentPage);
-        if (pageState) {
-            pageState.params = newParams;
-        }
-    },
-    
-    /**
-     * Get navigation breadcrumbs
-     */
-    getBreadcrumbs() {
-        return [...this.breadcrumbs];
+        this._log('Page parameters updated', newParams);
     },
     
     /**
@@ -387,9 +341,9 @@ const NavigationManager = {
             return { allowed: false, reason: 'Authentication required' };
         }
         
-        // Check specific page requirements
-        if (pageName === 'chat' && !params.project) {
-            return { allowed: false, reason: 'Project ID required for chat' };
+        // Check project requirements
+        if (page.requiresProject && !params.project) {
+            return { allowed: false, reason: 'Project context required' };
         }
         
         return { allowed: true, reason: null };
@@ -403,17 +357,22 @@ const NavigationManager = {
             currentPage: this.currentPage,
             currentProject: this.currentProject,
             params: this.getPageParams(),
-            state: this.getPageState(),
             breadcrumbs: this.getBreadcrumbs(),
             canGoBack: this.navigationHistory.length > 0,
-            history: this.navigationHistory.slice(-3), // Last 3 entries
             authenticated: this.authService.isAuthenticated(),
-            metrics: this.getMetrics()
+            projectContext: this.projectService ? this.projectService.getContext() : null
         };
     },
     
     /**
-     * Add navigation listener
+     * Get navigation breadcrumbs
+     */
+    getBreadcrumbs() {
+        return [...this.breadcrumbs];
+    },
+    
+    /**
+     * Event listeners
      */
     onNavigation(callback) {
         if (typeof callback === 'function') {
@@ -421,18 +380,12 @@ const NavigationManager = {
         }
     },
     
-    /**
-     * Add state change listener
-     */
     onStateChange(callback) {
         if (typeof callback === 'function') {
             this.stateChangeListeners.push(callback);
         }
     },
     
-    /**
-     * Remove listener
-     */
     removeListener(type, callback) {
         if (type === 'navigation') {
             const index = this.navigationListeners.indexOf(callback);
@@ -443,29 +396,73 @@ const NavigationManager = {
         }
     },
     
-    /**
-     * Get navigation metrics
-     */
-    getMetrics() {
-        return {
-            ...this.metrics,
-            cacheSize: this.pageStates.size,
-            historySize: this.navigationHistory.length
-        };
-    },
-    
-    /**
-     * Clear navigation history and cache
-     */
-    clearHistory() {
-        this.navigationHistory = [];
-        this.pageStates.clear();
-        this.breadcrumbs = [];
-        
-        window.AAAI_LOGGER?.info('Navigation history cleared');
-    },
-    
     // Private methods
+    
+    /**
+     * Core navigation method - handles all page transitions
+     */
+    async _navigateToPage(pageName, params = {}, state = {}, replace = false) {
+        try {
+            // Validate navigation
+            const validation = this.canNavigateTo(pageName, params);
+            if (!validation.allowed) {
+                if (validation.reason === 'Authentication required') {
+                    return this.goToLogin(validation.reason);
+                }
+                throw new Error(validation.reason);
+            }
+            
+            const page = this.pages[pageName];
+            
+            // Store current page state if not replacing
+            if (!replace && this.currentPage && this.currentPage !== pageName) {
+                this._addToHistory(this.currentPage, this.getPageParams(), this._getStoredPageState());
+            }
+            
+            // Build URL and update browser history
+            const url = this._buildPageUrl(page.path, params);
+            const historyState = { page: pageName, params, state };
+            
+            if (replace) {
+                window.history.replaceState(historyState, page.title, url);
+            } else {
+                window.history.pushState(historyState, page.title, url);
+            }
+            
+            // Update internal state
+            this.currentPage = pageName;
+            this.currentProject = params.project || null;
+            document.title = this._buildPageTitle(page.title, params);
+            
+            // Update breadcrumbs
+            this._updateBreadcrumbs(pageName, params);
+            
+            // Store page state
+            this._storePageState(pageName, { params, state });
+            
+            // Perform actual navigation
+            if (this.options.enableTransitions) {
+                await this._performTransition(url);
+            } else {
+                window.location.href = url;
+            }
+            
+            // Notify listeners
+            this._notifyNavigationListeners('navigate', {
+                to: pageName,
+                params: params,
+                state: state
+            });
+            
+            this._log('Navigation completed', { page: pageName, params });
+            
+            return true;
+            
+        } catch (error) {
+            this._error('Navigation failed:', error);
+            throw error;
+        }
+    },
     
     /**
      * Setup event listeners
@@ -485,25 +482,17 @@ const NavigationManager = {
         
         // Before unload cleanup
         window.addEventListener('beforeunload', () => {
-            this._saveCurrentPageState();
+            this._saveNavigationState();
         });
-        
-        // Handle authentication state changes
-        if (this.authService) {
-            this.authService.onAuthenticationChange = (isAuthenticated) => {
-                this._handleAuthenticationChange(isAuthenticated);
-            };
-        }
     },
     
     /**
-     * Initialize current page based on URL
+     * Initialize current page from URL
      */
     _initializeCurrentPage() {
         const currentPath = window.location.pathname;
-        const currentSearch = window.location.search;
         
-        // Determine current page
+        // Determine current page from path
         for (const [pageName, page] of Object.entries(this.pages)) {
             if (currentPath.includes(page.path.replace('.html', ''))) {
                 this.currentPage = pageName;
@@ -511,9 +500,9 @@ const NavigationManager = {
             }
         }
         
-        // Extract parameters
+        // Extract project from URL if on chat page
         if (this.currentPage === 'chat') {
-            const urlParams = new URLSearchParams(currentSearch);
+            const urlParams = new URLSearchParams(window.location.search);
             this.currentProject = urlParams.get('project');
         }
         
@@ -522,15 +511,15 @@ const NavigationManager = {
             this.currentPage = this.authService.isAuthenticated() ? 'project' : 'login';
         }
         
-        // Store initial state
+        // Update breadcrumbs
         const params = this.getPageParams();
-        this.pageStates.set(this.currentPage, {
-            params,
-            state: {},
-            timestamp: Date.now()
-        });
-        
         this._updateBreadcrumbs(this.currentPage, params);
+        
+        this._log('Current page initialized', {
+            page: this.currentPage,
+            project: this.currentProject,
+            params: params
+        });
     },
     
     /**
@@ -539,28 +528,22 @@ const NavigationManager = {
     _setupStateManagement() {
         if (!this.options.enableStatePeristence) return;
         
-        // Restore state from sessionStorage
+        // Restore navigation state from sessionStorage
         try {
             const savedState = sessionStorage.getItem('aaai_navigation_state');
             if (savedState) {
                 const state = JSON.parse(savedState);
                 
-                if (state.pageStates) {
-                    // Restore page states (with expiry check)
+                if (state.navigationHistory && Array.isArray(state.navigationHistory)) {
+                    // Restore recent history (with expiry check)
                     const now = Date.now();
-                    for (const [page, pageState] of Object.entries(state.pageStates)) {
-                        if (pageState.timestamp && (now - pageState.timestamp) < 3600000) { // 1 hour
-                            this.pageStates.set(page, pageState);
-                        }
-                    }
-                }
-                
-                if (state.metrics) {
-                    Object.assign(this.metrics, state.metrics);
+                    this.navigationHistory = state.navigationHistory.filter(entry => 
+                        entry.timestamp && (now - entry.timestamp) < 3600000 // 1 hour
+                    );
                 }
             }
         } catch (error) {
-            window.AAAI_LOGGER?.warn('Failed to restore navigation state:', error);
+            this._error('Failed to restore navigation state:', error);
         }
         
         // Auto-save state periodically
@@ -573,7 +556,6 @@ const NavigationManager = {
      * Setup deep linking
      */
     _setupDeepLinking() {
-        // Add navigation data attributes to links
         document.addEventListener('click', (event) => {
             const target = event.target.closest('[data-nav-to]');
             if (!target) return;
@@ -582,6 +564,7 @@ const NavigationManager = {
             
             const pageName = target.getAttribute('data-nav-to');
             const projectId = target.getAttribute('data-project-id');
+            const projectName = target.getAttribute('data-project-name');
             const params = target.getAttribute('data-nav-params');
             
             let navigationParams = {};
@@ -589,15 +572,27 @@ const NavigationManager = {
                 try {
                     navigationParams = JSON.parse(params);
                 } catch (error) {
-                    window.AAAI_LOGGER?.warn('Invalid navigation params:', params);
+                    this._error('Invalid navigation params:', params);
                 }
             }
             
             if (projectId) {
                 navigationParams.project = projectId;
+                if (projectName) {
+                    navigationParams.project_name = projectName;
+                }
             }
             
-            this.navigateTo(pageName, { params: navigationParams });
+            // Use appropriate navigation method
+            if (pageName === 'chat' && projectId) {
+                this.goToChat(projectId, projectName);
+            } else if (pageName === 'project') {
+                this.goToProject();
+            } else if (pageName === 'login') {
+                this.goToLogin();
+            } else {
+                this._navigateToPage(pageName, navigationParams);
+            }
         });
     },
     
@@ -609,8 +604,8 @@ const NavigationManager = {
             this.currentPage = event.state.page;
             this.currentProject = event.state.params?.project || null;
             
-            // Notify listeners
             this._notifyStateChangeListeners('popstate', event.state);
+            this._log('Popstate handled', event.state);
         } else {
             // Fallback to URL-based detection
             this._initializeCurrentPage();
@@ -624,80 +619,6 @@ const NavigationManager = {
         // Validate authentication state
         if (this.currentPage !== 'login' && !this.authService.isAuthenticated()) {
             this.goToLogin('Session expired');
-        }
-        
-        // Refresh current page data if needed
-        if (this.currentPage && this.pages[this.currentPage].preload.length > 0) {
-            this._preloadPageData(this.currentPage, this.getPageParams(), true);
-        }
-    },
-    
-    /**
-     * Handle authentication state changes
-     */
-    _handleAuthenticationChange(isAuthenticated) {
-        if (!isAuthenticated && this.currentPage !== 'login') {
-            this.goToLogin('Authentication lost');
-        } else if (isAuthenticated && this.currentPage === 'login') {
-            const state = this.getPageState();
-            if (state.returnTo) {
-                this.navigateTo(state.returnTo, { 
-                    params: state.returnParams || {},
-                    replace: true 
-                });
-            } else {
-                this.goToProject({ replace: true });
-            }
-        }
-    },
-    
-    /**
-     * Preload page data
-     */
-    async _preloadPageData(pageName, params, background = false) {
-        const page = this.pages[pageName];
-        if (!page.preload.length) return;
-        
-        try {
-            const preloadPromises = [];
-            
-            for (const preloadType of page.preload) {
-                switch (preloadType) {
-                    case 'project':
-                        if (this.projectService) {
-                            preloadPromises.push(
-                                this.projectService.getProjects({ limit: 20 })
-                            );
-                        }
-                        break;
-                        
-                    case 'project_details':
-                        if (this.projectService && params.project) {
-                            preloadPromises.push(
-                                this.projectService.getProject(params.project)
-                            );
-                        }
-                        break;
-                        
-                    case 'chat_history':
-                        // This would be handled by the chat service
-                        break;
-                }
-            }
-            
-            await Promise.all(preloadPromises);
-            
-            if (!background) {
-                window.AAAI_LOGGER?.debug(`Preloaded data for ${pageName}`, {
-                    types: page.preload,
-                    params
-                });
-            }
-            
-        } catch (error) {
-            if (!background) {
-                window.AAAI_LOGGER?.warn(`Preload failed for ${pageName}:`, error);
-            }
         }
     },
     
@@ -721,10 +642,9 @@ const NavigationManager = {
      */
     _buildPageTitle(baseTitle, params) {
         if (params.project && this.projectService) {
-            // Try to get project name from cache
-            const project = this.projectService._getCachedProject(params.project);
-            if (project) {
-                return `${project.name} - AAAI Solutions`;
+            const context = this.projectService.getContext();
+            if (context.project_name) {
+                return `${context.project_name} - AAAI Solutions`;
             }
         }
         
@@ -738,17 +658,16 @@ const NavigationManager = {
         this.breadcrumbs = [];
         
         if (pageName === 'project') {
-            this.breadcrumbs.push({ name: 'Project', page: 'project' });
+            this.breadcrumbs.push({ name: 'Projects', page: 'project' });
         } else if (pageName === 'chat') {
-            this.breadcrumbs.push({ name: 'Project', page: 'project' });
+            this.breadcrumbs.push({ name: 'Projects', page: 'project' });
             
             if (params.project) {
-                // Try to get project name
-                let projectName = 'Project';
+                let projectName = 'Chat';
                 if (this.projectService) {
-                    const project = this.projectService._getCachedProject(params.project);
-                    if (project) {
-                        projectName = project.name;
+                    const context = this.projectService.getContext();
+                    if (context.project_name) {
+                        projectName = context.project_name;
                     }
                 }
                 
@@ -759,18 +678,6 @@ const NavigationManager = {
                 });
             }
         }
-    },
-    
-    /**
-     * Compare parameters
-     */
-    _compareParams(params1, params2) {
-        const keys1 = Object.keys(params1);
-        const keys2 = Object.keys(params2);
-        
-        if (keys1.length !== keys2.length) return false;
-        
-        return keys1.every(key => params1[key] === params2[key]);
     },
     
     /**
@@ -785,33 +692,44 @@ const NavigationManager = {
         });
         
         // Limit history size
-        if (this.navigationHistory.length > 50) {
+        if (this.navigationHistory.length > 20) {
             this.navigationHistory.shift();
         }
     },
     
     /**
-     * Save current page state
+     * Store page state
      */
-    _saveCurrentPageState() {
-        if (!this.currentPage) return;
-        
-        // This would be implemented by individual pages
-        // Each page can define how to save its state
-        const customSaveState = window[`save${this.currentPage}State`];
-        if (typeof customSaveState === 'function') {
-            try {
-                const state = customSaveState();
-                if (state) {
-                    const pageState = this.pageStates.get(this.currentPage);
-                    if (pageState) {
-                        pageState.state = { ...pageState.state, ...state };
-                    }
-                }
-            } catch (error) {
-                window.AAAI_LOGGER?.warn(`Error saving ${this.currentPage} state:`, error);
-            }
+    _storePageState(pageName, data) {
+        try {
+            sessionStorage.setItem(`aaai_page_state_${pageName}`, JSON.stringify({
+                ...data,
+                timestamp: Date.now()
+            }));
+        } catch (error) {
+            this._error('Failed to store page state:', error);
         }
+    },
+    
+    /**
+     * Get stored page state
+     */
+    _getStoredPageState() {
+        if (!this.currentPage) return {};
+        
+        try {
+            const stored = sessionStorage.getItem(`aaai_page_state_${this.currentPage}`);
+            if (stored) {
+                const data = JSON.parse(stored);
+                if (data.timestamp && (Date.now() - data.timestamp) < 3600000) { // 1 hour
+                    return data.state || {};
+                }
+            }
+        } catch (error) {
+            this._error('Failed to get stored page state:', error);
+        }
+        
+        return {};
     },
     
     /**
@@ -822,14 +740,13 @@ const NavigationManager = {
         
         try {
             const state = {
-                pageStates: Object.fromEntries(this.pageStates),
-                metrics: this.metrics,
+                navigationHistory: this.navigationHistory.slice(-10), // Last 10 entries
                 timestamp: Date.now()
             };
             
             sessionStorage.setItem('aaai_navigation_state', JSON.stringify(state));
         } catch (error) {
-            window.AAAI_LOGGER?.warn('Failed to save navigation state:', error);
+            this._error('Failed to save navigation state:', error);
         }
     },
     
@@ -843,40 +760,6 @@ const NavigationManager = {
     },
     
     /**
-     * Track navigation metrics
-     */
-    _trackNavigation(pageName, loadTime) {
-        this.metrics.totalNavigations++;
-        this.metrics.lastNavigation = Date.now();
-        
-        if (this.metrics.pageViews[pageName]) {
-            this.metrics.pageViews[pageName]++;
-        } else {
-            this.metrics.pageViews[pageName] = 1;
-        }
-        
-        // Update average load time
-        const prevAvg = this.metrics.averageLoadTime;
-        const count = this.metrics.totalNavigations;
-        this.metrics.averageLoadTime = (prevAvg * (count - 1) + loadTime) / count;
-    },
-    
-    /**
-     * Show navigation error
-     */
-    _showNavigationError(message) {
-        // Simple alert for now - could be enhanced with a toast notification
-        console.error('Navigation Error:', message);
-        
-        // Try to recover to a safe page
-        if (this.authService.isAuthenticated()) {
-            this.goToProject({ replace: true });
-        } else {
-            this.goToLogin('Navigation error', this.currentPage);
-        }
-    },
-    
-    /**
      * Notify navigation listeners
      */
     _notifyNavigationListeners(eventType, data) {
@@ -884,7 +767,7 @@ const NavigationManager = {
             try {
                 callback(eventType, data);
             } catch (error) {
-                window.AAAI_LOGGER?.error('Error in navigation listener:', error);
+                this._error('Error in navigation listener:', error);
             }
         });
     },
@@ -897,26 +780,31 @@ const NavigationManager = {
             try {
                 callback(eventType, data);
             } catch (error) {
-                window.AAAI_LOGGER?.error('Error in state change listener:', error);
+                this._error('Error in state change listener:', error);
             }
         });
+    },
+    
+    _requireAuth() {
+        if (!this.authService.isAuthenticated()) {
+            throw new Error('Authentication required');
+        }
+    },
+    
+    _log(...args) {
+        if (this.options.debug) {
+            console.log('[NavigationManager]', ...args);
+        }
+    },
+    
+    _error(...args) {
+        console.error('[NavigationManager]', ...args);
     }
 };
 
-// Auto-initialize when dependencies are available
+// Export for global access
 if (typeof window !== 'undefined') {
     window.NavigationManager = NavigationManager;
-    
-    document.addEventListener('DOMContentLoaded', () => {
-        if (typeof AuthService !== 'undefined') {
-            try {
-                const projectService = typeof ProjectService !== 'undefined' ? ProjectService : null;
-                NavigationManager.init(AuthService, projectService);
-            } catch (error) {
-                window.AAAI_LOGGER?.warn('Failed to auto-initialize NavigationManager:', error);
-            }
-        }
-    });
 }
 
 // Export for module environments
