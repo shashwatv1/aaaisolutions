@@ -12,7 +12,7 @@ const logout = require('./functions/logout');
 functions.http('requestOTP', requestOTP);
 functions.http('verifyOTP', verifyOTP);
 functions.http('chat', chat);
-functions.http('executeFunction', functionExecutor);
+functions.http('functionExecutor', functionExecutor);  // Changed this line
 functions.http('validateSession', validateSession);
 functions.http('refreshToken', refreshToken);
 functions.http('refreshTokenSilent', refreshTokenSilent);

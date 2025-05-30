@@ -147,8 +147,7 @@ const AuthService = {
         try {
             console.log(`ENHANCED: Executing function: ${functionName}`);
             
-            // Try to refresh token if it's been a while
-            if (this.lastTokenRefresh && (Date.now() - this.lastTokenRefresh) > 600000) { // 10 minutes
+            if (this.lastTokenRefresh && (Date.now() - this.lastTokenRefresh) > 600000) {
                 console.log('Token is getting old, refreshing before function call...');
                 await this.refreshTokenIfNeeded();
             }
@@ -156,21 +155,25 @@ const AuthService = {
             const controller = new AbortController();
             const timeoutId = setTimeout(() => controller.abort(), 60000);
             
-            const response = await fetch(`${this.API_BASE_URL}/api/function/${functionName}`, {
+            // FIXED: Use Cloud Function endpoint
+            const response = await fetch(`${this.AUTH_BASE_URL}/executeFunction`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
                 },
-                body: JSON.stringify(inputData),
+                body: JSON.stringify({
+                    function_name: functionName,
+                    ...inputData
+                }),
                 signal: controller.signal,
-                credentials: 'include'
+                credentials: 'include' // Sends cookies
             });
             
             clearTimeout(timeoutId);
             const data = await response.json();
             
             if (!response.ok) {
-                console.error(`Enhanced function execution failed:`, data);
+                console.error(`Function execution failed:`, data);
                 
                 if (response.status === 401) {
                     console.warn('Session expired during function execution');
@@ -187,7 +190,7 @@ const AuthService = {
             if (error.name === 'AbortError') {
                 throw new Error('Request timed out. Please try again.');
             }
-            console.error(`Enhanced function execution error (${functionName}):`, error);
+            console.error(`Function execution error (${functionName}):`, error);
             throw error;
         }
     },
