@@ -895,7 +895,7 @@
           initializeUI();
           
           // Load current context and projects
-          await loadCurrentContext();
+          // await loadCurrentContext();
           await loadProjects();
           
           // Setup event listeners
@@ -967,8 +967,8 @@
        */
       async function loadUserCredits() {
         try {
-          const credits = await window.AuthService.getUserCredits();
-          elements.creditsDisplay.textContent = `Credits: ${credits}`;
+          // const credits = await window.AuthService.getUserCredits();
+          elements.creditsDisplay.textContent = `Credits: 0`;
         } catch (error) {
           console.warn('Could not load user credits:', error);
           elements.creditsDisplay.textContent = 'Credits: --';

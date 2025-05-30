@@ -1101,9 +1101,9 @@
         
         // Load credits
         try {
-          const credits = await window.AuthService.getUserCredits();
+          // const credits = await window.AuthService.getUserCredits();
           if (elements.creditsDisplay) {
-            elements.creditsDisplay.textContent = `Credits: ${credits}`;
+            elements.creditsDisplay.textContent = `Credits: 0`;
           }
         } catch (error) {
           console.warn('Failed to load credits:', error);
