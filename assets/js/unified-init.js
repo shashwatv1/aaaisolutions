@@ -506,30 +506,123 @@
      * Initialize project page - WITH AUTH WAITING
      */
     async function initializeProjectPage() {
-        const authService = window.AAAI_APP.services.AuthService;
-        const projectService = window.AAAI_APP.services.ProjectService;
-        
-        if (!authService?.isAuthenticated()) {
-            redirectToLogin('Authentication required for projects page');
-            return;
-        }
-        
-        // NEW: Ensure authentication is ready before making API calls
-        if (!window.AAAI_APP.authenticationReady) {
-            console.log('⚠️ Authentication not ready for project page initialization');
-            return;
-        }
-        
-        // Load current context - NOW SAFE TO MAKE API CALLS
-        if (projectService) {
-            try {
-                console.log('📂 Loading project context...');
-                await projectService.getCurrentContext();
-                console.log('✅ Project page context loaded');
-            } catch (error) {
-                console.warn('⚠️ Could not load project context:', error);
-                // Don't fail completely, just warn
+        try {
+            console.log('📂 Initializing project page...');
+            
+            const authService = window.AAAI_APP.services.AuthService;
+            const projectService = window.AAAI_APP.services.ProjectService;
+            
+            // Enhanced authentication check
+            if (!authService) {
+                console.error('❌ AuthService not available');
+                throw new Error('AuthService not available');
             }
+            
+            // Check authentication with timeout
+            const isAuthenticated = await checkAuthenticationWithTimeout(authService, 3000);
+            if (!isAuthenticated) {
+                console.log('❌ Authentication check failed, redirecting to login');
+                if (window.AAAI_APP.services.NavigationManager) {
+                    window.AAAI_APP.services.NavigationManager.goToLogin('Authentication required');
+                } else {
+                    window.location.href = 'login.html';
+                }
+                return;
+            }
+            
+            console.log('✅ Project page authentication confirmed');
+            
+            // Load current context (non-blocking)
+            if (projectService) {
+                try {
+                    await projectService.getCurrentContext();
+                    console.log('✅ Project page context loaded');
+                } catch (error) {
+                    console.warn('⚠️ Could not load project context:', error);
+                    // Don't fail the page load for context issues
+                }
+            }
+            
+        } catch (error) {
+            console.error('❌ Project page initialization failed:', error);
+            throw error;
+        }
+    }
+    async function checkAuthenticationWithTimeout(authService, timeout = 3000) {
+        const startTime = Date.now();
+        
+        while (Date.now() - startTime < timeout) {
+            try {
+                // Check if basic authentication is present
+                if (authService.isAuthenticated()) {
+                    const user = authService.getCurrentUser();
+                    if (user && user.email && user.id) {
+                        console.log('✅ Authentication confirmed:', user.email);
+                        return true;
+                    }
+                }
+                
+                // Check if we have persistent session data
+                if (authService.hasPersistentSession()) {
+                    console.log('🔍 Persistent session found, attempting validation...');
+                    
+                    // Try a quick token refresh
+                    try {
+                        const refreshResult = await Promise.race([
+                            authService.refreshTokenIfNeeded(),
+                            new Promise((_, reject) => 
+                                setTimeout(() => reject(new Error('Timeout')), 2000)
+                            )
+                        ]);
+                        
+                        if (refreshResult && authService.isAuthenticated()) {
+                            console.log('✅ Authentication restored via token refresh');
+                            return true;
+                        }
+                    } catch (refreshError) {
+                        console.warn('⚠️ Token refresh failed or timed out:', refreshError.message);
+                    }
+                }
+                
+                // Short wait before next check
+                await new Promise(resolve => setTimeout(resolve, 200));
+                
+            } catch (error) {
+                console.error('❌ Authentication check error:', error);
+                break;
+            }
+        }
+        
+        console.log('❌ Authentication check timeout or failed');
+        return false;
+    }
+    function handleAuthenticationError() {
+        console.warn('🔐 Authentication error detected, handling gracefully...');
+        
+        // Clear any invalid authentication state
+        if (window.AAAI_APP.services.AuthService) {
+            // Don't clear everything immediately - might be temporary
+            setTimeout(() => {
+                if (window.AAAI_APP.services.AuthService && 
+                    !window.AAAI_APP.services.AuthService.isAuthenticated() &&
+                    !window.AAAI_APP.services.AuthService.hasPersistentSession()) {
+                    
+                    console.log('🔐 Clearing invalid authentication state');
+                    window.AAAI_APP.services.AuthService.clearAuthData();
+                    
+                    // Redirect to login
+                    if (window.AAAI_APP.services.NavigationManager) {
+                        window.AAAI_APP.services.NavigationManager.goToLogin('Session expired');
+                    } else {
+                        window.location.href = 'login.html';
+                    }
+                }
+            }, 2000); // Give some time for recovery
+        } else {
+            // Immediate redirect if no auth service
+            setTimeout(() => {
+                window.location.href = 'login.html';
+            }, 1000);
         }
     }
     
@@ -644,17 +737,6 @@
         `;
         
         document.body.appendChild(errorDiv);
-    }
-    
-    /**
-     * Handle authentication errors
-     */
-    function handleAuthenticationError() {
-        console.warn('🔐 Authentication error detected, redirecting to login');
-        
-        setTimeout(() => {
-            redirectToLogin('Authentication error');
-        }, 1000);
     }
     
     /**

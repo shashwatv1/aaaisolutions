@@ -877,30 +877,30 @@
       /**
        * Initialize the application WITH AUTHENTICATION WAITING
        */
-      async function initializeApp() {
+       async function initializeApp() {
         try {
-          // Initialize environment
+          console.log('🚀 Unified Projects Application starting...');
+          
+          // Initialize environment first
           initializeEnvironment();
           
-          // Wait for unified initialization to complete
-          console.log('⏳ Waiting for unified initialization...');
-          await waitForUnifiedInitialization();
-          
-          // CRITICAL: Wait for authentication to be fully ready
-          console.log('🔐 Ensuring authentication is ready...');
-          const authReady = await ensureAuthenticationReady();
-          
-          if (!authReady) {
-            console.log('❌ Authentication not ready, redirecting to login');
+          // Enhanced authentication check with retries
+          const authResult = await initializeAuthentication();
+          if (!authResult.success) {
+            console.log('❌ Authentication failed, redirecting to login');
             window.location.href = 'login.html';
             return;
           }
           
+          console.log('✅ Authentication confirmed, continuing initialization...');
+          
+          // Initialize services with proper dependency injection
+          await initializeServices();
+          
           // Initialize UI
           initializeUI();
           
-          // Load data (now safe to make API calls)
-          await loadCurrentContext();
+          // Load projects
           await loadProjects();
           
           // Setup event listeners
@@ -911,6 +911,124 @@
         } catch (error) {
           console.error('❌ Failed to initialize application:', error);
           showToast(`Failed to initialize: ${error.message}`, 'error');
+          
+          // If it's an auth error, redirect to login
+          if (error.message.includes('authentication') || error.message.includes('login')) {
+            setTimeout(() => {
+              window.location.href = 'login.html';
+            }, 2000);
+          }
+        }
+      }
+      
+      async function initializeServices() {
+        try {
+          console.log('🔧 Initializing services...');
+          
+          // Wait for unified init to complete if it's running
+          if (window.AAAI_APP && !window.AAAI_APP.initialized) {
+            console.log('⏳ Waiting for unified initialization...');
+            
+            // Wait up to 5 seconds for unified init
+            const timeout = Date.now() + 5000;
+            while (!window.AAAI_APP.initialized && Date.now() < timeout) {
+              await new Promise(resolve => setTimeout(resolve, 100));
+            }
+            
+            if (window.AAAI_APP.initialized) {
+              console.log('✅ Unified initialization completed');
+              return; // Services already initialized by unified-init
+            } else {
+              console.warn('⚠️ Unified initialization timeout, initializing manually');
+            }
+          }
+          
+          // Manual service initialization if unified init didn't complete
+          console.log('🔧 Manual service initialization...');
+          
+          // Initialize ProjectService
+          if (window.ProjectService && !window.ProjectService.isInitialized) {
+            window.ProjectService.init(window.AuthService, {
+              debug: window.AAAI_CONFIG?.ENABLE_DEBUG || false
+            });
+            console.log('✅ ProjectService initialized');
+          }
+          
+          // Initialize NavigationManager
+          if (window.NavigationManager && !window.NavigationManager.isInitialized) {
+            window.NavigationManager.init(window.AuthService, window.ProjectService, {
+              debug: window.AAAI_CONFIG?.ENABLE_DEBUG || false
+            });
+            console.log('✅ NavigationManager initialized');
+          }
+          
+          // Initialize ChatService (optional)
+          if (window.ChatService && !window.ChatService.isInitialized) {
+            try {
+              window.ChatService.init(window.AuthService);
+              console.log('✅ ChatService initialized');
+            } catch (error) {
+              console.warn('⚠️ ChatService initialization failed:', error);
+            }
+          }
+          
+          console.log('✅ Services initialized successfully');
+          
+        } catch (error) {
+          console.error('❌ Service initialization failed:', error);
+          throw error;
+        }
+      }
+      
+      async function initializeAuthentication() {
+        console.log('🔐 Initializing authentication...');
+        
+        try {
+          // Step 1: Initialize AuthService
+          if (!window.AuthService) {
+            throw new Error('AuthService not available');
+          }
+          
+          // Initialize AuthService
+          const authInitResult = window.AuthService.init();
+          console.log('🔐 AuthService.init() result:', authInitResult);
+          
+          // Step 2: If not authenticated, try to validate session with retry
+          if (!authInitResult) {
+            console.log('🔐 Initial auth failed, attempting session validation...');
+            
+            const validationResult = await validateSessionWithRetry();
+            if (!validationResult) {
+              return { success: false, reason: 'Session validation failed' };
+            }
+          }
+          
+          // Step 3: Final authentication check
+          const finalAuthCheck = window.AuthService.isAuthenticated();
+          console.log('🔐 Final authentication check:', finalAuthCheck);
+          
+          if (!finalAuthCheck) {
+            return { success: false, reason: 'Final authentication check failed' };
+          }
+          
+          // Step 4: Verify user information
+          const user = window.AuthService.getCurrentUser();
+          if (!user || !user.email || !user.id) {
+            console.error('🔐 User information incomplete:', user);
+            return { success: false, reason: 'Incomplete user information' };
+          }
+          
+          console.log('✅ Authentication successful:', {
+            email: user.email,
+            id: user.id,
+            sessionId: user.sessionId
+          });
+          
+          return { success: true, user: user };
+          
+        } catch (error) {
+          console.error('🔐 Authentication initialization error:', error);
+          return { success: false, reason: error.message };
         }
       }
 
@@ -932,6 +1050,54 @@
         }
         
         throw new Error('Unified initialization timed out');
+      }
+
+      async function validateSessionWithRetry(maxRetries = 3, delay = 1000) {
+        for (let attempt = 1; attempt <= maxRetries; attempt++) {
+          try {
+            console.log(`🔐 Session validation attempt ${attempt}/${maxRetries}...`);
+            
+            // Check if we have persistent session data
+            if (!window.AuthService.hasPersistentSession()) {
+              console.log('🔐 No persistent session data found');
+              return false;
+            }
+            
+            // Try to refresh token/session
+            const refreshResult = await window.AuthService.refreshTokenIfNeeded();
+            if (refreshResult) {
+              console.log('✅ Session refreshed successfully');
+              return true;
+            }
+            
+            // If we have session data but refresh failed, try validation
+            if (window.AuthService._validateSessionAsync) {
+              const validationResult = await window.AuthService._validateSessionAsync();
+              if (validationResult) {
+                console.log('✅ Session validated successfully');
+                return true;
+              }
+            }
+            
+            // Wait before next attempt
+            if (attempt < maxRetries) {
+              console.log(`⏳ Waiting ${delay}ms before retry...`);
+              await new Promise(resolve => setTimeout(resolve, delay));
+              delay *= 1.5; // Exponential backoff
+            }
+            
+          } catch (error) {
+            console.error(`🔐 Session validation attempt ${attempt} failed:`, error);
+            
+            if (attempt < maxRetries) {
+              await new Promise(resolve => setTimeout(resolve, delay));
+              delay *= 1.5;
+            }
+          }
+        }
+        
+        console.log('❌ All session validation attempts failed');
+        return false;
       }
 
       /**

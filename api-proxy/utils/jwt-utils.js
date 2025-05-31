@@ -26,8 +26,8 @@ async function getSupabaseClient() {
   if (!supabase) {
     try {
       console.log('Initializing Supabase client...');
-      const supabaseUrl = await getSecret('supabase-url');
-      const supabaseKey = await getSecret('supabase-service-role-key');
+      const supabaseUrl = await getSecret('SUPABASE_URL');
+      const supabaseKey = await getSecret('SUPABASE_KEY');
       
       if (!supabaseUrl || !supabaseKey) {
         throw new Error('Missing Supabase credentials in Secret Manager');
@@ -48,7 +48,7 @@ async function getSupabaseClient() {
  */
 async function getJWTSecret() {
   try {
-    return await getSecret('jwt-secret');
+    return await getSecret('JWT_SECRET_KEY');
   } catch (error) {
     console.error('Failed to get JWT secret:', error);
     throw new Error('JWT secret not available');
