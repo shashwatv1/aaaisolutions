@@ -412,32 +412,46 @@ const AuthService = {
     },
 
     /**
-     * ENHANCED: User data validation with comprehensive checks
+     * ENHANCED: User data validation with comprehensive checks and better error messages
      */
     _validateUserData(userData) {
+        console.log('🔍 Validating user data:', userData);
+        
         if (!userData || typeof userData !== 'object') {
-            console.warn('❌ Invalid user data: not an object', userData);
+            console.error('❌ Invalid user data: not an object', userData);
             return false;
         }
         
         // Check email
         if (!userData.email || typeof userData.email !== 'string' || !userData.email.includes('@')) {
-            console.warn('❌ Invalid user data: missing or invalid email', userData.email);
+            console.error('❌ Invalid user data: missing or invalid email', {
+                email: userData.email,
+                type: typeof userData.email,
+                hasAt: userData.email ? userData.email.includes('@') : false
+            });
             return false;
         }
         
         // Check id (must be string and non-empty)
         if (!userData.id || typeof userData.id !== 'string' || userData.id.trim() === '') {
-            console.warn('❌ Invalid user data: missing or invalid id', userData.id);
+            console.error('❌ Invalid user data: missing or invalid id', {
+                id: userData.id,
+                type: typeof userData.id,
+                isEmpty: userData.id ? userData.id.trim() === '' : true
+            });
             return false;
         }
         
         // Session ID can be missing, but if present must be valid
         if (userData.session_id && (typeof userData.session_id !== 'string' || userData.session_id.trim() === '')) {
-            console.warn('❌ Invalid user data: invalid session_id', userData.session_id);
+            console.error('❌ Invalid user data: invalid session_id', {
+                session_id: userData.session_id,
+                type: typeof userData.session_id
+            });
             return false;
         }
         
+        console.log('✅ User data validation passed');
         return true;
     },
 
@@ -565,11 +579,11 @@ const AuthService = {
     },
 
     /**
-     * ENHANCED: OTP verification with consistent state management
+     * ENHANCED: OTP verification with server response mapping
      */
     async verifyOTP(email, otp) {
         try {
-            console.log(`CONSISTENT: Verifying OTP for email: ${email}`);
+            console.log(`🔐 ENHANCED OTP: Verifying OTP for email: ${email}`);
             
             // Clear any existing inconsistent state
             this._clearAuthState();
@@ -591,24 +605,25 @@ const AuthService = {
             const data = await response.json();
             
             if (!response.ok) {
-                console.error('OTP verification failed:', data);
+                console.error('❌ OTP verification failed:', data);
                 throw new Error(data.error || data.detail || 'Invalid OTP');
             }
             
-            console.log('✅ CONSISTENT: OTP verification successful');
+            console.log('✅ OTP verification successful, mapping server response...');
+            console.log('🔍 Raw server response:', data);
             
-            // Set COMPLETE authentication state
-            const userInfo = {
-                email: email,
-                id: data.id,
-                session_id: data.session_id
-            };
+            // ENHANCED: Map server response to expected user info structure
+            const userInfo = this._mapServerResponseToUserInfo(email, data);
             
-            // Validate before setting
+            console.log('🔍 Mapped user info:', userInfo);
+            
+            // Validate the mapped user info
             if (!this._validateUserData(userInfo)) {
-                throw new Error('Server returned invalid user data');
+                console.error('❌ Mapped user data validation failed:', userInfo);
+                throw new Error('Server returned invalid user data after mapping');
             }
             
+            // Set COMPLETE authentication state
             this._setCompleteAuthState(userInfo, 'server');
             
             // Clear validation flags
@@ -622,17 +637,76 @@ const AuthService = {
                 throw new Error('Failed to establish complete authentication state');
             }
             
-            console.log('✅ CONSISTENT: Authentication state established successfully');
-            return data;
+            console.log('✅ ENHANCED OTP: Authentication state established successfully');
+            return data; // Return original server response
             
         } catch (error) {
             if (error.name === 'AbortError') {
                 throw new Error('Request timed out. Please check your connection and try again.');
             }
-            console.error('CONSISTENT OTP Verification error:', error);
+            console.error('❌ ENHANCED OTP Verification error:', error);
             this._clearAuthState(); // Ensure clean state on failure
             throw new Error(`OTP verification failed: ${error.message}`);
         }
+    },
+
+    /**
+     * ENHANCED: Map server response to expected user info structure
+     */
+    _mapServerResponseToUserInfo(email, serverResponse) {
+        console.log('🔄 Mapping server response to user info...');
+        console.log('📥 Server response keys:', Object.keys(serverResponse));
+        
+        // Create user info object with all possible mappings
+        const userInfo = {
+            email: email, // Use the email from the request
+            id: null,
+            session_id: null
+        };
+        
+        // Map user ID from various possible fields
+        if (serverResponse.userId) {
+            userInfo.id = serverResponse.userId;
+            console.log('✅ Mapped userId to id:', serverResponse.userId);
+        } else if (serverResponse.id) {
+            userInfo.id = serverResponse.id;
+            console.log('✅ Found id field:', serverResponse.id);
+        } else if (serverResponse.user_id) {
+            userInfo.id = serverResponse.user_id;
+            console.log('✅ Mapped user_id to id:', serverResponse.user_id);
+        } else if (serverResponse.user && serverResponse.user.id) {
+            userInfo.id = serverResponse.user.id;
+            console.log('✅ Mapped user.id to id:', serverResponse.user.id);
+        } else if (serverResponse.user && serverResponse.user.userId) {
+            userInfo.id = serverResponse.user.userId;
+            console.log('✅ Mapped user.userId to id:', serverResponse.user.userId);
+        }
+        
+        // Map session ID from various possible fields
+        if (serverResponse.session_id) {
+            userInfo.session_id = serverResponse.session_id;
+            console.log('✅ Found session_id:', serverResponse.session_id);
+        } else if (serverResponse.sessionId) {
+            userInfo.session_id = serverResponse.sessionId;
+            console.log('✅ Mapped sessionId to session_id:', serverResponse.sessionId);
+        } else if (serverResponse.token) {
+            // Generate session ID from token or timestamp
+            userInfo.session_id = `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+            console.log('✅ Generated session_id:', userInfo.session_id);
+        } else {
+            // Generate a session ID if none provided
+            userInfo.session_id = `otp_session_${Date.now()}`;
+            console.log('✅ Generated fallback session_id:', userInfo.session_id);
+        }
+        
+        // Ensure email is correct
+        if (serverResponse.email && serverResponse.email !== email) {
+            console.warn('⚠️ Email mismatch, using server email:', serverResponse.email);
+            userInfo.email = serverResponse.email;
+        }
+        
+        console.log('✅ Final mapped user info:', userInfo);
+        return userInfo;
     },
 
     /**
