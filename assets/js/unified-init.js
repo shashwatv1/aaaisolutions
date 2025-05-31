@@ -1,18 +1,21 @@
 /**
- * Unified Application Initialization Script for AAAI Solutions
- * Ensures proper service loading order and handles dependencies
- * Place this script after all service scripts but before page-specific scripts
+ * Enhanced Unified Application Initialization for AAAI Solutions
+ * WITH CONSISTENT AUTHENTICATION STATE MANAGEMENT
+ * Ensures proper service loading order and handles authentication consistency
  */
 
 (function() {
     'use strict';
     
-    // Global application state
+    // Global application state with enhanced tracking
     window.AAAI_APP = {
         initialized: false,
         services: {},
         config: window.AAAI_CONFIG || {},
-        debug: false
+        debug: false,
+        authenticationStatus: 'unknown', // 'complete', 'partial', 'none', 'failed'
+        initializationAttempts: 0,
+        maxInitializationAttempts: 3
     };
     
     // Service initialization order (important for dependency management)
@@ -34,11 +37,13 @@
     };
     
     /**
-     * Initialize the unified application
+     * ENHANCED: Initialize the unified application with consistent auth handling
      */
     async function initializeApplication() {
+        window.AAAI_APP.initializationAttempts++;
+        
         try {
-            console.log('🚀 AAAI Solutions - Unified Application Initialization');
+            console.log(`🚀 ENHANCED AAAI Solutions - Unified Initialization (Attempt ${window.AAAI_APP.initializationAttempts})`);
             
             // Set debug mode
             window.AAAI_APP.debug = window.AAAI_CONFIG?.ENABLE_DEBUG || false;
@@ -46,221 +51,324 @@
             // Initialize environment
             initializeEnvironment();
             
-            // Check if we're on a page that requires authentication
+            // Get current page type
             const currentPage = getCurrentPageType();
             console.log('📄 Current page type:', currentPage);
             
-            // Enhanced authentication handling for different page types
-            const authResult = await handlePageAuthentication(currentPage);
+            // ENHANCED: Handle page authentication with retry logic
+            const authResult = await handleEnhancedPageAuthentication(currentPage);
             if (!authResult.success) {
+                console.log('❌ Enhanced authentication failed, handling redirect...');
                 return; // Page will handle redirect
             }
             
-            // Initialize services in correct order
-            await initializeServicesInOrder();
+            console.log('✅ Enhanced authentication confirmed, continuing initialization...');
             
-            // Setup global error handling
-            setupGlobalErrorHandling();
+            // Initialize services with enhanced error handling
+            await initializeServicesWithRetry();
             
-            // Setup cross-service communication
-            setupServiceCommunication();
+            // Setup enhanced error handling
+            setupEnhancedErrorHandling();
             
-            // Page-specific initialization
-            await initializePageSpecific(currentPage);
+            // Setup enhanced service communication
+            setupEnhancedServiceCommunication();
+            
+            // Page-specific initialization with auth validation
+            await initializePageSpecificEnhanced(currentPage);
             
             window.AAAI_APP.initialized = true;
+            window.AAAI_APP.authenticationStatus = authResult.authStatus;
             
-            console.log('✅ AAAI Solutions application initialized successfully');
+            console.log('✅ ENHANCED AAAI Solutions application initialized successfully');
             console.log('🔍 Available services:', Object.keys(window.AAAI_APP.services));
+            console.log('🔐 Authentication status:', window.AAAI_APP.authenticationStatus);
             
             // Notify page scripts that initialization is complete
             document.dispatchEvent(new CustomEvent('aaai:initialized', {
                 detail: { 
                     services: window.AAAI_APP.services,
-                    config: window.AAAI_APP.config
+                    config: window.AAAI_APP.config,
+                    authenticationStatus: window.AAAI_APP.authenticationStatus,
+                    authenticationComplete: authResult.authenticationComplete
                 }
             }));
             
         } catch (error) {
-            console.error('❌ Failed to initialize AAAI application:', error);
-            handleInitializationError(error);
+            console.error('❌ Failed to initialize ENHANCED AAAI application:', error);
+            await handleEnhancedInitializationError(error);
         }
     }
     
     /**
-     * Enhanced authentication handling for different page types
+     * ENHANCED: Handle page authentication with better state management
      */
-    async function handlePageAuthentication(pageType) {
-        console.log('🔐 Handling page authentication for:', pageType);
+    async function handleEnhancedPageAuthentication(pageType) {
+        console.log('🔐 ENHANCED: Handling page authentication for:', pageType);
         
         try {
-            // Initialize AuthService first
+            // Initialize AuthService first with enhanced checking
             if (!window.AuthService) {
                 throw new Error('AuthService not available');
             }
             
-            // Initialize AuthService
+            // Initialize AuthService and get detailed result
+            console.log('🔐 Initializing AuthService...');
             const authInitResult = window.AuthService.init();
+            
             console.log('🔐 AuthService initialization result:', authInitResult);
             
-            // Handle based on page type
+            // Check authentication completeness
+            const isAuthComplete = window.AuthService._isAuthenticationComplete ? 
+                                 window.AuthService._isAuthenticationComplete() : 
+                                 window.AuthService.isAuthenticated();
+            
+            console.log('🔐 Authentication completeness check:', isAuthComplete);
+            
+            // Get authentication details
+            const authDetails = {
+                authenticated: window.AuthService.isAuthenticated(),
+                authenticationComplete: isAuthComplete,
+                sessionInfo: window.AuthService.getSessionInfo ? 
+                           window.AuthService.getSessionInfo() : {},
+                hasPersistentSession: window.AuthService.hasPersistentSession()
+            };
+            
+            console.log('🔐 Detailed authentication status:', authDetails);
+            
+            // Handle based on page type with enhanced logic
             switch (pageType) {
                 case 'login':
-                    // Login page - check if already authenticated
-                    if (authInitResult) {
-                        console.log('🔐 Already authenticated, redirecting to projects...');
-                        window.location.href = 'project.html';
-                        return { success: false, redirect: true };
-                    }
-                    return { success: true, authenticated: false };
+                    return await handleLoginPageAuth(authDetails);
                     
                 case 'project':
                 case 'chat':
-                    // Protected pages - require authentication
-                    if (!authInitResult) {
-                        console.log('🔐 Authentication required, attempting validation...');
-                        
-                        // Try session validation with timeout
-                        const validationResult = await checkAuthenticationWithTimeout(window.AuthService, 3000);
-                        if (!validationResult) {
-                            console.log('🔐 Authentication validation failed, redirecting to login...');
-                            window.location.href = 'login.html';
-                            return { success: false, redirect: true };
-                        }
-                    }
-                    
-                    // Verify user information is complete
-                    const user = window.AuthService.getCurrentUser();
-                    if (!user || !user.email || !user.id) {
-                        console.error('🔐 Incomplete user information:', user);
-                        window.location.href = 'login.html';
-                        return { success: false, redirect: true };
-                    }
-                    
-                    return { success: true, authenticated: true, user: user };
+                    return await handleProtectedPageAuth(authDetails, pageType);
                     
                 default:
-                    // Public pages - no authentication required
-                    return { success: true, authenticated: authInitResult };
+                    // Public pages
+                    return { 
+                        success: true, 
+                        authenticated: authDetails.authenticated,
+                        authenticationComplete: authDetails.authenticationComplete,
+                        authStatus: authDetails.authenticationComplete ? 'complete' : 
+                                  authDetails.authenticated ? 'partial' : 'none'
+                    };
             }
             
         } catch (error) {
-            console.error('🔐 Authentication handling error:', error);
+            console.error('🔐 Enhanced authentication handling error:', error);
+            return { 
+                success: false, 
+                error: error.message,
+                authStatus: 'failed'
+            };
+        }
+    }
+    
+    /**
+     * Handle authentication for login page
+     */
+    async function handleLoginPageAuth(authDetails) {
+        console.log('🔐 Handling login page authentication...');
+        
+        // If authentication is complete, redirect to projects
+        if (authDetails.authenticationComplete) {
+            console.log('🔐 Complete authentication detected, redirecting to projects...');
+            window.location.href = 'project.html';
+            return { success: false, redirect: true };
+        }
+        
+        // If partial authentication, try to restore
+        if (authDetails.authenticated && !authDetails.authenticationComplete) {
+            console.log('🔐 Partial authentication detected, attempting restoration...');
             
-            if (pageType === 'project' || pageType === 'chat') {
+            try {
+                // Try immediate validation if available
+                if (typeof window.AuthService._attemptImmediateValidation === 'function') {
+                    await window.AuthService._attemptImmediateValidation();
+                    
+                    // Re-check after validation attempt
+                    const isNowComplete = window.AuthService._isAuthenticationComplete();
+                    if (isNowComplete) {
+                        console.log('🔐 Authentication restored, redirecting to projects...');
+                        window.location.href = 'project.html';
+                        return { success: false, redirect: true };
+                    }
+                }
+            } catch (error) {
+                console.warn('🔐 Failed to restore authentication:', error);
+                // Clear inconsistent state
+                window.AuthService.clearAuthData();
+            }
+        }
+        
+        // Stay on login page for new authentication
+        return { 
+            success: true, 
+            authenticated: false,
+            authenticationComplete: false,
+            authStatus: 'none'
+        };
+    }
+    
+    /**
+     * Handle authentication for protected pages
+     */
+    async function handleProtectedPageAuth(authDetails, pageType) {
+        console.log(`🔐 Handling protected page authentication for: ${pageType}`);
+        
+        // If authentication is complete, proceed
+        if (authDetails.authenticationComplete) {
+            console.log('🔐 Complete authentication confirmed for protected page');
+            return { 
+                success: true, 
+                authenticated: true,
+                authenticationComplete: true,
+                authStatus: 'complete',
+                user: window.AuthService.getCurrentUser()
+            };
+        }
+        
+        // If no authentication at all, redirect to login
+        if (!authDetails.authenticated && !authDetails.hasPersistentSession) {
+            console.log('🔐 No authentication found, redirecting to login...');
+            window.location.href = 'login.html';
+            return { success: false, redirect: true };
+        }
+        
+        // If partial authentication, try to restore with timeout
+        if (authDetails.authenticated || authDetails.hasPersistentSession) {
+            console.log('🔐 Partial authentication detected, attempting restoration...');
+            
+            try {
+                const restorationResult = await attemptAuthenticationRestoration();
+                
+                if (restorationResult.success) {
+                    console.log('🔐 Authentication successfully restored');
+                    return { 
+                        success: true, 
+                        authenticated: true,
+                        authenticationComplete: true,
+                        authStatus: 'complete',
+                        user: window.AuthService.getCurrentUser()
+                    };
+                } else {
+                    console.log('🔐 Authentication restoration failed, redirecting to login...');
+                    window.location.href = 'login.html';
+                    return { success: false, redirect: true };
+                }
+                
+            } catch (error) {
+                console.error('🔐 Authentication restoration error:', error);
                 window.location.href = 'login.html';
                 return { success: false, redirect: true };
             }
-            
-            return { success: true, authenticated: false };
         }
+        
+        // Fallback: redirect to login
+        console.log('🔐 Authentication state unclear, redirecting to login...');
+        window.location.href = 'login.html';
+        return { success: false, redirect: true };
     }
     
     /**
-     * Check authentication with timeout and retries
+     * Attempt to restore authentication with timeout and retries
      */
-    async function checkAuthenticationWithTimeout(authService, timeout = 3000) {
+    async function attemptAuthenticationRestoration(timeoutMs = 5000, maxAttempts = 3) {
         const startTime = Date.now();
+        let attempts = 0;
         
-        while (Date.now() - startTime < timeout) {
+        while (attempts < maxAttempts && (Date.now() - startTime) < timeoutMs) {
+            attempts++;
+            console.log(`🔐 Authentication restoration attempt ${attempts}/${maxAttempts}...`);
+            
             try {
-                // Check if basic authentication is present
-                if (authService.isAuthenticated()) {
-                    const user = authService.getCurrentUser();
-                    if (user && user.email && user.id) {
-                        console.log('✅ Authentication confirmed:', user.email);
-                        return true;
-                    }
+                // Try immediate validation if available
+                if (typeof window.AuthService._attemptImmediateValidation === 'function') {
+                    await window.AuthService._attemptImmediateValidation();
                 }
                 
-                // Check if we have persistent session data
-                if (authService.hasPersistentSession()) {
-                    console.log('🔍 Persistent session found, attempting validation...');
+                // Try token refresh if available
+                if (typeof window.AuthService.refreshTokenIfNeeded === 'function') {
+                    const refreshResult = await Promise.race([
+                        window.AuthService.refreshTokenIfNeeded(),
+                        new Promise((_, reject) => 
+                            setTimeout(() => reject(new Error('Timeout')), 3000)
+                        )
+                    ]);
                     
-                    // Try a quick token refresh
-                    try {
-                        const refreshResult = await Promise.race([
-                            authService.refreshTokenIfNeeded(),
-                            new Promise((_, reject) => 
-                                setTimeout(() => reject(new Error('Timeout')), 2000)
-                            )
-                        ]);
-                        
-                        if (refreshResult && authService.isAuthenticated()) {
-                            console.log('✅ Authentication restored via token refresh');
-                            return true;
-                        }
-                    } catch (refreshError) {
-                        console.warn('⚠️ Token refresh failed or timed out:', refreshError.message);
+                    if (refreshResult) {
+                        console.log('🔐 Token refresh successful');
                     }
                 }
                 
-                // Short wait before next check
-                await new Promise(resolve => setTimeout(resolve, 200));
+                // Check if authentication is now complete
+                const isComplete = window.AuthService._isAuthenticationComplete ? 
+                                 window.AuthService._isAuthenticationComplete() : 
+                                 window.AuthService.isAuthenticated();
+                
+                if (isComplete) {
+                    const user = window.AuthService.getCurrentUser();
+                    if (user && user.email && user.id) {
+                        console.log('✅ Authentication restoration successful');
+                        return { success: true, user: user };
+                    }
+                }
+                
+                // Wait before next attempt
+                if (attempts < maxAttempts) {
+                    await new Promise(resolve => setTimeout(resolve, 1000));
+                }
                 
             } catch (error) {
-                console.error('❌ Authentication check error:', error);
-                break;
+                console.warn(`🔐 Restoration attempt ${attempts} failed:`, error.message);
+                
+                if (attempts < maxAttempts) {
+                    await new Promise(resolve => setTimeout(resolve, 1000));
+                }
             }
         }
         
-        console.log('❌ Authentication check timeout or failed');
-        return false;
+        console.log('❌ Authentication restoration failed after all attempts');
+        return { success: false };
     }
     
     /**
-     * Initialize environment settings
+     * Initialize services with enhanced error handling and retries
      */
-    function initializeEnvironment() {
-        // Ensure config exists
-        if (!window.AAAI_CONFIG) {
-            window.AAAI_CONFIG = {
-                ENVIRONMENT: 'production',
-                ENABLE_DEBUG: false,
-                ENABLE_WEBSOCKETS: true,
-                VERSION: '1.0.0'
-            };
+    async function initializeServicesWithRetry() {
+        console.log('🔧 ENHANCED: Initializing services with retry logic...');
+        
+        let lastError = null;
+        
+        for (let attempt = 1; attempt <= 2; attempt++) {
+            try {
+                for (const serviceName of SERVICE_INIT_ORDER) {
+                    await initializeServiceEnhanced(serviceName);
+                }
+                
+                console.log('✅ All services initialized successfully');
+                return; // Success
+                
+            } catch (error) {
+                lastError = error;
+                console.error(`❌ Service initialization attempt ${attempt} failed:`, error);
+                
+                if (attempt < 2) {
+                    console.log('🔄 Retrying service initialization...');
+                    await new Promise(resolve => setTimeout(resolve, 1000));
+                }
+            }
         }
         
-        // Set up logger
-        if (!window.AAAI_LOGGER) {
-            const logLevel = window.AAAI_CONFIG.ENABLE_DEBUG ? 'debug' : 'info';
-            
-            window.AAAI_LOGGER = {
-                debug: logLevel === 'debug' ? console.log.bind(console, '[DEBUG]') : () => {},
-                info: console.info.bind(console, '[INFO]'),
-                warn: console.warn.bind(console, '[WARN]'),
-                error: console.error.bind(console, '[ERROR]')
-            };
-        }
-        
-        // Store config in app state
-        window.AAAI_APP.config = window.AAAI_CONFIG;
-        
-        console.log('🌍 Environment initialized:', {
-            environment: window.AAAI_CONFIG.ENVIRONMENT,
-            debug: window.AAAI_CONFIG.ENABLE_DEBUG,
-            websockets: window.AAAI_CONFIG.ENABLE_WEBSOCKETS
-        });
+        // If we get here, all attempts failed
+        throw new Error(`Service initialization failed after retries: ${lastError.message}`);
     }
     
     /**
-     * Initialize services in the correct dependency order
+     * ENHANCED: Initialize a specific service with better error handling
      */
-    async function initializeServicesInOrder() {
-        console.log('🔧 Initializing services in dependency order...');
-        
-        for (const serviceName of SERVICE_INIT_ORDER) {
-            await initializeService(serviceName);
-        }
-        
-        console.log('✅ All services initialized successfully');
-    }
-    
-    /**
-     * Initialize a specific service with dependency checking
-     */
-    async function initializeService(serviceName) {
+    async function initializeServiceEnhanced(serviceName) {
         try {
             // Check if service exists
             if (!window[serviceName]) {
@@ -282,26 +390,33 @@
                 }
             }
             
-            console.log(`🔧 Initializing ${serviceName}...`);
+            console.log(`🔧 Initializing ${serviceName} with enhanced checks...`);
             
             // Get the service object
             let service = window[serviceName];
             
-            // Initialize the service and store the service object (not the return value)
+            // Initialize based on service type with enhanced validation
             switch (serviceName) {
                 case 'AuthService':
-                    // AuthService should already be initialized by handlePageAuthentication
-                    // Just store the reference
+                    // AuthService should already be initialized
+                    if (!service._isAuthenticationComplete) {
+                        console.warn('⚠️ AuthService missing enhanced methods');
+                    }
                     window.AAAI_APP.services[serviceName] = service;
                     break;
                     
                 case 'ProjectService':
                     if (typeof service.init === 'function' && !service.isInitialized) {
-                        service.init(window.AAAI_APP.services.AuthService, {
+                        // Validate AuthService before initializing ProjectService
+                        const authService = window.AAAI_APP.services.AuthService;
+                        if (!authService) {
+                            throw new Error('AuthService required for ProjectService');
+                        }
+                        
+                        service.init(authService, {
                             debug: window.AAAI_APP.debug
                         });
                     }
-                    // Store the actual service object
                     window.AAAI_APP.services[serviceName] = service;
                     break;
                     
@@ -313,7 +428,6 @@
                             { debug: window.AAAI_APP.debug }
                         );
                     }
-                    // Store the actual service object
                     window.AAAI_APP.services[serviceName] = service;
                     break;
                     
@@ -323,7 +437,6 @@
                             debug: window.AAAI_APP.debug
                         });
                     }
-                    // Store the actual service object
                     window.AAAI_APP.services[serviceName] = service;
                     break;
                     
@@ -331,12 +444,10 @@
                     if (typeof service.init === 'function' && !service.isInitialized) {
                         service.init();
                     }
-                    // Store the actual service object
                     window.AAAI_APP.services[serviceName] = service;
                     break;
                     
                 default:
-                    // For any other services, just store them
                     window.AAAI_APP.services[serviceName] = service;
                     break;
             }
@@ -350,70 +461,233 @@
     }
     
     /**
-     * Setup global error handling
+     * Setup enhanced global error handling
      */
-    function setupGlobalErrorHandling() {
-        // Handle uncaught errors
+    function setupEnhancedErrorHandling() {
+        // Handle uncaught errors with authentication context
         window.addEventListener('error', (event) => {
             console.error('🚨 Uncaught error:', event.error);
             
             // Check if it's an authentication error
-            if (event.error?.message?.includes('authentication') || 
-                event.error?.message?.includes('login')) {
-                handleAuthenticationError();
+            if (isAuthenticationError(event.error)) {
+                handleAuthenticationErrorEnhanced(event.error);
             }
         });
         
-        // Handle unhandled promise rejections
+        // Handle unhandled promise rejections with authentication context
         window.addEventListener('unhandledrejection', (event) => {
             console.error('🚨 Unhandled promise rejection:', event.reason);
             
             // Check if it's an authentication error
-            if (event.reason?.message?.includes('authentication') || 
-                event.reason?.message?.includes('login')) {
-                handleAuthenticationError();
+            if (isAuthenticationError(event.reason)) {
+                handleAuthenticationErrorEnhanced(event.reason);
             }
         });
         
-        console.log('🛡️ Global error handling configured');
+        console.log('🛡️ Enhanced global error handling configured');
     }
     
     /**
-     * Setup communication between services
+     * Check if an error is authentication-related
      */
-    function setupServiceCommunication() {
-        // Create event system for service communication
+    function isAuthenticationError(error) {
+        if (!error) return false;
+        
+        const message = error.message || '';
+        const authKeywords = [
+            'authentication', 'login', 'session', 'expired', 'unauthorized', 
+            'token', 'credential', 'access denied', 'forbidden'
+        ];
+        
+        return authKeywords.some(keyword => message.toLowerCase().includes(keyword));
+    }
+    
+    /**
+     * Handle authentication errors with enhanced logic
+     */
+    function handleAuthenticationErrorEnhanced(error) {
+        console.warn('🔐 Enhanced authentication error handling:', error.message);
+        
+        // Get current authentication status
+        const authService = window.AAAI_APP.services?.AuthService;
+        if (!authService) {
+            console.error('AuthService not available for error handling');
+            redirectToLogin('AuthService unavailable');
+            return;
+        }
+        
+        const isComplete = authService._isAuthenticationComplete ? 
+                         authService._isAuthenticationComplete() : 
+                         authService.isAuthenticated();
+        
+        if (!isComplete) {
+            console.log('🔐 Authentication incomplete during error, clearing state...');
+            
+            // Clear authentication state
+            if (typeof authService.clearAuthData === 'function') {
+                authService.clearAuthData();
+            }
+            
+            // Redirect to login after a brief delay
+            setTimeout(() => {
+                redirectToLogin('Authentication error');
+            }, 1000);
+        }
+    }
+    
+    /**
+     * Redirect to login with error context
+     */
+    function redirectToLogin(reason) {
+        console.log('🔐 Redirecting to login:', reason);
+        
+        // Use NavigationManager if available
+        if (window.AAAI_APP.services?.NavigationManager) {
+            window.AAAI_APP.services.NavigationManager.goToLogin(reason);
+        } else {
+            window.location.href = 'login.html';
+        }
+    }
+    
+    /**
+     * Setup enhanced service communication
+     */
+    function setupEnhancedServiceCommunication() {
+        // Create enhanced event system
         window.AAAI_EVENTS = new EventTarget();
         
-        // Service event handlers
+        // Enhanced event handlers with authentication context
         const eventHandlers = {
-            'project:switched': handleProjectSwitch,
-            'auth:changed': handleAuthChange,
-            'chat:connected': handleChatConnected,
-            'navigation:changed': handleNavigationChange
+            'auth:changed': handleAuthChangeEnhanced,
+            'auth:expired': handleAuthExpiredEnhanced,
+            'project:switched': handleProjectSwitchEnhanced,
+            'chat:connected': handleChatConnectedEnhanced,
+            'navigation:changed': handleNavigationChangeEnhanced
         };
         
-        // Register event handlers
+        // Register enhanced event handlers
         for (const [event, handler] of Object.entries(eventHandlers)) {
             window.AAAI_EVENTS.addEventListener(event, handler);
         }
         
-        // Setup service-specific communication
-        setupProjectServiceEvents();
-        setupAuthServiceEvents();
-        setupChatServiceEvents();
+        // Setup service-specific communication with auth monitoring
+        setupAuthServiceEventsEnhanced();
+        setupProjectServiceEventsEnhanced();
+        setupChatServiceEventsEnhanced();
         
-        console.log('📡 Inter-service communication configured');
+        console.log('📡 Enhanced inter-service communication configured');
     }
     
     /**
-     * Setup ProjectService events
+     * Enhanced authentication change handler
      */
-    function setupProjectServiceEvents() {
+    function handleAuthChangeEnhanced(event) {
+        console.log('🔐 Enhanced authentication changed:', event.detail);
+        
+        if (!event.detail.authenticated) {
+            // User authentication lost
+            console.log('🔐 Authentication lost, cleaning up services...');
+            
+            // Clear service caches
+            if (window.AAAI_APP.services.ProjectService?.clearCache) {
+                window.AAAI_APP.services.ProjectService.clearCache();
+            }
+            
+            // Disconnect chat
+            if (window.AAAI_APP.services.ChatService?.disconnect) {
+                window.AAAI_APP.services.ChatService.disconnect();
+            }
+            
+            // Redirect to login
+            setTimeout(() => {
+                redirectToLogin('Authentication lost');
+            }, 1000);
+        }
+    }
+    
+    /**
+     * Handle authentication expiration
+     */
+    function handleAuthExpiredEnhanced(event) {
+        console.log('🔐 Authentication expired:', event.detail);
+        
+        // Clear all service states
+        Object.values(window.AAAI_APP.services).forEach(service => {
+            if (service.clearCache) service.clearCache();
+            if (service.disconnect) service.disconnect();
+        });
+        
+        // Redirect to login
+        redirectToLogin('Session expired');
+    }
+    
+    /**
+     * Setup enhanced AuthService events
+     */
+    function setupAuthServiceEventsEnhanced() {
+        const authService = window.AAAI_APP.services?.AuthService;
+        if (!authService) return;
+        
+        // Monitor authentication state changes with enhanced checking
+        let lastAuthState = authService._isAuthenticationComplete ? 
+                           authService._isAuthenticationComplete() : 
+                           authService.isAuthenticated();
+        
+        setInterval(() => {
+            const currentAuthState = authService._isAuthenticationComplete ? 
+                                   authService._isAuthenticationComplete() : 
+                                   authService.isAuthenticated();
+            
+            if (currentAuthState !== lastAuthState) {
+                lastAuthState = currentAuthState;
+                
+                window.AAAI_EVENTS.dispatchEvent(new CustomEvent('auth:changed', {
+                    detail: { 
+                        authenticated: currentAuthState,
+                        authenticationComplete: currentAuthState,
+                        timestamp: Date.now()
+                    }
+                }));
+            }
+        }, 5000); // Check every 5 seconds
+    }
+    
+    // Include other enhanced event handlers...
+    function handleProjectSwitchEnhanced(event) {
+        console.log('📂 Enhanced project switched:', event.detail);
+        
+        // Update ChatService context with validation
+        const chatService = window.AAAI_APP.services.ChatService;
+        const projectData = event.detail.data;
+        
+        if (chatService && projectData?.chat_id && projectData?.project_name) {
+            chatService.setProjectContext(projectData.chat_id, projectData.project_name);
+        }
+    }
+    
+    function handleChatConnectedEnhanced(event) {
+        console.log('💬 Enhanced chat connected:', event.detail);
+        
+        // Sync project context with authentication validation
         const projectService = window.AAAI_APP.services.ProjectService;
+        const chatService = window.AAAI_APP.services.ChatService;
+        
+        if (projectService && chatService) {
+            const context = projectService.getContext();
+            if (context.chat_id && context.project_name) {
+                chatService.setProjectContext(context.chat_id, context.project_name);
+            }
+        }
+    }
+    
+    function handleNavigationChangeEnhanced(event) {
+        console.log('🧭 Enhanced navigation changed:', event.detail);
+    }
+    
+    function setupProjectServiceEventsEnhanced() {
+        const projectService = window.AAAI_APP.services?.ProjectService;
         if (!projectService) return;
         
-        // Listen for project context changes
         if (typeof projectService.onContextChange === 'function') {
             projectService.onContextChange((eventType, data) => {
                 window.AAAI_EVENTS.dispatchEvent(new CustomEvent('project:switched', {
@@ -423,35 +697,10 @@
         }
     }
     
-    /**
-     * Setup AuthService events
-     */
-    function setupAuthServiceEvents() {
-        const authService = window.AAAI_APP.services.AuthService;
-        if (!authService) return;
-        
-        // Monitor authentication state changes
-        let lastAuthState = authService.isAuthenticated();
-        
-        setInterval(() => {
-            const currentAuthState = authService.isAuthenticated();
-            if (currentAuthState !== lastAuthState) {
-                lastAuthState = currentAuthState;
-                window.AAAI_EVENTS.dispatchEvent(new CustomEvent('auth:changed', {
-                    detail: { authenticated: currentAuthState }
-                }));
-            }
-        }, 5000); // Check every 5 seconds
-    }
-    
-    /**
-     * Setup ChatService events
-     */
-    function setupChatServiceEvents() {
-        const chatService = window.AAAI_APP.services.ChatService;
+    function setupChatServiceEventsEnhanced() {
+        const chatService = window.AAAI_APP.services?.ChatService;
         if (!chatService) return;
         
-        // Listen for connection status changes
         if (typeof chatService.onStatusChange === 'function') {
             chatService.onStatusChange((status) => {
                 if (status === 'connected') {
@@ -464,59 +713,10 @@
     }
     
     /**
-     * Event handlers for service communication
+     * Page-specific initialization with enhanced auth validation
      */
-    function handleProjectSwitch(event) {
-        console.log('📂 Project switched:', event.detail);
-        
-        // Update ChatService context
-        const chatService = window.AAAI_APP.services.ChatService;
-        const projectData = event.detail.data;
-        
-        if (chatService && projectData?.chat_id && projectData?.project_name) {
-            chatService.setProjectContext(projectData.chat_id, projectData.project_name);
-        }
-    }
-    
-    function handleAuthChange(event) {
-        console.log('🔐 Authentication changed:', event.detail);
-        
-        if (!event.detail.authenticated) {
-            // User logged out, redirect to login
-            setTimeout(() => {
-                if (window.AAAI_APP.services.NavigationManager) {
-                    window.AAAI_APP.services.NavigationManager.goToLogin('Session expired');
-                } else {
-                    window.location.href = 'login.html';
-                }
-            }, 1000);
-        }
-    }
-    
-    function handleChatConnected(event) {
-        console.log('💬 Chat connected:', event.detail);
-        
-        // Sync project context with chat
-        const projectService = window.AAAI_APP.services.ProjectService;
-        const chatService = window.AAAI_APP.services.ChatService;
-        
-        if (projectService && chatService) {
-            const context = projectService.getContext();
-            if (context.chat_id && context.project_name) {
-                chatService.setProjectContext(context.chat_id, context.project_name);
-            }
-        }
-    }
-    
-    function handleNavigationChange(event) {
-        console.log('🧭 Navigation changed:', event.detail);
-    }
-    
-    /**
-     * Page-specific initialization
-     */
-    async function initializePageSpecific(pageType) {
-        console.log(`🎯 Initializing page-specific features for: ${pageType}`);
+    async function initializePageSpecificEnhanced(pageType) {
+        console.log(`🎯 Enhanced page-specific initialization for: ${pageType}`);
         
         switch (pageType) {
             case 'login':
@@ -524,11 +724,11 @@
                 break;
                 
             case 'project':
-                await initializeProjectPage();
+                await initializeProjectPageEnhanced();
                 break;
                 
             case 'chat':
-                await initializeChatPage();
+                await initializeChatPageEnhanced();
                 break;
                 
             default:
@@ -538,36 +738,23 @@
     }
     
     /**
-     * Initialize project page with enhanced authentication handling
+     * Enhanced project page initialization
      */
-    async function initializeProjectPage() {
+    async function initializeProjectPageEnhanced() {
         try {
-            console.log('📂 Initializing project page...');
+            console.log('📂 Enhanced project page initialization...');
             
             const authService = window.AAAI_APP.services.AuthService;
             const projectService = window.AAAI_APP.services.ProjectService;
             
-            // Enhanced authentication check
-            if (!authService) {
-                console.error('❌ AuthService not available');
-                throw new Error('AuthService not available');
+            // Validate authentication
+            if (!authService || !authService._isAuthenticationComplete()) {
+                throw new Error('Complete authentication required for project page');
             }
             
-            // Check authentication with timeout
-            const isAuthenticated = await checkAuthenticationWithTimeout(authService, 3000);
-            if (!isAuthenticated) {
-                console.log('❌ Authentication check failed, redirecting to login');
-                if (window.AAAI_APP.services.NavigationManager) {
-                    window.AAAI_APP.services.NavigationManager.goToLogin('Authentication required');
-                } else {
-                    window.location.href = 'login.html';
-                }
-                return;
-            }
+            console.log('✅ Project page authentication validated');
             
-            console.log('✅ Project page authentication confirmed');
-            
-            // Load current context (non-blocking)
+            // Load project context if available
             if (projectService) {
                 try {
                     await projectService.getCurrentContext();
@@ -579,24 +766,20 @@
             }
             
         } catch (error) {
-            console.error('❌ Project page initialization failed:', error);
+            console.error('❌ Enhanced project page initialization failed:', error);
             throw error;
         }
     }
     
     /**
-     * Initialize chat page
+     * Enhanced chat page initialization
      */
-    async function initializeChatPage() {
+    async function initializeChatPageEnhanced() {
         const authService = window.AAAI_APP.services.AuthService;
         const projectService = window.AAAI_APP.services.ProjectService;
         
-        if (!authService?.isAuthenticated()) {
-            if (window.AAAI_APP.services.NavigationManager) {
-                window.AAAI_APP.services.NavigationManager.goToLogin();
-            } else {
-                window.location.href = 'login.html';
-            }
+        if (!authService?._isAuthenticationComplete()) {
+            redirectToLogin('Authentication required for chat');
             return;
         }
         
@@ -622,7 +805,7 @@
                     projectId, 
                     projectName ? decodeURIComponent(projectName) : null
                 );
-                console.log('✅ Chat page project context loaded');
+                console.log('✅ Enhanced chat page project context loaded');
             } catch (error) {
                 console.error('❌ Failed to load project context for chat:', error);
             }
@@ -630,12 +813,33 @@
     }
     
     /**
-     * Handle initialization errors
+     * Handle enhanced initialization errors
      */
-    function handleInitializationError(error) {
-        console.error('🚨 Initialization failed:', error);
+    async function handleEnhancedInitializationError(error) {
+        console.error('🚨 Enhanced initialization failed:', error);
+        
+        // Check if we can retry
+        if (window.AAAI_APP.initializationAttempts < window.AAAI_APP.maxInitializationAttempts) {
+            console.log('🔄 Retrying enhanced initialization...');
+            
+            await new Promise(resolve => setTimeout(resolve, 2000));
+            
+            try {
+                await initializeApplication();
+                return; // Success on retry
+            } catch (retryError) {
+                console.error('🚨 Retry also failed:', retryError);
+            }
+        }
         
         // Show user-friendly error message
+        showEnhancedErrorMessage(error);
+    }
+    
+    /**
+     * Show enhanced error message to user
+     */
+    function showEnhancedErrorMessage(error) {
         const errorDiv = document.createElement('div');
         errorDiv.style.cssText = `
             position: fixed;
@@ -652,28 +856,53 @@
             font-family: Arial, sans-serif;
         `;
         
+        const isAuthError = isAuthenticationError(error);
+        
         errorDiv.innerHTML = `
             <div style="text-align: center; max-width: 500px; padding: 20px;">
-                <h2 style="color: #e74c3c; margin-bottom: 20px;">Application Error</h2>
+                <h2 style="color: ${isAuthError ? '#f39c12' : '#e74c3c'}; margin-bottom: 20px;">
+                    ${isAuthError ? 'Authentication Issue' : 'Application Error'}
+                </h2>
                 <p style="margin-bottom: 20px;">
-                    The application failed to initialize properly. This could be due to:
+                    ${isAuthError 
+                        ? 'There was a problem with your authentication. Please log in again.' 
+                        : 'The application failed to initialize properly.'}
                 </p>
-                <ul style="text-align: left; margin-bottom: 30px;">
-                    <li>Network connectivity issues</li>
-                    <li>Authentication problems</li>
-                    <li>Service unavailability</li>
-                </ul>
-                <button onclick="window.location.reload()" style="
-                    background: #3498db;
-                    color: white;
-                    border: none;
-                    padding: 10px 20px;
-                    border-radius: 5px;
-                    cursor: pointer;
-                    font-size: 16px;
-                ">
-                    Refresh Page
-                </button>
+                <div style="margin-bottom: 30px;">
+                    <button onclick="window.location.reload()" style="
+                        background: #3498db;
+                        color: white;
+                        border: none;
+                        padding: 10px 20px;
+                        border-radius: 5px;
+                        cursor: pointer;
+                        font-size: 16px;
+                        margin-right: 10px;
+                    ">
+                        Refresh Page
+                    </button>
+                    ${isAuthError ? `
+                        <button onclick="window.location.href='login.html'" style="
+                            background: #f39c12;
+                            color: white;
+                            border: none;
+                            padding: 10px 20px;
+                            border-radius: 5px;
+                            cursor: pointer;
+                            font-size: 16px;
+                        ">
+                            Go to Login
+                        </button>
+                    ` : ''}
+                </div>
+                <details style="text-align: left; font-size: 12px; color: #ccc;">
+                    <summary style="cursor: pointer;">Technical Details</summary>
+                    <pre style="margin-top: 10px; padding: 10px; background: rgba(0,0,0,0.5); border-radius: 3px;">
+${error.message || 'Unknown error'}
+Authentication Status: ${window.AAAI_APP.authenticationStatus}
+Initialization Attempts: ${window.AAAI_APP.initializationAttempts}
+                    </pre>
+                </details>
             </div>
         `;
         
@@ -681,36 +910,37 @@
     }
     
     /**
-     * Handle authentication errors with user-friendly messages
+     * Initialize environment with enhanced logging
      */
-    function handleAuthenticationError() {
-        console.warn('🔐 Authentication error detected, handling gracefully...');
-        
-        // Clear any invalid authentication state
-        if (window.AAAI_APP.services.AuthService) {
-            // Don't clear everything immediately - might be temporary
-            setTimeout(() => {
-                if (window.AAAI_APP.services.AuthService && 
-                    !window.AAAI_APP.services.AuthService.isAuthenticated() &&
-                    !window.AAAI_APP.services.AuthService.hasPersistentSession()) {
-                    
-                    console.log('🔐 Clearing invalid authentication state');
-                    window.AAAI_APP.services.AuthService.clearAuthData();
-                    
-                    // Redirect to login
-                    if (window.AAAI_APP.services.NavigationManager) {
-                        window.AAAI_APP.services.NavigationManager.goToLogin('Session expired');
-                    } else {
-                        window.location.href = 'login.html';
-                    }
-                }
-            }, 2000); // Give some time for recovery
-        } else {
-            // Immediate redirect if no auth service
-            setTimeout(() => {
-                window.location.href = 'login.html';
-            }, 1000);
+    function initializeEnvironment() {
+        if (!window.AAAI_CONFIG) {
+            window.AAAI_CONFIG = {
+                ENVIRONMENT: 'production',
+                ENABLE_DEBUG: false,
+                ENABLE_WEBSOCKETS: true,
+                VERSION: '1.0.0'
+            };
         }
+        
+        if (!window.AAAI_LOGGER) {
+            const logLevel = window.AAAI_CONFIG.ENABLE_DEBUG ? 'debug' : 'info';
+            
+            window.AAAI_LOGGER = {
+                debug: logLevel === 'debug' ? console.log.bind(console, '[DEBUG]') : () => {},
+                info: console.info.bind(console, '[INFO]'),
+                warn: console.warn.bind(console, '[WARN]'),
+                error: console.error.bind(console, '[ERROR]')
+            };
+        }
+        
+        window.AAAI_APP.config = window.AAAI_CONFIG;
+        
+        console.log('🌍 Enhanced environment initialized:', {
+            environment: window.AAAI_CONFIG.ENVIRONMENT,
+            debug: window.AAAI_CONFIG.ENABLE_DEBUG,
+            websockets: window.AAAI_CONFIG.ENABLE_WEBSOCKETS,
+            version: window.AAAI_CONFIG.VERSION
+        });
     }
     
     /**
@@ -727,7 +957,7 @@
     }
     
     /**
-     * Public API for accessing application state
+     * Enhanced public API
      */
     window.AAAI_APP.getService = function(serviceName) {
         return window.AAAI_APP.services[serviceName] || null;
@@ -741,14 +971,24 @@
         return window.AAAI_APP.config;
     };
     
+    window.AAAI_APP.getAuthenticationStatus = function() {
+        return window.AAAI_APP.authenticationStatus;
+    };
+    
+    window.AAAI_APP.isAuthenticationComplete = function() {
+        const authService = window.AAAI_APP.services?.AuthService;
+        return authService?._isAuthenticationComplete ? 
+               authService._isAuthenticationComplete() : 
+               false;
+    };
+    
     // Wait for DOM to be ready, then initialize
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', initializeApplication);
     } else {
-        // DOM is already ready
         setTimeout(initializeApplication, 0);
     }
     
-    console.log('🎬 AAAI Application initialization script loaded');
+    console.log('🎬 Enhanced AAAI Application initialization script loaded');
     
 })();

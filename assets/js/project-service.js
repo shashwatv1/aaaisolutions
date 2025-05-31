@@ -1,7 +1,7 @@
 /**
- * Unified Project Service for AAAI Solutions
- * WITH AUTHENTICATION READY CHECKS
- * Consolidated project management with context handling and chat integration
+ * Enhanced Project Service for AAAI Solutions
+ * WITH CONSISTENT AUTHENTICATION INTEGRATION
+ * Ensures proper authentication checks before all operations
  */
 const ProjectService = {
     // Core service state
@@ -45,7 +45,7 @@ const ProjectService = {
     },
     
     /**
-     * Initialize the unified project service
+     * Initialize the unified project service with consistent authentication
      */
     init(authService, options = {}) {
         if (!authService) {
@@ -65,10 +65,12 @@ const ProjectService = {
             this.options.debug = true;
         }
         
-        // Get user context
-        const user = authService.getCurrentUser();
-        if (user) {
-            this.currentContext.user_id = user.id;
+        // Get user context only if authentication is complete
+        if (this._isAuthenticationComplete()) {
+            const user = authService.getCurrentUser();
+            if (user) {
+                this.currentContext.user_id = user.id;
+            }
         }
         
         // Initialize subsystems
@@ -81,74 +83,95 @@ const ProjectService = {
         this._log('ProjectService initialized successfully', {
             userId: this.currentContext.user_id,
             cacheEnabled: true,
-            autoSync: this.options.autoSync
+            autoSync: this.options.autoSync,
+            authenticationComplete: this._isAuthenticationComplete()
         });
         
         return this;
     },
 
     /**
-     * NEW: Check if authentication is ready for API calls
+     * CONSISTENT: Check if authentication is complete and ready for API calls
+     */
+    _isAuthenticationComplete() {
+        if (!this.authService) {
+            return false;
+        }
+        
+        // Use the enhanced authentication check
+        return this.authService._isAuthenticationComplete ? 
+               this.authService._isAuthenticationComplete() : 
+               this.authService.isAuthenticated();
+    },
+
+    /**
+     * CONSISTENT: Ensure authentication is ready for API calls
      */
     _ensureAuthReady() {
         if (!this.authService) {
             throw new Error('AuthService not available');
         }
         
-        if (!this.authService.isAuthenticated()) {
-            throw new Error('User not authenticated');
-        }
-        
-        // Check if AuthService has the isAuthenticationReady method
-        if (typeof this.authService.isAuthenticationReady === 'function' && 
-            !this.authService.isAuthenticationReady()) {
-            throw new Error('Authentication not ready for API calls. Please wait for validation to complete.');
+        if (!this._isAuthenticationComplete()) {
+            throw new Error('Complete authentication required for API operations');
         }
         
         return true;
     },
 
     /**
-     * NEW: Wait for authentication to be ready before making API calls
+     * CONSISTENT: Wait for authentication to be ready with timeout
      */
     async _waitForAuthReady(timeoutMs = 15000) {
-        if (!this.authService) {
-            throw new Error('AuthService not available');
-        }
+        const startTime = Date.now();
         
-        if (!this.authService.isAuthenticated()) {
-            throw new Error('User not authenticated');
-        }
-        
-        // If AuthService has waitForAuthentication method, use it
-        if (typeof this.authService.waitForAuthentication === 'function') {
-            const result = await this.authService.waitForAuthentication(timeoutMs);
-            if (!result) {
-                throw new Error('Authentication validation failed');
+        while (Date.now() - startTime < timeoutMs) {
+            if (this._isAuthenticationComplete()) {
+                return true;
             }
-            return true;
+            
+            // Check if AuthService has a validation method
+            if (typeof this.authService._attemptImmediateValidation === 'function') {
+                try {
+                    await this.authService._attemptImmediateValidation();
+                    if (this._isAuthenticationComplete()) {
+                        return true;
+                    }
+                } catch (error) {
+                    console.warn('Immediate validation failed:', error);
+                }
+            }
+            
+            // Wait a bit before checking again
+            await new Promise(resolve => setTimeout(resolve, 200));
         }
         
-        // Fallback: just check if authenticated
-        return this.authService.isAuthenticated();
+        throw new Error('Authentication readiness timeout');
     },
     
     /**
-     * Create a new project with proper context management
+     * Create a new project with consistent authentication
      */
     async createProject(projectData) {
         try {
-            this._requireAuth();
+            this._ensureAuthReady();
             this._validateProjectData(projectData);
             
-            // NEW: Wait for authentication to be ready
+            // Wait for authentication to be ready
             await this._waitForAuthReady();
+            
+            const user = this.authService.getCurrentUser();
+            if (!user || !user.email) {
+                throw new Error('User information not available');
+            }
+            
+            this._log('Creating project with authenticated user:', user.email);
             
             const result = await this.authService.executeFunction('create_project_with_context', {
                 name: projectData.name,
                 description: projectData.description || null,
                 tags: projectData.tags || [],
-                email: this.authService.getCurrentUser().email
+                email: user.email
             });
             
             if (result.status === 'success' && result.data.success) {
@@ -194,13 +217,13 @@ const ProjectService = {
     },
     
     /**
-     * Get all projects with caching
+     * Get all projects with consistent authentication
      */
     async getProjects(options = {}) {
         try {
-            this._requireAuth();
+            this._ensureAuthReady();
             
-            // NEW: Wait for authentication to be ready
+            // Wait for authentication to be ready
             await this._waitForAuthReady();
             
             const {
@@ -225,8 +248,15 @@ const ProjectService = {
             
             this.stats.cacheMisses++;
             
+            const user = this.authService.getCurrentUser();
+            if (!user || !user.email) {
+                throw new Error('User information not available');
+            }
+            
+            this._log('Getting projects for authenticated user:', user.email);
+            
             const result = await this.authService.executeFunction('list_user_projects', {
-                email: this.authService.getCurrentUser().email,
+                email: user.email,
                 limit: limit,
                 offset: offset,
                 search: search.trim(),
@@ -267,11 +297,11 @@ const ProjectService = {
     },
     
     /**
-     * Get specific project by ID
+     * Get specific project by ID with consistent authentication
      */
     async getProject(projectId, forceRefresh = false) {
         try {
-            this._requireAuth();
+            this._ensureAuthReady();
             
             if (!projectId) {
                 throw new Error('Project ID is required');
@@ -286,14 +316,19 @@ const ProjectService = {
                 }
             }
             
-            // NEW: Wait for authentication to be ready
+            // Wait for authentication to be ready
             await this._waitForAuthReady();
             
             this.stats.cacheMisses++;
             
+            const user = this.authService.getCurrentUser();
+            if (!user || !user.email) {
+                throw new Error('User information not available');
+            }
+            
             const result = await this.authService.executeFunction('get_project_details', {
                 project_id: projectId,
-                email: this.authService.getCurrentUser().email
+                email: user.email
             });
             
             if (result.status === 'success' && result.data.success) {
@@ -319,17 +354,24 @@ const ProjectService = {
     },
     
     /**
-     * Switch to project context - unified method
+     * Switch to project context with consistent authentication
      */
     async switchToProject(projectId, projectName = null) {
         try {
-            this._requireAuth();
+            this._ensureAuthReady();
             
-            // NEW: Wait for authentication to be ready
+            // Wait for authentication to be ready
             await this._waitForAuthReady();
             
+            const user = this.authService.getCurrentUser();
+            if (!user || !user.email) {
+                throw new Error('User information not available');
+            }
+            
+            this._log('Switching to project context', { projectId, projectName, userEmail: user.email });
+            
             const result = await this.authService.executeFunction('switch_project_context', {
-                email: this.authService.getCurrentUser().email,
+                email: user.email,
                 project_id: projectId,
                 reel_id: null // Reset reel when switching projects
             });
@@ -349,7 +391,7 @@ const ProjectService = {
                 if (window.ChatService && window.ChatService.isInitialized) {
                     window.ChatService.setProjectContext(chat_id, project.name);
                     
-                    // Only try to reconnect if ChatService has these methods
+                    // Save context and reconnect if methods exist
                     if (typeof window.ChatService.saveContext === 'function') {
                         await window.ChatService.saveContext();
                     }
@@ -382,17 +424,22 @@ const ProjectService = {
     },
     
     /**
-     * Get current user context
+     * Get current user context with consistent authentication
      */
     async getCurrentContext() {
         try {
-            this._requireAuth();
+            this._ensureAuthReady();
             
-            // NEW: Wait for authentication to be ready
+            // Wait for authentication to be ready
             await this._waitForAuthReady();
             
+            const user = this.authService.getCurrentUser();
+            if (!user || !user.email) {
+                throw new Error('User information not available');
+            }
+            
             const result = await this.authService.executeFunction('get_user_context', {
-                email: this.authService.getCurrentUser().email
+                email: user.email
             });
             
             if (result.status === 'success' && result.data.success) {
@@ -423,22 +470,27 @@ const ProjectService = {
     },
     
     /**
-     * Update a project
+     * Update a project with consistent authentication
      */
     async updateProject(projectId, updateData) {
         try {
-            this._requireAuth();
+            this._ensureAuthReady();
             this._validateProjectData(updateData, false);
             
-            // NEW: Wait for authentication to be ready
+            // Wait for authentication to be ready
             await this._waitForAuthReady();
+            
+            const user = this.authService.getCurrentUser();
+            if (!user || !user.email) {
+                throw new Error('User information not available');
+            }
             
             const result = await this.authService.executeFunction('update_project', {
                 project_id: projectId,
                 name: updateData.name,
                 description: updateData.description,
                 tags: updateData.tags,
-                email: this.authService.getCurrentUser().email
+                email: user.email
             });
             
             if (result.status === 'success' && result.data.success) {
@@ -476,18 +528,23 @@ const ProjectService = {
     },
     
     /**
-     * Delete a project
+     * Delete a project with consistent authentication
      */
     async deleteProject(projectId) {
         try {
-            this._requireAuth();
+            this._ensureAuthReady();
             
-            // NEW: Wait for authentication to be ready
+            // Wait for authentication to be ready
             await this._waitForAuthReady();
+            
+            const user = this.authService.getCurrentUser();
+            if (!user || !user.email) {
+                throw new Error('User information not available');
+            }
             
             const result = await this.authService.executeFunction('delete_project', {
                 project_id: projectId,
-                email: this.authService.getCurrentUser().email
+                email: user.email
             });
             
             if (result.status === 'success' && result.data.success) {
@@ -580,15 +637,20 @@ const ProjectService = {
             hitRate: this.stats.cacheHits + this.stats.cacheMisses > 0 
                 ? Math.round((this.stats.cacheHits / (this.stats.cacheHits + this.stats.cacheMisses)) * 100) 
                 : 0,
-            context: this.currentContext
+            context: this.currentContext,
+            authenticationComplete: this._isAuthenticationComplete(),
+            authenticationSource: this.authService?.authenticationSource || 'unknown'
         };
     },
     
     // Private methods
     
+    /**
+     * CONSISTENT: Require complete authentication
+     */
     _requireAuth() {
-        if (!this.authService || !this.authService.isAuthenticated()) {
-            throw new Error('Authentication required');
+        if (!this._isAuthenticationComplete()) {
+            throw new Error('Complete authentication required');
         }
     },
     
@@ -755,17 +817,10 @@ const ProjectService = {
         if (!this.options.autoSync) return;
         
         setInterval(async () => {
-            if (this.authService && this.authService.isAuthenticated() && 
+            if (this._isAuthenticationComplete() && 
                 document.visibilityState === 'visible') {
                 
-                // NEW: Check if auth is ready before auto-sync
                 try {
-                    if (typeof this.authService.isAuthenticationReady === 'function' && 
-                        !this.authService.isAuthenticationReady()) {
-                        this._log('Auto-sync skipped: authentication not ready');
-                        return;
-                    }
-                    
                     await this.getProjects({ limit: 10, offset: 0, forceRefresh: true });
                     this._log('Background project sync completed');
                 } catch (error) {
