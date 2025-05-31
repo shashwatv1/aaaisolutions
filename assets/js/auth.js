@@ -1,33 +1,29 @@
 /**
- * JWT Authentication Service for AAAI Solutions
- * Complete implementation with Bearer tokens, localStorage, and automatic refresh
+ * ENHANCED Authentication Service for AAAI Solutions - WebSocket Only
+ * Removes HTTP chat functionality, keeps only WebSocket support
  */
 const AuthService = {
-    // Core authentication state
+    // Core state
     authenticated: false,
     userEmail: null,
     userId: null,
     sessionId: null,
-    accessToken: null,
-    tokenExpiry: null,
+    token: null,
+    refreshToken: null,
     
-    // Auto-refresh management
-    refreshTimer: null,
+    // Timers and promises
+    tokenRefreshTimer: null,
     refreshPromise: null,
     isRefreshing: false,
     
-    // Configuration
-    TOKEN_STORAGE_KEY: 'aaai_access_token',
-    USER_STORAGE_KEY: 'aaai_user_info',
-    TOKEN_REFRESH_THRESHOLD: 5 * 60 * 1000, // 5 minutes before expiry
-    
-    // URLs (set during init)
-    AUTH_BASE_URL: null,
-    API_BASE_URL: null,
-    
-    /**
-     * Initialize the JWT authentication service
-     */
+    // Enhanced state tracking
+    lastTokenRefresh: null,
+    sessionValidationCache: null,
+    sessionValidationExpiry: null,
+    cookieMonitoringInterval: null,
+    _needsBackgroundValidation: false,
+
+    // Initialize the auth service
     init() {
         console.log('=== ENHANCED AuthService.init() START - WebSocket Only ===');
         console.log('window.location.hostname:', window.location.hostname);
@@ -71,7 +67,6 @@ const AuthService = {
             }, 1000);
         }
         
-        
         window.AAAI_LOGGER?.info('ENHANCED AuthService initialized - WebSocket Only Mode', {
             environment: window.AAAI_CONFIG.ENVIRONMENT,
             authBaseUrl: this.AUTH_BASE_URL,
@@ -92,7 +87,418 @@ const AuthService = {
         
         return this.isAuthenticated();
     },
-       
+    
+    /**
+     * Enhanced OTP verification with better state management
+     */
+    async verifyOTP(email, otp) {
+        try {
+            console.log(`ENHANCED: Verifying OTP for email: ${email}`);
+            
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 30000);
+            
+            const response = await fetch(`${this.AUTH_BASE_URL}/auth/verify-otp`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ email, otp }),
+                signal: controller.signal,
+                credentials: 'include'
+            });
+            
+            clearTimeout(timeoutId);
+            const data = await response.json();
+            
+            if (!response.ok) {
+                console.error('OTP verification failed:', data);
+                throw new Error(data.error || data.detail || 'Invalid OTP');
+            }
+            
+            console.log('✅ ENHANCED: OTP verification successful - WebSocket ready');
+            
+            // Set authentication state
+            const userInfo = {
+                email: email,
+                id: data.id,
+                session_id: data.session_id
+            };
+            
+            this._setAuthState(userInfo);
+            
+            // Clear validation cache
+            this.sessionValidationCache = null;
+            this.sessionValidationExpiry = null;
+            this._needsBackgroundValidation = false;
+            
+            // Record successful authentication
+            this.lastTokenRefresh = Date.now();
+            
+            console.log('✅ ENHANCED: Authentication state updated - Ready for WebSocket connections');
+            return data;
+            
+        } catch (error) {
+            if (error.name === 'AbortError') {
+                throw new Error('Request timed out. Please check your connection and try again.');
+            }
+            console.error('Enhanced OTP Verification error:', error);
+            throw new Error(`OTP verification failed: ${error.message}`);
+        }
+    },
+    
+    /**
+     * Enhanced execute function with better error handling
+     */
+    async executeFunction(functionName, inputData) {
+        if (!this.isAuthenticated()) {
+            throw new Error('Authentication required');
+        }
+        
+        try {
+            console.log(`🚀 Executing function via API Gateway: ${functionName}`);
+            
+            // Refresh token if needed
+            if (this.lastTokenRefresh && (Date.now() - this.lastTokenRefresh) > 600000) {
+                console.log('🔄 Refreshing token before function call...');
+                await this.refreshTokenIfNeeded();
+            }
+            
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 60000);
+            
+            // Function name is in the URL path
+            const executeUrl = `${this.AUTH_BASE_URL}/api/function/${functionName}`;
+            
+            console.log(`📡 Making request to API Gateway: ${executeUrl}`);
+            console.log(`📝 Function: ${functionName}`);
+            console.log(`📊 Input data:`, inputData);
+            console.log(`👤 User: ${this.userEmail}`);
+            
+            const response = await fetch(executeUrl, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                // FIXED: Send only input data - function name is in URL
+                body: JSON.stringify(inputData), // NO function_name in body
+                signal: controller.signal,
+                credentials: 'include' // Include cookies for authentication
+            });
+            
+            clearTimeout(timeoutId);
+            
+            console.log(`📊 API Gateway response status: ${response.status}`);
+            console.log(`🌐 Final URL: ${response.url}`);
+            
+            if (!response.ok) {
+                let errorData;
+                try {
+                    const responseText = await response.text();
+                    console.log(`💥 Error response:`, responseText.substring(0, 300));
+                    
+                    if (responseText.trim().startsWith('<')) {
+                        throw new Error(`Received HTML instead of JSON (status: ${response.status}). Check API Gateway configuration.`);
+                    }
+                    
+                    errorData = JSON.parse(responseText);
+                } catch (parseError) {
+                    throw new Error(`HTTP ${response.status}: Failed to parse error response`);
+                }
+                
+                console.error(`💥 API Gateway execution failed:`, errorData);
+                
+                if (response.status === 401) {
+                    console.warn('🔓 Authentication failed');
+                    this._clearAuthState();
+                    throw new Error('Session expired. Please log in again.');
+                }
+                
+                throw new Error(errorData.error || errorData.detail || errorData.message || `Failed to execute function: ${functionName}`);
+            }
+            
+            // Parse successful response
+            let data;
+            try {
+                const responseText = await response.text();
+                
+                if (responseText.trim().startsWith('<')) {
+                    throw new Error('Received HTML instead of JSON - API Gateway route may not be configured properly');
+                }
+                
+                data = JSON.parse(responseText);
+            } catch (parseError) {
+                console.error('💥 Failed to parse successful response:', parseError);
+                throw new Error(`Invalid response format: ${parseError.message}`);
+            }
+            
+            console.log(`✅ Function ${functionName} executed successfully via API Gateway`);
+            console.log(`📊 Response data keys:`, Object.keys(data));
+            return data;
+            
+        } catch (error) {
+            if (error.name === 'AbortError') {
+                throw new Error('Request timed out. Please try again.');
+            }
+            console.error(`💀 API Gateway execution failed (${functionName}):`, error);
+            throw error;
+        }
+    },
+    
+    /**
+     * Enhanced logout with comprehensive cleanup
+     */
+    async logout() {
+        try {
+            console.log('🚪 ENHANCED: Logging out - WebSocket Only Mode...');
+            
+            // Clear timers
+            if (this.tokenRefreshTimer) {
+                clearInterval(this.tokenRefreshTimer);
+                this.tokenRefreshTimer = null;
+            }
+            
+            if (this.cookieMonitoringInterval) {
+                clearInterval(this.cookieMonitoringInterval);
+                this.cookieMonitoringInterval = null;
+            }
+            
+            // Attempt server-side logout
+            try {
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 10000);
+                
+                await fetch(`${this.AUTH_BASE_URL}/auth/logout`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    credentials: 'include',
+                    signal: controller.signal
+                });
+                
+                clearTimeout(timeoutId);
+                console.log('✅ Server-side logout completed');
+            } catch (error) {
+                console.warn('Server-side logout failed or timed out:', error);
+            }
+            
+            // Clear all authentication data
+            this.clearAuthData();
+            
+            console.log('✅ Enhanced logout successful - WebSocket connections will be terminated');
+        } catch (error) {
+            console.error('Enhanced logout error:', error);
+            // Still clear local data even if server logout fails
+            this.clearAuthData();
+        }
+    },
+    
+    /**
+     * Enhanced WebSocket URL generation
+     */
+    getWebSocketURL(userId) {
+        if (!this.isAuthenticated()) {
+            throw new Error('Authentication required for WebSocket');
+        }
+        
+        const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const wsHost = window.AAAI_CONFIG.ENVIRONMENT === 'development' 
+            ? 'localhost:8080' 
+            : 'api-server-559730737995.us-central1.run.app';
+        
+        const url = `${wsProtocol}//${wsHost}/ws/${userId}`;
+        console.log(`ENHANCED WebSocket URL for chat: ${url}`);
+        return url;
+    },
+    
+    /**
+     * Get user credits
+     */
+    async getUserCredits() {
+        if (!this.isAuthenticated()) {
+            throw new Error('Authentication required');
+        }
+        
+        try {
+            const result = await this.executeFunction('get_user_creds', {
+                email: this.userEmail
+            });
+            return result.data.credits;
+        } catch (error) {
+            console.error('Error getting user credits:', error);
+            return 0;
+        }
+    },
+    
+    /**
+     * Request OTP
+     */
+    async requestOTP(email) {
+        try {
+            console.log(`ENHANCED: Requesting OTP for email: ${email}`);
+            
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 30000);
+            
+            const response = await fetch(`${this.AUTH_BASE_URL}/auth/request-otp`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ email }),
+                signal: controller.signal,
+                credentials: 'include'
+            });
+            
+            clearTimeout(timeoutId);
+            const responseData = await response.json();
+            
+            if (!response.ok) {
+                console.error('Enhanced OTP request failed:', responseData);
+                throw new Error(responseData.error || responseData.detail || 'Failed to request OTP');
+            }
+            
+            console.log('✅ Enhanced OTP request successful');
+            return responseData;
+            
+        } catch (error) {
+            if (error.name === 'AbortError') {
+                throw new Error('Request timed out. Please check your connection and try again.');
+            }
+            console.error('Enhanced OTP Request error:', error);
+            throw new Error(`OTP request failed: ${error.message}`);
+        }
+    },
+    
+    /**
+     * Enhanced token refresh with better error handling
+     */
+    async refreshTokenIfNeeded() {
+        if (!this.isAuthenticated()) {
+            console.log('Not authenticated, no token to refresh');
+            return false;
+        }
+        
+        // Check if we recently refreshed (within last 5 minutes)
+        if (this.lastTokenRefresh && (Date.now() - this.lastTokenRefresh) < 300000) {
+            console.log('Recently refreshed token, skipping');
+            return true;
+        }
+        
+        // Prevent concurrent refresh attempts
+        if (this.isRefreshing) {
+            console.log('Token refresh already in progress, waiting...');
+            return this.refreshPromise;
+        }
+        
+        this.isRefreshing = true;
+        this.refreshPromise = this._performEnhancedTokenRefresh();
+        
+        try {
+            const result = await this.refreshPromise;
+            return result;
+        } finally {
+            this.isRefreshing = false;
+            this.refreshPromise = null;
+        }
+    },
+    
+    /**
+     * ENHANCED: Perform token refresh with comprehensive error handling
+     */
+    async _performEnhancedTokenRefresh() {
+        try {
+            console.log('🔄 ENHANCED: Attempting comprehensive token refresh...');
+            
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 15000);
+            
+            // Try silent refresh first (uses httpOnly cookies)
+            let response;
+            try {
+                response = await fetch(`${this.AUTH_BASE_URL}/auth/refresh-silent`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    credentials: 'include', // Critical for sending httpOnly cookies
+                    signal: controller.signal
+                });
+            } catch (fetchError) {
+                console.log('Silent refresh failed, trying standard refresh...');
+                
+                // Fallback to standard refresh
+                response = await fetch(`${this.AUTH_BASE_URL}/auth/refresh`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    credentials: 'include',
+                    signal: controller.signal,
+                    body: JSON.stringify({
+                        silent: false
+                    })
+                });
+            }
+            
+            clearTimeout(timeoutId);
+            
+            if (response.ok) {
+                const data = await response.json();
+                console.log('✅ ENHANCED: Token refresh successful - WebSocket ready');
+                
+                // Update last refresh time
+                this.lastTokenRefresh = Date.now();
+                
+                // Update authentication state if provided
+                if (data.user) {
+                    this.userEmail = data.user.email || this.userEmail;
+                    this.userId = data.user.id || this.userId;
+                    this.sessionId = data.session_id || this.sessionId;
+                    this._syncToLocalStorage();
+                    
+                    // Update user_info cookie
+                    const userInfo = {
+                        email: this.userEmail,
+                        id: this.userId,
+                        session_id: this.sessionId
+                    };
+                    this._setCookie('user_info', JSON.stringify(userInfo), 1);
+                }
+                
+                // Ensure authenticated cookie is set
+                this._setCookie('authenticated', 'true', 1);
+                
+                // Clear any cached validation
+                this.sessionValidationCache = null;
+                this.sessionValidationExpiry = null;
+                
+                return true;
+            } else {
+                const errorData = await response.json().catch(() => ({}));
+                console.log('❌ ENHANCED: Token refresh failed:', response.status, errorData);
+                
+                if (response.status === 401) {
+                    console.log('Token refresh returned 401, clearing auth state');
+                    this._clearAuthState();
+                }
+                return false;
+            }
+            
+        } catch (error) {
+            if (error.name === 'AbortError') {
+                console.warn('Token refresh timed out');
+            } else {
+                console.error('Enhanced token refresh error:', error);
+            }
+            return false;
+        }
+    },
+    
+    /**
+     * Validate and repair authentication state asynchronously (NON-AGGRESSIVE)
+     */
     async _validateAndRepairAsync() {
         // Skip if not marked for background validation
         if (!this._needsBackgroundValidation) {
@@ -159,7 +565,10 @@ const AuthService = {
             return false;
         }
     },
-
+    
+    /**
+     * Gentle token refresh (less aggressive than normal refresh)
+     */
     async _gentleTokenRefresh() {
         try {
             console.log('🔄 GENTLE: Attempting gentle token refresh...');
@@ -278,6 +687,265 @@ const AuthService = {
         }
     },
     
+    // ============================================================
+    // ENHANCED UTILITY METHODS - WebSocket Only
+    // ============================================================
+    
+    /**
+     * Enhanced authentication check
+     */
+    isAuthenticated() {
+        const isAuth = this.authenticated && !!this.userId && !!this.userEmail;
+        
+        if (!isAuth && this.authenticated) {
+            console.warn('Authentication state inconsistent:', {
+                authenticated: this.authenticated,
+                hasUserId: !!this.userId,
+                hasUserEmail: !!this.userEmail
+            });
+        }
+        
+        return isAuth;
+    },
+    
+    /**
+     * Check if authentication is immediately available (no async validation needed)
+     */
+    isImmediatelyAuthenticated() {
+        const hasBasicAuth = this.authenticated && !!this.userId && !!this.userEmail;
+        const hasPersistentData = this.hasPersistentSession();
+        
+        console.log('🔍 Immediate auth check:', {
+            hasBasicAuth,
+            hasPersistentData,
+            needsValidation: this._needsBackgroundValidation
+        });
+        
+        return hasBasicAuth || hasPersistentData;
+    },
+    
+    /**
+     * Get authentication confidence level
+     */
+    getAuthenticationConfidence() {
+        if (this.authenticated && this.userEmail && this.userId && 
+            this.lastTokenRefresh && (Date.now() - this.lastTokenRefresh) < 300000) {
+            return 'high'; // Recently validated
+        }
+        
+        if (this.authenticated && this.userEmail && this.userId) {
+            return 'medium'; // Basic auth present
+        }
+        
+        if (this.hasPersistentSession()) {
+            return 'low'; // Has persistent data but needs validation
+        }
+        
+        return 'none'; // No authentication
+    },
+    
+    /**
+     * Quick authentication repair (synchronous operations only)
+     */
+    quickAuthRepair() {
+        try {
+            console.log('🔧 Quick authentication repair...');
+            
+            // Check if we have all the pieces but auth state is false
+            const authCookie = this._getCookie('authenticated');
+            const userInfoCookie = this._getCookie('user_info');
+            const storedEmail = this._getSecureItem('user_email');
+            const storedUserId = this._getSecureItem('user_id');
+            
+            if (authCookie === 'true' && !this.authenticated) {
+                if (userInfoCookie) {
+                    try {
+                        const userInfo = JSON.parse(decodeURIComponent(userInfoCookie));
+                        if (this._validateUserInfo(userInfo)) {
+                            console.log('✅ Quick repair: Restored from user_info cookie');
+                            this._setAuthState(userInfo);
+                            return true;
+                        }
+                    } catch (e) {
+                        console.warn('Quick repair: Failed to parse user_info cookie');
+                    }
+                }
+                
+                if (storedEmail && storedUserId) {
+                    const userInfo = {
+                        email: storedEmail,
+                        id: storedUserId,
+                        session_id: this._getSecureItem('session_id') || 'quick_repair_session'
+                    };
+                    
+                    if (this._validateUserInfo(userInfo)) {
+                        console.log('✅ Quick repair: Restored from localStorage');
+                        this._setAuthState(userInfo);
+                        return true;
+                    }
+                }
+            }
+            
+            return false;
+        } catch (error) {
+            console.error('Quick auth repair failed:', error);
+            return false;
+        }
+    },
+    
+    /**
+     * Enhanced isAuthenticated that tries quick repair first
+     */
+    isAuthenticatedWithRepair() {
+        // First check normal authentication
+        if (this.isAuthenticated()) {
+            return true;
+        }
+        
+        // Try quick repair if not authenticated
+        const repaired = this.quickAuthRepair();
+        if (repaired) {
+            return this.isAuthenticated();
+        }
+        
+        return false;
+    },
+    
+    /**
+     * Check if we should proceed with page load despite authentication uncertainty
+     */
+    shouldProceedWithPageLoad() {
+        const confidence = this.getAuthenticationConfidence();
+        
+        // Proceed if we have medium or high confidence
+        if (confidence === 'high' || confidence === 'medium') {
+            return true;
+        }
+        
+        // Proceed with low confidence if we have persistent session
+        if (confidence === 'low' && this.hasPersistentSession()) {
+            console.log('⚠️ Proceeding with low confidence - will validate in background');
+            this._needsBackgroundValidation = true;
+            return true;
+        }
+        
+        return false;
+    },
+    
+    /**
+     * Get current user information
+     */
+    getCurrentUser() {
+        return {
+            email: this.userEmail,
+            id: this.userId,
+            sessionId: this.sessionId,
+            authenticated: this.authenticated,
+            websocketReady: this.isAuthenticated() // Indicates readiness for WebSocket
+        };
+    },
+    
+    /**
+     * Get token (placeholder for cookie-stored tokens)
+     */
+    getToken() {
+        return this.token;
+    },
+    
+    /**
+     * Check if user has a persistent session with enhanced validation
+     */
+    hasPersistentSession() {
+        const hasAuthCookie = this._getCookie('authenticated') === 'true';
+        const hasUserInfo = !!this._getCookie('user_info');
+        const hasStoredUser = !!this._getSecureItem('user_id');
+        const hasAccessToken = this._cookieExists('access_token');
+        
+        return hasAuthCookie || hasUserInfo || hasStoredUser || hasAccessToken;
+    },
+    
+    /**
+     * Get enhanced session information - WebSocket focused
+     */
+    getSessionInfo() {
+        return {
+            authenticated: this.authenticated,
+            userId: this.userId,
+            email: this.userEmail,
+            sessionId: this.sessionId,
+            hasRefreshToken: this.hasPersistentSession(),
+            tokenValid: this.authenticated,
+            lastTokenRefresh: this.lastTokenRefresh,
+            sessionValidationCached: !!this.sessionValidationCache,
+            websocketReady: this.isAuthenticated(),
+            chatMode: 'websocket_only',
+            cookieHealth: {
+                authenticated: this._getCookie('authenticated') === 'true',
+                userInfo: !!this._getCookie('user_info'),
+                accessToken: this._cookieExists('access_token'),
+                refreshToken: this._cookieExists('refresh_token')
+            }
+        };
+    },
+    
+    /**
+     * Enhanced clear all authentication data
+     */
+    clearAuthData() {
+        // Clear localStorage
+        ['auth_token', 'refresh_token', 'user_email', 'user_id', 'session_id'].forEach(key => {
+            this._removeSecureItem(key);
+        });
+
+        // Clear instance data
+        this.token = null;
+        this.refreshToken = null;
+        this.userEmail = null;
+        this.userId = null;
+        this.sessionId = null;
+        this.authenticated = false;
+        this.isRefreshing = false;
+        this.refreshPromise = null;
+        this.lastTokenRefresh = null;
+        this.sessionValidationCache = null;
+        this.sessionValidationExpiry = null;
+        this._needsBackgroundValidation = false;
+
+        // Clear timers
+        if (this.tokenRefreshTimer) {
+            clearInterval(this.tokenRefreshTimer);
+            this.tokenRefreshTimer = null;
+        }
+        
+        if (this.cookieMonitoringInterval) {
+            clearInterval(this.cookieMonitoringInterval);
+            this.cookieMonitoringInterval = null;
+        }
+
+        // Clear JavaScript-accessible cookies
+        this._deleteCookie('authenticated');
+        this._deleteCookie('user_info');
+
+        console.log('🧹 ENHANCED: All authentication data cleared - WebSocket connections will be terminated');
+    },
+    
+    /**
+     * Get authentication headers (for WebSocket connection if needed)
+     */
+    getAuthHeader() {
+        return {
+            'X-Session-ID': this.sessionId || '',
+            'X-WebSocket-Ready': this.isAuthenticated() ? 'true' : 'false'
+        };
+    },
+    
+    // ============================================================
+    // ENHANCED PRIVATE METHODS
+    // ============================================================
+    
+    /**
+     * SYNCHRONOUS authentication state initialization (no async calls)
+     */
     _initializeEnhancedAuthStateSync() {
         console.log('🔍 ENHANCED: Initializing authentication state SYNCHRONOUSLY...');
         
@@ -313,7 +981,10 @@ const AuthService = {
             return false;
         }
     },
-
+    
+    /**
+     * SYNCHRONOUS: Restore authentication from cookies with validation
+     */
     _restoreFromEnhancedCookiesSync() {
         try {
             console.log('🍪 ENHANCED: Checking cookies for authentication (SYNC)...');
@@ -493,649 +1164,238 @@ const AuthService = {
     },
     
     /**
-     * Request OTP for authentication
+     * Check if a cookie exists (works for httpOnly cookies too)
      */
-    async requestOTP(email) {
+    _cookieExists(name) {
         try {
-            console.log(`📧 Requesting OTP for: ${email}`);
-            
-            const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 30000);
-            
-            const response = await fetch(`${this.AUTH_BASE_URL}/auth/request-otp`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({ email }),
-                signal: controller.signal,
-                credentials: 'include'
-            });
-            
-            clearTimeout(timeoutId);
-            const responseData = await response.json();
-            
-            if (!response.ok) {
-                console.error('OTP request failed:', responseData);
-                throw new Error(responseData.error || responseData.detail || 'Failed to request OTP');
-            }
-            
-            console.log('✅ OTP request successful');
-            return responseData;
-            
+            // For httpOnly cookies, we can't read the value but we can detect presence
+            // by checking if the cookie name appears in document.cookie
+            const cookieString = document.cookie;
+            return cookieString.includes(`${name}=`);
         } catch (error) {
-            if (error.name === 'AbortError') {
-                throw new Error('Request timed out. Please check your connection and try again.');
-            }
-            console.error('OTP Request error:', error);
-            throw new Error(`OTP request failed: ${error.message}`);
-        }
-    },
-    
-    /**
-     * Verify OTP and establish JWT authentication
-     */
-    async verifyOTP(email, otp) {
-        try {
-            console.log(`🔐 Verifying OTP for: ${email}`);
-            
-            const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 30000);
-            
-            const response = await fetch(`${this.AUTH_BASE_URL}/auth/verify-otp`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({ email, otp }),
-                signal: controller.signal,
-                credentials: 'include' // Include for refresh token cookie
-            });
-            
-            clearTimeout(timeoutId);
-            const data = await response.json();
-            
-            if (!response.ok) {
-                console.error('OTP verification failed:', data);
-                throw new Error(data.error || data.detail || 'Invalid OTP');
-            }
-            
-            console.log('✅ OTP verification successful - JWT tokens received');
-            
-            // Extract authentication data
-            const { user, tokens, authentication } = data;
-            
-            if (!user || !tokens || !tokens.access_token) {
-                throw new Error('Invalid authentication response');
-            }
-            
-            // Store authentication state
-            this._setAuthState({
-                user: user,
-                accessToken: tokens.access_token,
-                tokenExpiry: new Date(Date.now() + (tokens.expires_in * 1000))
-            });
-            
-            // Schedule token refresh
-            this._scheduleTokenRefresh();
-            
-            console.log('✅ JWT authentication established');
-            return data;
-            
-        } catch (error) {
-            if (error.name === 'AbortError') {
-                throw new Error('Request timed out. Please check your connection and try again.');
-            }
-            console.error('OTP Verification error:', error);
-            throw new Error(`OTP verification failed: ${error.message}`);
-        }
-    },
-    
-    /**
-     * Execute function with JWT Bearer authentication
-     */
-    async executeFunction(functionName, inputData) {
-        if (!this.isAuthenticated()) {
-            throw new Error('Authentication required');
-        }
-        
-        try {
-            console.log(`🚀 Executing function with JWT: ${functionName}`);
-            
-            // Auto-refresh token if needed
-            await this._ensureValidToken();
-            
-            const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 60000);
-            
-            const executeUrl = `${this.API_BASE_URL}/api/function/${functionName}`;
-            
-            console.log(`📡 Making JWT-authenticated request to: ${executeUrl}`);
-            console.log(`📝 Function: ${functionName}`);
-            console.log(`👤 User: ${this.userEmail}`);
-            
-            const response = await fetch(executeUrl, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${this.accessToken}`
-                },
-                body: JSON.stringify(inputData),
-                signal: controller.signal,
-                credentials: 'include' // For refresh token cookie
-            });
-            
-            clearTimeout(timeoutId);
-            
-            console.log(`📊 Response status: ${response.status}`);
-            
-            if (!response.ok) {
-                let errorData;
-                try {
-                    const responseText = await response.text();
-                    console.log(`💥 Error response:`, responseText.substring(0, 300));
-                    
-                    if (responseText.trim().startsWith('<')) {
-                        throw new Error(`Received HTML instead of JSON (status: ${response.status}). Check API Gateway configuration.`);
-                    }
-                    
-                    errorData = JSON.parse(responseText);
-                } catch (parseError) {
-                    throw new Error(`HTTP ${response.status}: Failed to parse error response`);
-                }
-                
-                console.error(`💥 Function execution failed:`, errorData);
-                
-                // Handle token expiration
-                if (response.status === 401 && errorData.expired) {
-                    console.log('🔄 Token expired, attempting refresh...');
-                    try {
-                        await this.refreshToken();
-                        // Retry the request once with new token
-                        return await this.executeFunction(functionName, inputData);
-                    } catch (refreshError) {
-                        console.error('Token refresh failed:', refreshError);
-                        this._clearAuthState();
-                        throw new Error('Session expired. Please log in again.');
-                    }
-                }
-                
-                if (response.status === 401) {
-                    console.warn('🔓 Authentication failed');
-                    this._clearAuthState();
-                    throw new Error('Session expired. Please log in again.');
-                }
-                
-                throw new Error(errorData.error || errorData.detail || errorData.message || `Failed to execute function: ${functionName}`);
-            }
-            
-            // Parse successful response
-            let data;
-            try {
-                const responseText = await response.text();
-                
-                if (responseText.trim().startsWith('<')) {
-                    throw new Error('Received HTML instead of JSON - API Gateway route may not be configured properly');
-                }
-                
-                data = JSON.parse(responseText);
-            } catch (parseError) {
-                console.error('💥 Failed to parse successful response:', parseError);
-                throw new Error(`Invalid response format: ${parseError.message}`);
-            }
-            
-            console.log(`✅ Function ${functionName} executed successfully with JWT`);
-            return data;
-            
-        } catch (error) {
-            if (error.name === 'AbortError') {
-                throw new Error('Request timed out. Please try again.');
-            }
-            console.error(`💀 JWT function execution failed (${functionName}):`, error);
-            throw error;
-        }
-    },
-    
-    /**
-     * Refresh JWT access token using httpOnly refresh token
-     */
-    async refreshToken() {
-        if (this.isRefreshing) {
-            console.log('Token refresh already in progress, waiting...');
-            return this.refreshPromise;
-        }
-        
-        this.isRefreshing = true;
-        this.refreshPromise = this._performTokenRefresh();
-        
-        try {
-            const result = await this.refreshPromise;
-            return result;
-        } finally {
-            this.isRefreshing = false;
-            this.refreshPromise = null;
-        }
-    },
-    
-    /**
-     * Perform actual token refresh
-     */
-    async _performTokenRefresh() {
-        try {
-            console.log('🔄 Refreshing JWT access token...');
-            
-            const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 15000);
-            
-            const response = await fetch(`${this.AUTH_BASE_URL}/auth/refresh`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                credentials: 'include', // Include httpOnly refresh token
-                signal: controller.signal
-            });
-            
-            clearTimeout(timeoutId);
-            
-            if (!response.ok) {
-                const errorData = await response.json().catch(() => ({}));
-                console.log('❌ Token refresh failed:', response.status, errorData);
-                
-                if (response.status === 401) {
-                    console.log('Refresh token expired or invalid, clearing auth state');
-                    this._clearAuthState();
-                    throw new Error('Please log in again');
-                }
-                
-                throw new Error(errorData.error || 'Token refresh failed');
-            }
-            
-            const data = await response.json();
-            console.log('✅ Token refreshed successfully');
-            
-            // Update authentication state with new token
-            this._updateAuthState({
-                accessToken: data.tokens.access_token,
-                tokenExpiry: new Date(Date.now() + (data.tokens.expires_in * 1000)),
-                user: data.user
-            });
-            
-            // Reschedule next refresh
-            this._scheduleTokenRefresh();
-            
-            return true;
-            
-        } catch (error) {
-            if (error.name === 'AbortError') {
-                console.warn('Token refresh timed out');
-            } else {
-                console.error('Token refresh error:', error);
-            }
-            
-            // Clear auth state on refresh failure
-            this._clearAuthState();
-            throw error;
-        }
-    },
-    
-    /**
-     * Ensure valid token (refresh if needed)
-     */
-    async _ensureValidToken() {
-        if (!this.accessToken || !this.tokenExpiry) {
-            throw new Error('No access token available');
-        }
-        
-        // Check if token expires soon
-        const timeUntilExpiry = this.tokenExpiry.getTime() - Date.now();
-        
-        if (timeUntilExpiry <= this.TOKEN_REFRESH_THRESHOLD) {
-            console.log('🔄 Token expires soon, refreshing...');
-            await this.refreshToken();
-        }
-    },
-    
-    /**
-     * Logout and clear all authentication
-     */
-    async logout() {
-        try {
-            console.log('🚪 JWT logout starting...');
-            
-            // Clear refresh timer
-            this._clearRefreshTimer();
-            
-            // Attempt server-side logout
-            try {
-                const controller = new AbortController();
-                const timeoutId = setTimeout(() => controller.abort(), 10000);
-                
-                await fetch(`${this.AUTH_BASE_URL}/auth/logout`, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Authorization': this.accessToken ? `Bearer ${this.accessToken}` : ''
-                    },
-                    credentials: 'include',
-                    signal: controller.signal
-                });
-                
-                clearTimeout(timeoutId);
-                console.log('✅ Server-side logout completed');
-            } catch (error) {
-                console.warn('Server-side logout failed or timed out:', error);
-            }
-            
-            // Clear local authentication state
-            this._clearAuthState();
-            
-            console.log('✅ JWT logout successful');
-        } catch (error) {
-            console.error('Logout error:', error);
-            // Still clear local data even if server logout fails
-            this._clearAuthState();
-        }
-    },
-    
-    /**
-     * Get user credits
-     */
-    async getUserCredits() {
-        if (!this.isAuthenticated()) {
-            throw new Error('Authentication required');
-        }
-        
-        try {
-            const result = await this.executeFunction('get_user_creds', {
-                email: this.userEmail
-            });
-            return result.data?.credits || 0;
-        } catch (error) {
-            console.error('Error getting user credits:', error);
-            return 0;
-        }
-    },
-    
-    // ============================================================
-    // JWT UTILITY METHODS
-    // ============================================================
-    
-    /**
-     * Check if user is authenticated
-     */
-    isAuthenticated() {
-        return this.authenticated && 
-               !!this.userId && 
-               !!this.userEmail && 
-               !!this.accessToken &&
-               this._isTokenValid();
-    },
-    
-    /**
-     * Check if current token is valid (not expired)
-     */
-    _isTokenValid() {
-        if (!this.tokenExpiry) return false;
-        return this.tokenExpiry.getTime() > Date.now();
-    },
-    
-    /**
-     * Get current user information
-     */
-    getCurrentUser() {
-        return {
-            email: this.userEmail,
-            id: this.userId,
-            sessionId: this.sessionId,
-            authenticated: this.authenticated,
-            tokenExpiry: this.tokenExpiry,
-            tokenValid: this._isTokenValid()
-        };
-    },
-    
-    /**
-     * Get access token
-     */
-    getToken() {
-        return this.accessToken;
-    },
-    
-    /**
-     * Get authorization header for API calls
-     */
-    getAuthHeader() {
-        return {
-            'Authorization': `Bearer ${this.accessToken}`
-        };
-    },
-    
-    /**
-     * Get session information
-     */
-    getSessionInfo() {
-        return {
-            authenticated: this.authenticated,
-            userId: this.userId,
-            email: this.userEmail,
-            sessionId: this.sessionId,
-            tokenValid: this._isTokenValid(),
-            tokenExpiry: this.tokenExpiry,
-            refreshScheduled: !!this.refreshTimer,
-            authMethod: 'jwt_bearer'
-        };
-    },
-    
-    /**
-     * Check if user has a persistent session
-     */
-    hasPersistentSession() {
-        // Check if we have stored authentication or refresh token cookie
-        const hasStoredAuth = !!localStorage.getItem(this.TOKEN_STORAGE_KEY);
-        const hasRefreshCookie = document.cookie.includes('refresh_token=');
-        return hasStoredAuth || hasRefreshCookie;
-    },
-    
-    // ============================================================
-    // PRIVATE METHODS
-    // ============================================================
-    
-    /**
-     * Restore authentication from localStorage
-     */
-    _restoreAuthFromStorage() {
-        try {
-            console.log('💾 Restoring JWT auth from localStorage...');
-            
-            const storedToken = localStorage.getItem(this.TOKEN_STORAGE_KEY);
-            const storedUser = localStorage.getItem(this.USER_STORAGE_KEY);
-            
-            if (!storedToken || !storedUser) {
-                console.log('No stored authentication found');
-                return false;
-            }
-            
-            const userInfo = JSON.parse(storedUser);
-            const tokenExpiry = new Date(userInfo.tokenExpiry);
-            
-            // Check if token is expired
-            if (tokenExpiry.getTime() <= Date.now()) {
-                console.log('Stored token is expired, clearing storage');
-                this._clearStorage();
-                return false;
-            }
-            
-            // Restore authentication state
-            this.authenticated = true;
-            this.userEmail = userInfo.email;
-            this.userId = userInfo.id;
-            this.sessionId = userInfo.sessionId;
-            this.accessToken = storedToken;
-            this.tokenExpiry = tokenExpiry;
-            
-            console.log('✅ JWT authentication restored from storage');
-            return true;
-            
-        } catch (error) {
-            console.error('Error restoring auth from storage:', error);
-            this._clearStorage();
             return false;
         }
     },
     
     /**
-     * Set authentication state and persist to storage
+     * Set authentication state from user info
      */
-    _setAuthState({ user, accessToken, tokenExpiry }) {
-        console.log('🔐 Setting JWT authentication state');
+    _setAuthState(userInfo) {
+        console.log('🔐 ENHANCED: Setting authentication state:', {
+            email: userInfo.email,
+            id: userInfo.id,
+            session_id: userInfo.session_id
+        });
         
         this.authenticated = true;
-        this.userEmail = user.email;
-        this.userId = user.id;
-        this.sessionId = user.session_id;
-        this.accessToken = accessToken;
-        this.tokenExpiry = tokenExpiry;
+        this.userEmail = userInfo.email;
+        this.userId = userInfo.id;
+        this.sessionId = userInfo.session_id;
+        this.token = 'cookie_stored';
+        this.refreshToken = 'cookie_stored';
         
-        // Persist to localStorage
-        this._saveToStorage();
+        // Sync to localStorage
+        this._syncToLocalStorage();
+        
+        // Ensure cookies are properly set
+        this._setCookie('authenticated', 'true', 1);
+        this._setCookie('user_info', JSON.stringify(userInfo), 1);
     },
     
     /**
-     * Update authentication state (for token refresh)
+     * Set up enhanced cookie monitoring
      */
-    _updateAuthState({ accessToken, tokenExpiry, user }) {
-        if (accessToken) this.accessToken = accessToken;
-        if (tokenExpiry) this.tokenExpiry = tokenExpiry;
-        if (user) {
-            this.userEmail = user.email || this.userEmail;
-            this.userId = user.user_id || this.userId;
-            this.sessionId = user.session_id || this.sessionId;
+    _setupCookieMonitoring() {
+        // Monitor cookie changes every 30 seconds
+        this.cookieMonitoringInterval = setInterval(() => {
+            this._monitorCookieHealth();
+        }, 30000);
+    },
+    
+    /**
+     * Monitor cookie health and auto-correct issues
+     */
+    _monitorCookieHealth() {
+        if (!this.isAuthenticated()) return;
+        
+        try {
+            const authCookie = this._getCookie('authenticated');
+            const userInfoCookie = this._getCookie('user_info');
+            const hasAccessToken = this._cookieExists('access_token');
+            
+            // Check for inconsistencies
+            if (this.authenticated && authCookie !== 'true') {
+                console.warn('⚠️ ENHANCED: authenticated state mismatch, correcting...');
+                this._setCookie('authenticated', 'true', 1);
+            }
+            
+            if (this.authenticated && !userInfoCookie && this.userEmail && this.userId) {
+                console.warn('⚠️ ENHANCED: missing user_info cookie, restoring...');
+                const userInfo = {
+                    email: this.userEmail,
+                    id: this.userId,
+                    session_id: this.sessionId
+                };
+                this._setCookie('user_info', JSON.stringify(userInfo), 1);
+            }
+            
+            if (this.authenticated && !hasAccessToken) {
+                console.warn('⚠️ ENHANCED: access_token cookie missing, may need refresh');
+                this._needsBackgroundValidation = true;
+                this._validateAndRepairAsync().catch(() => {});
+            }
+            
+        } catch (error) {
+            console.error('Error in cookie health monitoring:', error);
+        }
+    },
+    
+    /**
+     * Set up enhanced automatic token refresh
+     */
+    _setupEnhancedTokenRefresh() {
+        // Check token every 3 minutes instead of 5
+        this.tokenRefreshTimer = setInterval(() => {
+            if (this.isAuthenticated()) {
+                this.refreshTokenIfNeeded().catch(error => {
+                    console.error('Scheduled enhanced token refresh failed:', error);
+                });
+            }
+        }, 180000); // 3 minutes
+        
+        console.log('🔄 Enhanced token refresh scheduler started');
+    },
+    
+    /**
+     * Enhanced cookie management
+     */
+    _getCookie(name) {
+        try {
+            const value = `; ${document.cookie}`;
+            const parts = value.split(`; ${name}=`);
+            if (parts.length === 2) {
+                const cookieValue = parts.pop().split(';').shift();
+                return decodeURIComponent(cookieValue);
+            }
+        } catch (error) {
+            console.warn(`Enhanced error reading cookie ${name}:`, error);
+        }
+        return null;
+    },
+    
+    _setCookie(name, value, days = 7) {
+        const expires = new Date(Date.now() + days * 864e5).toUTCString();
+        const secureFlag = window.location.protocol === 'https:' ? '; secure' : '';
+        document.cookie = `${name}=${encodeURIComponent(value)}; expires=${expires}; path=/; samesite=lax${secureFlag}`;
+    },
+    
+    _deleteCookie(name) {
+        document.cookie = `${name}=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;`;
+    },
+    
+    /**
+     * Sync authentication state to localStorage
+     */
+    _syncToLocalStorage() {
+        try {
+            if (this.userEmail) this._setSecureItem('user_email', this.userEmail);
+            if (this.userId) this._setSecureItem('user_id', this.userId);
+            if (this.sessionId) this._setSecureItem('session_id', this.sessionId);
+        } catch (error) {
+            console.warn('Failed to sync to localStorage:', error);
+        }
+    },
+    
+    /**
+     * Validate user info structure
+     */
+    _validateUserInfo(userInfo) {
+        if (!userInfo || typeof userInfo !== 'object') {
+            console.warn('Invalid user info: not an object');
+            return false;
         }
         
-        // Update storage
-        this._saveToStorage();
+        if (!userInfo.email || typeof userInfo.email !== 'string') {
+            console.warn('Invalid user info: missing or invalid email');
+            return false;
+        }
+        
+        if (!userInfo.id || typeof userInfo.id !== 'string') {
+            console.warn('Invalid user info: missing or invalid id');
+            return false;
+        }
+        
+        return true;
     },
     
     /**
      * Clear authentication state
      */
     _clearAuthState() {
-        console.log('🧹 Clearing JWT authentication state');
-        
-        this.authenticated = false;
+        this.token = null;
+        this.refreshToken = null;
         this.userEmail = null;
         this.userId = null;
         this.sessionId = null;
-        this.accessToken = null;
-        this.tokenExpiry = null;
+        this.authenticated = false;
+        this.lastTokenRefresh = null;
+        this.sessionValidationCache = null;
+        this.sessionValidationExpiry = null;
+        this._needsBackgroundValidation = false;
         
-        this._clearRefreshTimer();
-        this._clearStorage();
+        // Clear localStorage
+        this._removeSecureItem('user_email');
+        this._removeSecureItem('user_id');
+        this._removeSecureItem('session_id');
     },
     
     /**
-     * Save authentication to localStorage
-     */
-    _saveToStorage() {
-        try {
-            if (this.accessToken) {
-                localStorage.setItem(this.TOKEN_STORAGE_KEY, this.accessToken);
-            }
-            
-            if (this.userEmail && this.userId) {
-                const userInfo = {
-                    email: this.userEmail,
-                    id: this.userId,
-                    sessionId: this.sessionId,
-                    tokenExpiry: this.tokenExpiry?.toISOString()
-                };
-                localStorage.setItem(this.USER_STORAGE_KEY, JSON.stringify(userInfo));
-            }
-        } catch (error) {
-            console.error('Error saving auth to storage:', error);
-        }
-    },
-    
-    /**
-     * Clear localStorage
-     */
-    _clearStorage() {
-        try {
-            localStorage.removeItem(this.TOKEN_STORAGE_KEY);
-            localStorage.removeItem(this.USER_STORAGE_KEY);
-        } catch (error) {
-            console.error('Error clearing storage:', error);
-        }
-    },
-    
-    /**
-     * Setup automatic token refresh
-     */
-    _setupTokenRefresh() {
-        // Check for expiring tokens every minute
-        setInterval(() => {
-            if (this.isAuthenticated()) {
-                const timeUntilExpiry = this.tokenExpiry.getTime() - Date.now();
-                
-                // Refresh if token expires in the next 5 minutes
-                if (timeUntilExpiry <= this.TOKEN_REFRESH_THRESHOLD && timeUntilExpiry > 0) {
-                    console.log('🔄 Auto-refreshing token due to upcoming expiry');
-                    this.refreshToken().catch(error => {
-                        console.error('Auto-refresh failed:', error);
-                    });
-                }
-            }
-        }, 60000); // Check every minute
-    },
-    
-    /**
-     * Schedule token refresh
-     */
-    _scheduleTokenRefresh() {
-        this._clearRefreshTimer();
-        
-        if (!this.tokenExpiry) return;
-        
-        const timeUntilRefresh = this.tokenExpiry.getTime() - Date.now() - this.TOKEN_REFRESH_THRESHOLD;
-        
-        if (timeUntilRefresh > 0) {
-            this.refreshTimer = setTimeout(() => {
-                console.log('🔄 Scheduled token refresh triggered');
-                this.refreshToken().catch(error => {
-                    console.error('Scheduled refresh failed:', error);
-                });
-            }, timeUntilRefresh);
-            
-            console.log(`⏰ Token refresh scheduled for ${new Date(Date.now() + timeUntilRefresh).toLocaleTimeString()}`);
-        }
-    },
-    
-    /**
-     * Clear refresh timer
-     */
-    _clearRefreshTimer() {
-        if (this.refreshTimer) {
-            clearTimeout(this.refreshTimer);
-            this.refreshTimer = null;
-        }
-    },
-    
-    /**
-     * Setup page visibility change handler
+     * Set up page visibility change handler
      */
     _setupVisibilityHandler() {
         document.addEventListener('visibilitychange', () => {
             if (document.visibilityState === 'visible' && this.isAuthenticated()) {
-                // Page became visible, check if token needs refresh
-                const timeUntilExpiry = this.tokenExpiry.getTime() - Date.now();
-                if (timeUntilExpiry <= this.TOKEN_REFRESH_THRESHOLD) {
-                    console.log('🔄 Page visible and token expires soon, refreshing...');
-                    this.refreshToken().catch(error => {
-                        console.error('Visibility refresh failed:', error);
-                    });
-                }
+                // Page became visible, validate session
+                this._validateSessionAsync().catch(error => {
+                    console.error('Visibility session check failed:', error);
+                });
             }
         });
+    },
+    
+    /**
+     * Secure storage methods
+     */
+    _setSecureItem(key, value) {
+        try {
+            const storageKey = `aaai_${key}`;
+            localStorage.setItem(storageKey, value);
+            return true;
+        } catch (error) {
+            console.error('Error storing secure item:', error);
+            return false;
+        }
+    },
+    
+    _getSecureItem(key) {
+        try {
+            const storageKey = `aaai_${key}`;
+            return localStorage.getItem(storageKey);
+        } catch (error) {
+            console.error('Error retrieving secure item:', error);
+            return null;
+        }
+    },
+    
+    _removeSecureItem(key) {
+        try {
+            const storageKey = `aaai_${key}`;
+            localStorage.removeItem(storageKey);
+            return true;
+        } catch (error) {
+            console.error('Error removing secure item:', error);
+            return false;
+        }
     }
 };
 
@@ -1144,7 +1404,7 @@ if (typeof window !== 'undefined') {
     window.AuthService = AuthService;
 }
 
-// Export for module environments
+// Export the service for module usage
 if (typeof module !== 'undefined' && module.exports) {
     module.exports = AuthService;
 }
