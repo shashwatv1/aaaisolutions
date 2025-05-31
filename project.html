@@ -875,9 +875,9 @@
       };
       
       /**
-       * Initialize the application WITH AUTHENTICATION WAITING
+       * Initialize the application with proper authentication handling
        */
-       async function initializeApp() {
+      async function initializeApp() {
         try {
           console.log('🚀 Unified Projects Application starting...');
           
@@ -921,6 +921,115 @@
         }
       }
       
+      /**
+       * Enhanced authentication initialization with retries and validation
+       */
+      async function initializeAuthentication() {
+        console.log('🔐 Initializing authentication...');
+        
+        try {
+          // Step 1: Initialize AuthService
+          if (!window.AuthService) {
+            throw new Error('AuthService not available');
+          }
+          
+          // Initialize AuthService
+          const authInitResult = window.AuthService.init();
+          console.log('🔐 AuthService.init() result:', authInitResult);
+          
+          // Step 2: If not authenticated, try to validate session with retry
+          if (!authInitResult) {
+            console.log('🔐 Initial auth failed, attempting session validation...');
+            
+            const validationResult = await validateSessionWithRetry();
+            if (!validationResult) {
+              return { success: false, reason: 'Session validation failed' };
+            }
+          }
+          
+          // Step 3: Final authentication check
+          const finalAuthCheck = window.AuthService.isAuthenticated();
+          console.log('🔐 Final authentication check:', finalAuthCheck);
+          
+          if (!finalAuthCheck) {
+            return { success: false, reason: 'Final authentication check failed' };
+          }
+          
+          // Step 4: Verify user information
+          const user = window.AuthService.getCurrentUser();
+          if (!user || !user.email || !user.id) {
+            console.error('🔐 User information incomplete:', user);
+            return { success: false, reason: 'Incomplete user information' };
+          }
+          
+          console.log('✅ Authentication successful:', {
+            email: user.email,
+            id: user.id,
+            sessionId: user.sessionId
+          });
+          
+          return { success: true, user: user };
+          
+        } catch (error) {
+          console.error('🔐 Authentication initialization error:', error);
+          return { success: false, reason: error.message };
+        }
+      }
+      
+      /**
+       * Validate session with retry mechanism
+       */
+      async function validateSessionWithRetry(maxRetries = 3, delay = 1000) {
+        for (let attempt = 1; attempt <= maxRetries; attempt++) {
+          try {
+            console.log(`🔐 Session validation attempt ${attempt}/${maxRetries}...`);
+            
+            // Check if we have persistent session data
+            if (!window.AuthService.hasPersistentSession()) {
+              console.log('🔐 No persistent session data found');
+              return false;
+            }
+            
+            // Try to refresh token/session
+            const refreshResult = await window.AuthService.refreshTokenIfNeeded();
+            if (refreshResult) {
+              console.log('✅ Session refreshed successfully');
+              return true;
+            }
+            
+            // If we have session data but refresh failed, try validation
+            if (window.AuthService._validateSessionAsync) {
+              const validationResult = await window.AuthService._validateSessionAsync();
+              if (validationResult) {
+                console.log('✅ Session validated successfully');
+                return true;
+              }
+            }
+            
+            // Wait before next attempt
+            if (attempt < maxRetries) {
+              console.log(`⏳ Waiting ${delay}ms before retry...`);
+              await new Promise(resolve => setTimeout(resolve, delay));
+              delay *= 1.5; // Exponential backoff
+            }
+            
+          } catch (error) {
+            console.error(`🔐 Session validation attempt ${attempt} failed:`, error);
+            
+            if (attempt < maxRetries) {
+              await new Promise(resolve => setTimeout(resolve, delay));
+              delay *= 1.5;
+            }
+          }
+        }
+        
+        console.log('❌ All session validation attempts failed');
+        return false;
+      }
+      
+      /**
+       * Initialize services with proper error handling
+       */
       async function initializeServices() {
         try {
           console.log('🔧 Initializing services...');
@@ -980,171 +1089,6 @@
         }
       }
       
-      async function initializeAuthentication() {
-        console.log('🔐 Initializing authentication...');
-        
-        try {
-          // Step 1: Initialize AuthService
-          if (!window.AuthService) {
-            throw new Error('AuthService not available');
-          }
-          
-          // Initialize AuthService
-          const authInitResult = window.AuthService.init();
-          console.log('🔐 AuthService.init() result:', authInitResult);
-          
-          // Step 2: If not authenticated, try to validate session with retry
-          if (!authInitResult) {
-            console.log('🔐 Initial auth failed, attempting session validation...');
-            
-            const validationResult = await validateSessionWithRetry();
-            if (!validationResult) {
-              return { success: false, reason: 'Session validation failed' };
-            }
-          }
-          
-          // Step 3: Final authentication check
-          const finalAuthCheck = window.AuthService.isAuthenticated();
-          console.log('🔐 Final authentication check:', finalAuthCheck);
-          
-          if (!finalAuthCheck) {
-            return { success: false, reason: 'Final authentication check failed' };
-          }
-          
-          // Step 4: Verify user information
-          const user = window.AuthService.getCurrentUser();
-          if (!user || !user.email || !user.id) {
-            console.error('🔐 User information incomplete:', user);
-            return { success: false, reason: 'Incomplete user information' };
-          }
-          
-          console.log('✅ Authentication successful:', {
-            email: user.email,
-            id: user.id,
-            sessionId: user.sessionId
-          });
-          
-          return { success: true, user: user };
-          
-        } catch (error) {
-          console.error('🔐 Authentication initialization error:', error);
-          return { success: false, reason: error.message };
-        }
-      }
-
-      /**
-       * NEW: Wait for unified initialization to complete
-       */
-      async function waitForUnifiedInitialization(timeoutMs = 30000) {
-        const startTime = Date.now();
-        
-        while ((Date.now() - startTime) < timeoutMs) {
-          // Check if AAAI_APP is initialized
-          if (window.AAAI_APP && window.AAAI_APP.isInitialized && window.AAAI_APP.isInitialized()) {
-            console.log('✅ Unified initialization complete');
-            return true;
-          }
-          
-          // Wait a bit before checking again
-          await new Promise(resolve => setTimeout(resolve, 100));
-        }
-        
-        throw new Error('Unified initialization timed out');
-      }
-
-      async function validateSessionWithRetry(maxRetries = 3, delay = 1000) {
-        for (let attempt = 1; attempt <= maxRetries; attempt++) {
-          try {
-            console.log(`🔐 Session validation attempt ${attempt}/${maxRetries}...`);
-            
-            // Check if we have persistent session data
-            if (!window.AuthService.hasPersistentSession()) {
-              console.log('🔐 No persistent session data found');
-              return false;
-            }
-            
-            // Try to refresh token/session
-            const refreshResult = await window.AuthService.refreshTokenIfNeeded();
-            if (refreshResult) {
-              console.log('✅ Session refreshed successfully');
-              return true;
-            }
-            
-            // If we have session data but refresh failed, try validation
-            if (window.AuthService._validateSessionAsync) {
-              const validationResult = await window.AuthService._validateSessionAsync();
-              if (validationResult) {
-                console.log('✅ Session validated successfully');
-                return true;
-              }
-            }
-            
-            // Wait before next attempt
-            if (attempt < maxRetries) {
-              console.log(`⏳ Waiting ${delay}ms before retry...`);
-              await new Promise(resolve => setTimeout(resolve, delay));
-              delay *= 1.5; // Exponential backoff
-            }
-            
-          } catch (error) {
-            console.error(`🔐 Session validation attempt ${attempt} failed:`, error);
-            
-            if (attempt < maxRetries) {
-              await new Promise(resolve => setTimeout(resolve, delay));
-              delay *= 1.5;
-            }
-          }
-        }
-        
-        console.log('❌ All session validation attempts failed');
-        return false;
-      }
-
-      /**
-       * NEW: Ensure authentication is fully ready for API calls
-       */
-      async function ensureAuthenticationReady(timeoutMs = 20000) {
-        console.log('🔍 Checking authentication readiness...');
-        
-        // Check if AAAI_APP is available
-        if (!window.AAAI_APP || !window.AAAI_APP.waitForAuth) {
-          console.error('❌ AAAI_APP not available');
-          return false;
-        }
-        
-        // Get AuthService
-        const authService = window.AAAI_APP.getService('AuthService');
-        if (!authService) {
-          console.error('❌ AuthService not available');
-          return false;
-        }
-        
-        // Check if user is authenticated
-        if (!authService.isAuthenticated()) {
-          console.log('❌ User not authenticated');
-          return false;
-        }
-        
-        console.log('🔐 User authenticated, waiting for tokens to be ready...');
-        
-        try {
-          // Use the unified app's waitForAuth method
-          const authReady = await window.AAAI_APP.waitForAuth(timeoutMs);
-          
-          if (authReady) {
-            console.log('✅ Authentication is ready for API calls');
-            return true;
-          } else {
-            console.log('❌ Authentication validation failed');
-            return false;
-          }
-          
-        } catch (error) {
-          console.error('❌ Error ensuring authentication ready:', error);
-          return false;
-        }
-      }
-      
       /**
        * Initialize environment features
        */
@@ -1163,9 +1107,7 @@
        */
       function initializeUI() {
         // Display user info
-        const authService = window.AAAI_APP.getService('AuthService');
-        const user = authService?.getCurrentUser();
-        
+        const user = window.AuthService.getCurrentUser();
         if (user && elements.userEmailDisplay) {
           elements.userEmailDisplay.textContent = user.email;
         }
@@ -1175,17 +1117,11 @@
       }
       
       /**
-       * Load user credits - NOW WITH AUTH READY CHECK
+       * Load user credits
        */
       async function loadUserCredits() {
         try {
-          const authService = window.AAAI_APP.getService('AuthService');
-          if (!authService || !authService.isAuthenticationReady()) {
-            elements.creditsDisplay.textContent = 'Credits: Loading...';
-            return;
-          }
-          
-          // const credits = await authService.getUserCredits();
+          // const credits = await window.AuthService.getUserCredits();
           elements.creditsDisplay.textContent = `Credits: 0`;
         } catch (error) {
           console.warn('Could not load user credits:', error);
@@ -1194,14 +1130,12 @@
       }
       
       /**
-       * Load current context - NOW SAFE TO CALL
+       * Load current context
        */
       async function loadCurrentContext() {
         try {
-          const projectService = window.AAAI_APP.getService('ProjectService');
-          if (projectService) {
-            console.log('📂 Loading current context...');
-            const contextResult = await projectService.getCurrentContext();
+          if (window.ProjectService) {
+            const contextResult = await window.ProjectService.getCurrentContext();
             if (contextResult.success) {
               currentContext = contextResult;
               updateContextIndicator(contextResult);
@@ -1210,7 +1144,6 @@
           }
         } catch (error) {
           console.warn('Could not load current context:', error);
-          // Don't show error to user, just log it
         }
       }
       
@@ -1230,19 +1163,13 @@
       }
       
       /**
-       * Load projects - NOW SAFE TO CALL
+       * Load projects
        */
       async function loadProjects() {
         try {
           showLoading(true);
           
-          const projectService = window.AAAI_APP.getService('ProjectService');
-          if (!projectService) {
-            throw new Error('ProjectService not available');
-          }
-          
-          console.log('📂 Loading projects...');
-          const result = await projectService.getProjects({ limit: 50 });
+          const result = await window.ProjectService.getProjects({ limit: 50 });
           
           if (result && result.projects) {
             projects = result.projects;
@@ -1258,11 +1185,6 @@
         } catch (error) {
           console.error('Error loading projects:', error);
           showToast(`Failed to load projects: ${error.message}`, 'error');
-          
-          // Show empty state on error
-          projects = [];
-          filteredProjects = [];
-          renderProjects();
         } finally {
           showLoading(false);
         }
@@ -1459,7 +1381,7 @@
       }
       
       /**
-       * Handle project creation - UNIFIED INTEGRATION POINT WITH AUTH CHECK
+       * Handle project creation - UNIFIED INTEGRATION POINT
        */
       async function handleCreateProject(e) {
         e.preventDefault();
@@ -1475,12 +1397,6 @@
         try {
           setButtonLoading(elements.createProjectBtn, true);
           
-          // Ensure authentication is still ready
-          const authService = window.AAAI_APP.getService('AuthService');
-          if (!authService || !authService.isAuthenticationReady()) {
-            throw new Error('Authentication not ready. Please refresh the page.');
-          }
-          
           const projectData = {
             name: name,
             description: description,
@@ -1490,12 +1406,7 @@
           console.log('📝 Creating new project with unified services:', projectData);
           
           // Use NavigationManager to create and navigate
-          const navigationManager = window.AAAI_APP.getService('NavigationManager');
-          if (!navigationManager) {
-            throw new Error('NavigationManager not available');
-          }
-          
-          const result = await navigationManager.createProjectAndNavigate(projectData);
+          const result = await window.NavigationManager.createProjectAndNavigate(projectData);
           
           if (result.success) {
             // Update local state
@@ -1524,26 +1435,14 @@
       }
       
       /**
-       * Open existing project - UNIFIED INTEGRATION POINT WITH AUTH CHECK
+       * Open existing project - UNIFIED INTEGRATION POINT
        */
       async function openProject(projectId, projectName) {
         try {
-          // Ensure authentication is still ready
-          const authService = window.AAAI_APP.getService('AuthService');
-          if (!authService || !authService.isAuthenticationReady()) {
-            showToast('Authentication not ready. Please refresh the page.', 'error');
-            return;
-          }
-          
           console.log('📂 Opening project with unified services:', { projectId, projectName });
           
           // Use NavigationManager to open project
-          const navigationManager = window.AAAI_APP.getService('NavigationManager');
-          if (!navigationManager) {
-            throw new Error('NavigationManager not available');
-          }
-          
-          await navigationManager.openProject(projectId, projectName);
+          await window.NavigationManager.openProject(projectId, projectName);
           
         } catch (error) {
           console.error('❌ Error opening project:', error);
@@ -1557,10 +1456,7 @@
       async function handleLogout() {
         if (confirm('Are you sure you want to sign out?')) {
           try {
-            const authService = window.AAAI_APP.getService('AuthService');
-            if (authService) {
-              await authService.logout();
-            }
+            await window.AuthService.logout();
             window.location.href = 'login.html';
           } catch (error) {
             console.error('Logout error:', error);
@@ -1672,11 +1568,6 @@
         console.log('Show project menu for:', projectId);
         // TODO: Implement project context menu
       };
-      
-      // Listen for authentication ready events
-      document.addEventListener('aaai:initialized', function(event) {
-        console.log('📡 Received AAAI initialization event:', event.detail.authenticationReady);
-      });
       
       // Initialize the application
       await initializeApp();
