@@ -105,13 +105,13 @@ const ProjectService = {
             
             this._log('Creating project with authenticated user:', user.email);
             
-            const result = await this.authService.executeFunction('create_project_with_context', {
+            const result = await this._executeFunction('create_project_with_context', {
                 name: projectData.name,
                 description: projectData.description || null,
                 tags: projectData.tags || [],
                 email: user.email
             });
-            
+
             if (result.status === 'success' && result.data.success) {
                 const project = result.data.project;
                 const chat_id = result.data.chat_id;
@@ -191,7 +191,7 @@ const ProjectService = {
             
             this._log('Getting projects for authenticated user:', user.email);
             
-            const result = await this.authService.executeFunction('list_user_projects', {
+            const result = await this._executeFunction('list_user_projects', {
                 email: user.email,
                 limit: limit,
                 offset: offset,
@@ -262,7 +262,7 @@ const ProjectService = {
                 throw new Error('User information not available');
             }
             
-            const result = await this.authService.executeFunction('get_project_details', {
+            const result = await this._executeFunction('get_project_details', {
                 project_id: projectId,
                 email: user.email
             });
@@ -306,7 +306,7 @@ const ProjectService = {
             
             this._log('Switching to project context', { projectId, projectName, userEmail: user.email });
             
-            const result = await this.authService.executeFunction('switch_project_context', {
+            const result = await this._executeFunction('switch_project_context', {
                 email: user.email,
                 project_id: projectId,
                 reel_id: null // Reset reel when switching projects
@@ -374,7 +374,7 @@ const ProjectService = {
                 throw new Error('User information not available');
             }
             
-            const result = await this.authService.executeFunction('get_user_context', {
+            const result = await this._executeFunction('get_user_context', {
                 email: user.email
             });
             
@@ -421,7 +421,7 @@ const ProjectService = {
                 throw new Error('User information not available');
             }
             
-            const result = await this.authService.executeFunction('update_project', {
+            const result = await this._executeFunction('update_project', {
                 project_id: projectId,
                 name: updateData.name,
                 description: updateData.description,
@@ -478,7 +478,7 @@ const ProjectService = {
                 throw new Error('User information not available');
             }
             
-            const result = await this.authService.executeFunction('delete_project', {
+            const result = await this._executeFunction('delete_project', {
                 project_id: projectId,
                 email: user.email
             });
@@ -582,7 +582,7 @@ const ProjectService = {
     // Private methods
     
     /**
-     * ENHANCED: Require complete authentication with proper validation
+     * ENHANCED: Require complete authentication with strict token validation
      */
     async _requireAuth() {
         if (!this.authService) {
@@ -593,12 +593,33 @@ const ProjectService = {
             throw new Error('User not authenticated');
         }
         
-        // Ensure we have a valid user access token
+        // STRICT: Ensure we have a valid user access token
         try {
             const token = await this.authService._ensureValidAccessToken();
             if (!token) {
                 throw new Error('No valid access token available');
             }
+            
+            // STRICT: Additional validation that this is a user token
+            if (this.authService._validateUserToken) {
+                const validationResult = this.authService._validateUserToken(token);
+                if (!validationResult.valid) {
+                    this._log('CRITICAL: Token validation failed in ProjectService:', {
+                        reason: validationResult.reason,
+                        code: validationResult.code
+                    });
+                    
+                    // Clear auth state if service account token detected
+                    if (validationResult.code && validationResult.code.includes('SERVICE_ACCOUNT')) {
+                        this.authService._clearAuthState();
+                    }
+                    
+                    throw new Error(`Token validation failed: ${validationResult.reason}`);
+                }
+                
+                this._log('Token validation passed for user:', validationResult.payload.email);
+            }
+            
         } catch (error) {
             throw new Error(`Authentication validation failed: ${error.message}`);
         }
@@ -606,6 +627,31 @@ const ProjectService = {
         return true;
     },
     
+    /**
+    * ENHANCED: Execute function with pre-validation
+    */
+    async _executeFunction(functionName, inputData) {
+        // Pre-validate authentication
+        await this._requireAuth();
+        
+        try {
+            const result = await this.authService.executeFunction(functionName, inputData);
+            return result;
+        } catch (error) {
+            // Handle service account token errors specifically
+            if (error.message.includes('service account') || 
+                error.message.includes('gserviceaccount') ||
+                error.message.includes('Invalid token type')) {
+                
+                this._log('CRITICAL: Service account token error detected, clearing auth state');
+                this.authService._clearAuthState();
+                throw new Error('Authentication error: Please log in again with a user account');
+            }
+            
+            throw error;
+        }
+    },
+
     /**
      * ENHANCED: Ensure authentication is ready
      */

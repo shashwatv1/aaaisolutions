@@ -106,16 +106,19 @@ const AuthService = {
     /**
      * Enhanced user token validation
      */
+    /**
+     * Enhanced user token validation with strict service account rejection
+     */
     _validateUserToken(token) {
         try {
             if (!token || typeof token !== 'string') {
-                return { valid: false, reason: 'Invalid token format' };
+                return { valid: false, reason: 'Invalid token format', code: 'INVALID_FORMAT' };
             }
             
             // Parse token payload
             const parts = token.split('.');
             if (parts.length !== 3) {
-                return { valid: false, reason: 'Invalid JWT format' };
+                return { valid: false, reason: 'Invalid JWT format', code: 'INVALID_JWT_FORMAT' };
             }
             
             // Decode payload
@@ -125,49 +128,134 @@ const AuthService = {
                 const decoded = atob(paddedPayload.replace(/-/g, '+').replace(/_/g, '/'));
                 payload = JSON.parse(decoded);
             } catch (error) {
-                return { valid: false, reason: 'Failed to decode token payload' };
+                return { valid: false, reason: 'Failed to decode token payload', code: 'DECODE_ERROR' };
             }
             
-            // Check for required user claims
+            // STRICT: Check for service account patterns in email
             if (!payload.email) {
-                return { valid: false, reason: 'Token missing email claim' };
+                return { valid: false, reason: 'Token missing email claim', code: 'MISSING_EMAIL' };
             }
             
-            if (!payload.user_id) {
-                return { valid: false, reason: 'Token missing user_id claim' };
+            // Reject any service account emails
+            const serviceAccountPatterns = [
+                '@developer.gserviceaccount.com',
+                '@.gserviceaccount.com',
+                '.gserviceaccount.com',
+                '-compute@developer.gserviceaccount.com'
+            ];
+            
+            const isServiceAccount = serviceAccountPatterns.some(pattern => 
+                payload.email.includes(pattern)
+            );
+            
+            if (isServiceAccount) {
+                this._log('STRICT REJECTION: Service account email detected:', payload.email);
+                return { 
+                    valid: false, 
+                    reason: 'Service account tokens are strictly forbidden for user operations', 
+                    code: 'SERVICE_ACCOUNT_FORBIDDEN' 
+                };
             }
             
-            // Check that this is NOT a service account token
-            if (payload.email.includes('@developer.gserviceaccount.com') || 
-                payload.email.includes('.gserviceaccount.com')) {
-                return { valid: false, reason: 'Service account token not allowed' };
+            // STRICT: Require user_id for all user tokens
+            if (!payload.user_id || typeof payload.user_id !== 'string' || payload.user_id.trim().length === 0) {
+                return { 
+                    valid: false, 
+                    reason: 'User token must contain valid user_id claim', 
+                    code: 'MISSING_USER_ID' 
+                };
             }
             
-            // Check issuer
-            if (payload.iss && payload.iss.includes('serviceaccount')) {
-                return { valid: false, reason: 'Service account issued token not allowed' };
+            // STRICT: Check issuer for service account patterns
+            if (payload.iss) {
+                const issuerPatterns = [
+                    'serviceaccount',
+                    'gserviceaccount',
+                    'compute@developer'
+                ];
+                
+                const hasServiceAccountIssuer = issuerPatterns.some(pattern => 
+                    payload.iss.includes(pattern)
+                );
+                
+                if (hasServiceAccountIssuer) {
+                    this._log('STRICT REJECTION: Service account issuer detected:', payload.iss);
+                    return { 
+                        valid: false, 
+                        reason: 'Service account issued tokens are forbidden', 
+                        code: 'SERVICE_ACCOUNT_ISSUER' 
+                    };
+                }
             }
             
-            // Check token type
+            // STRICT: Check audience for service account patterns
+            if (payload.aud) {
+                const audiencePatterns = [
+                    'gserviceaccount',
+                    'developer.gserviceaccount'
+                ];
+                
+                const hasServiceAccountAudience = audiencePatterns.some(pattern => 
+                    payload.aud.includes(pattern)
+                );
+                
+                if (hasServiceAccountAudience) {
+                    this._log('STRICT REJECTION: Service account audience detected:', payload.aud);
+                    return { 
+                        valid: false, 
+                        reason: 'Service account audience tokens are forbidden', 
+                        code: 'SERVICE_ACCOUNT_AUDIENCE' 
+                    };
+                }
+            }
+            
+            // STRICT: Explicit service account token type check
             if (payload.token_type === 'service_account') {
-                return { valid: false, reason: 'Explicit service account token not allowed' };
+                return { 
+                    valid: false, 
+                    reason: 'Explicit service account token type forbidden', 
+                    code: 'EXPLICIT_SERVICE_ACCOUNT' 
+                };
             }
             
             // Check expiration
             if (payload.exp && payload.exp < Math.floor(Date.now() / 1000)) {
-                return { valid: false, reason: 'Token expired' };
+                return { valid: false, reason: 'Token expired', code: 'TOKEN_EXPIRED' };
             }
             
-            // Validate email format
+            // Validate email format for real user emails
             const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
             if (!emailRegex.test(payload.email)) {
-                return { valid: false, reason: 'Invalid email format' };
+                return { valid: false, reason: 'Invalid email format', code: 'INVALID_EMAIL_FORMAT' };
             }
             
-            return { valid: true, payload: payload };
+            // Additional check: email should not contain "compute" or "developer" 
+            if (payload.email.includes('compute@') || payload.email.includes('developer@')) {
+                return { 
+                    valid: false, 
+                    reason: 'Compute or developer service emails are forbidden', 
+                    code: 'FORBIDDEN_EMAIL_TYPE' 
+                };
+            }
+            
+            // STRICT: Validate user_id format (should be meaningful, not empty)
+            if (payload.user_id.length < 5) {
+                return { 
+                    valid: false, 
+                    reason: 'Invalid user_id format - too short', 
+                    code: 'INVALID_USER_ID_FORMAT' 
+                };
+            }
+            
+            this._log('Token validation passed for user:', payload.email);
+            return { valid: true, payload: payload, code: 'VALID_USER_TOKEN' };
             
         } catch (error) {
-            return { valid: false, reason: `Token validation error: ${error.message}` };
+            return { 
+                valid: false, 
+                reason: `Token validation error: ${error.message}`, 
+                code: 'VALIDATION_ERROR' 
+            };
         }
     },
 
@@ -218,7 +306,7 @@ const AuthService = {
                     'Content-Type': 'application/json'
                 },
                 body: JSON.stringify({ email, otp }),
-                credentials: 'include' // Important: includes HTTP-only cookies
+                credentials: 'include'
             });
             
             const data = await response.json();
@@ -230,16 +318,41 @@ const AuthService = {
             // Extract tokens and user info
             const { user, tokens, authentication } = data;
             
-            // Validate that we received a user access token
+            // STRICT: Validate that we received a valid user access token
             const validationResult = this._validateUserToken(tokens.access_token);
             if (!validationResult.valid) {
-                this._log('Received invalid user token from authentication:', validationResult.reason);
-                throw new Error(`Invalid token received: ${validationResult.reason}`);
+                this._log('CRITICAL: Invalid token received from authentication server:', {
+                    reason: validationResult.reason,
+                    code: validationResult.code,
+                    tokenPreview: tokens.access_token ? tokens.access_token.substring(0, 50) + '...' : 'null'
+                });
+                
+                // Clear state and reject
+                this._clearAuthState();
+                throw new Error(`Authentication server returned invalid token: ${validationResult.reason}`);
+            }
+            
+            // STRICT: Validate that user info matches token
+            if (validationResult.payload.email !== email) {
+                this._log('CRITICAL: Email mismatch between request and token:', {
+                    requestEmail: email,
+                    tokenEmail: validationResult.payload.email
+                });
+                this._clearAuthState();
+                throw new Error('Email mismatch in authentication response');
+            }
+            
+            // STRICT: Validate user object contains required fields
+            if (!user.id || !user.email || user.email !== email) {
+                this._log('CRITICAL: Invalid user object in authentication response:', user);
+                this._clearAuthState();
+                throw new Error('Invalid user information in authentication response');
             }
             
             this._log('Valid user token received from authentication:', {
                 email: validationResult.payload.email,
-                user_id: validationResult.payload.user_id
+                user_id: validationResult.payload.user_id,
+                tokenCode: validationResult.code
             });
             
             // Set access token and user information
@@ -256,7 +369,7 @@ const AuthService = {
                 userId: user.id,
                 email: user.email,
                 expiresIn: tokens.expires_in,
-                tokenType: 'user_access_token'
+                tokenType: 'validated_user_access_token'
             });
             
             return data;
@@ -280,15 +393,19 @@ const AuthService = {
             // Ensure we have a valid access token
             const accessToken = await this._ensureValidAccessToken();
             
-            // Double-check token validity before using
+            // STRICT: Pre-validate token before sending to server
             const validationResult = this._validateUserToken(accessToken);
             if (!validationResult.valid) {
-                this._log('Current token validation failed:', validationResult.reason);
+                this._log('CRITICAL: Token validation failed before function execution:', {
+                    reason: validationResult.reason,
+                    code: validationResult.code,
+                    functionName: functionName
+                });
                 this._clearAuthState();
-                throw new Error(`Invalid token: ${validationResult.reason}`);
+                throw new Error(`Invalid token for function execution: ${validationResult.reason}`);
             }
             
-            this._log(`Executing function: ${functionName} via Gateway with user token for:`, validationResult.payload.email);
+            this._log(`Executing function: ${functionName} via Gateway with validated user token for:`, validationResult.payload.email);
             
             const response = await fetch(`${this.AUTH_BASE_URL}/api/function/${functionName}`, {
                 method: 'POST',
@@ -304,8 +421,19 @@ const AuthService = {
                 const errorData = await response.json().catch(() => ({}));
                 
                 if (response.status === 401) {
-                    // Token expired or invalid, try refresh
-                    this._log('401 error, attempting token refresh');
+                    this._log('401 error during function execution, attempting token refresh');
+                    
+                    // Check if error is due to service account token
+                    if (errorData.code === 'SERVICE_ACCOUNT_TOKEN_REJECTED' || 
+                        errorData.message?.includes('service account') ||
+                        errorData.message?.includes('gserviceaccount')) {
+                        
+                        this._log('CRITICAL: Service account token detected, clearing auth state');
+                        this._clearAuthState();
+                        throw new Error('Invalid token type detected. Please log in again.');
+                    }
+                    
+                    // Try refresh for normal expiration
                     const refreshed = await this.refreshTokenIfNeeded();
                     if (refreshed) {
                         // Retry with new token
@@ -383,7 +511,7 @@ const AuthService = {
                 headers: {
                     'Content-Type': 'application/json'
                 },
-                credentials: 'include' // Include HTTP-only refresh token cookie
+                credentials: 'include'
             });
             
             const data = await response.json();
@@ -401,28 +529,43 @@ const AuthService = {
             let accessToken, expiresIn;
             
             if (data.tokens) {
-                // New format: { tokens: { access_token, expires_in } }
                 accessToken = data.tokens.access_token;
                 expiresIn = data.tokens.expires_in;
             } else if (data.access_token) {
-                // Direct format: { access_token, expires_in }
                 accessToken = data.access_token;
                 expiresIn = data.expires_in;
             } else {
                 throw new Error('Invalid refresh response format');
             }
             
-            // Validate that we received a user access token
+            // STRICT: Validate that we received a valid user access token
             const validationResult = this._validateUserToken(accessToken);
             if (!validationResult.valid) {
-                this._log('Received invalid user token from refresh:', validationResult.reason);
+                this._log('CRITICAL: Invalid token received from refresh endpoint:', {
+                    reason: validationResult.reason,
+                    code: validationResult.code,
+                    tokenPreview: accessToken ? accessToken.substring(0, 50) + '...' : 'null'
+                });
+                
+                // Clear state and fail refresh
+                this._clearAuthState();
+                return false;
+            }
+            
+            // STRICT: Validate that refreshed token is for the same user
+            if (this.userEmail && validationResult.payload.email !== this.userEmail) {
+                this._log('CRITICAL: User email mismatch in refresh token:', {
+                    currentEmail: this.userEmail,
+                    tokenEmail: validationResult.payload.email
+                });
                 this._clearAuthState();
                 return false;
             }
             
             this._log('Valid user token received from refresh:', {
                 email: validationResult.payload.email,
-                user_id: validationResult.payload.user_id
+                user_id: validationResult.payload.user_id,
+                tokenCode: validationResult.code
             });
             
             // Update access token
@@ -449,6 +592,7 @@ const AuthService = {
             return false;
         }
     },
+
 
     /**
      * Logout user via Gateway
@@ -703,9 +847,23 @@ const AuthService = {
      * Check if access token is valid
      */
     _isAccessTokenValid() {
-        return this.accessToken && 
-               this.tokenExpiry && 
-               Date.now() < (this.tokenExpiry - this.options.refreshBufferTime);
+        if (!this.accessToken || !this.tokenExpiry) {
+            return false;
+        }
+        
+        // Check expiration
+        if (Date.now() >= (this.tokenExpiry - this.options.refreshBufferTime)) {
+            return false;
+        }
+        
+        // STRICT: Validate token format and content
+        const validationResult = this._validateUserToken(this.accessToken);
+        if (!validationResult.valid) {
+            this._log('Access token validation failed:', validationResult.reason);
+            return false;
+        }
+        
+        return true;
     },
 
     /**
@@ -723,10 +881,13 @@ const AuthService = {
      */
     _storeAccessToken(token, expiresIn, user) {
         try {
-            // Validate token before storing
+            // STRICT: Validate token before storing
             const validationResult = this._validateUserToken(token);
             if (!validationResult.valid) {
-                this._log('Refusing to store invalid user token:', validationResult.reason);
+                this._log('CRITICAL: Refusing to store invalid user token:', {
+                    reason: validationResult.reason,
+                    code: validationResult.code
+                });
                 return;
             }
             
@@ -735,11 +896,12 @@ const AuthService = {
                 expiry: Date.now() + (expiresIn * 1000),
                 expiresIn: expiresIn,
                 user: user,
-                stored: Date.now()
+                stored: Date.now(),
+                validated: true
             };
             
             sessionStorage.setItem('aaai_access_token', JSON.stringify(tokenData));
-            this._log('Valid user token stored successfully');
+            this._log('Valid user token stored successfully for:', validationResult.payload.email);
         } catch (error) {
             console.warn('Failed to store access token:', error);
         }
@@ -757,6 +919,14 @@ const AuthService = {
             
             // Check if token is expired
             if (Date.now() >= tokenData.expiry) {
+                sessionStorage.removeItem('aaai_access_token');
+                return null;
+            }
+            
+            // STRICT: Re-validate stored token
+            const validationResult = this._validateUserToken(tokenData.token);
+            if (!validationResult.valid) {
+                this._log('Stored token validation failed, removing:', validationResult.reason);
                 sessionStorage.removeItem('aaai_access_token');
                 return null;
             }

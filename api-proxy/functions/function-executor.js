@@ -256,7 +256,7 @@ function parseJWTPayload(token) {
  * Enhanced user token validation
  */
 function validateUserToken(payload) {
-  // Check for required user token fields
+  // STRICT: Check for required user token fields
   if (!payload.email) {
     return {
       valid: false,
@@ -265,51 +265,80 @@ function validateUserToken(payload) {
     };
   }
   
-  if (!payload.user_id) {
+  if (!payload.user_id || typeof payload.user_id !== 'string' || payload.user_id.trim().length === 0) {
     return {
       valid: false,
-      reason: 'User token must contain user_id claim',
+      reason: 'User token must contain valid user_id claim',
       code: 'MISSING_USER_ID_CLAIM'
     };
   }
   
-  // Check for service account indicators in email
-  if (payload.email.includes('@developer.gserviceaccount.com') || 
-      payload.email.includes('@') && payload.email.includes('.gserviceaccount.com')) {
+  // STRICT: Enhanced service account detection patterns
+  const serviceAccountEmailPatterns = [
+    '@developer.gserviceaccount.com',
+    '@.gserviceaccount.com',
+    '.gserviceaccount.com',
+    '-compute@developer.gserviceaccount.com',
+    'compute@developer',
+    'gserviceaccount'
+  ];
+  
+  const isServiceAccountEmail = serviceAccountEmailPatterns.some(pattern => 
+    payload.email.includes(pattern)
+  );
+  
+  if (isServiceAccountEmail) {
+    console.error('STRICT REJECTION: Service account email pattern detected:', payload.email);
     return {
       valid: false,
-      reason: 'Service account tokens are not allowed for user operations',
-      code: 'SERVICE_ACCOUNT_TOKEN_REJECTED'
+      reason: 'Service account tokens are strictly forbidden for user operations',
+      code: 'SERVICE_ACCOUNT_EMAIL_REJECTED'
     };
   }
   
-  // Check for service account indicators in issuer
+  // STRICT: Check for service account indicators in issuer
   if (payload.iss && (
     payload.iss.includes('serviceaccount') ||
-    payload.iss.includes('gserviceaccount')
+    payload.iss.includes('gserviceaccount') ||
+    payload.iss.includes('compute@developer')
   )) {
+    console.error('STRICT REJECTION: Service account issuer detected:', payload.iss);
     return {
       valid: false,
-      reason: 'Service account issued tokens are not allowed for user operations',
+      reason: 'Service account issued tokens are strictly forbidden',
       code: 'SERVICE_ACCOUNT_ISSUER_REJECTED'
     };
   }
   
-  // Check for explicit service account token type
-  if (payload.token_type === 'service_account') {
+  // STRICT: Check for explicit service account token type
+  if (payload.token_type === 'service_account' || payload.token_type === 'service') {
     return {
       valid: false,
-      reason: 'Explicitly marked service account tokens are not allowed',
+      reason: 'Explicitly marked service account tokens are forbidden',
       code: 'EXPLICIT_SERVICE_ACCOUNT_REJECTED'
     };
   }
   
-  // Check for Google service account specific patterns
-  if (payload.aud && payload.aud.includes('gserviceaccount')) {
+  // STRICT: Check for Google service account specific patterns in audience
+  if (payload.aud && (
+    payload.aud.includes('gserviceaccount') ||
+    payload.aud.includes('compute@developer')
+  )) {
+    console.error('STRICT REJECTION: Service account audience detected:', payload.aud);
     return {
       valid: false,
-      reason: 'Google service account audience tokens are not allowed',
+      reason: 'Google service account audience tokens are forbidden',
       code: 'GOOGLE_SERVICE_ACCOUNT_AUDIENCE_REJECTED'
+    };
+  }
+  
+  // STRICT: Additional patterns to catch compute engine tokens
+  if (payload.email.includes('compute@') || payload.email.includes('developer@')) {
+    console.error('STRICT REJECTION: Compute/developer email detected:', payload.email);
+    return {
+      valid: false,
+      reason: 'Compute engine and developer service emails are forbidden',
+      code: 'COMPUTE_SERVICE_EMAIL_REJECTED'
     };
   }
   
@@ -335,14 +364,28 @@ function validateUserToken(payload) {
     };
   }
   
-  // Check for reasonable user_id format (should be UUID or similar)
-  if (typeof payload.user_id !== 'string' || payload.user_id.length < 10) {
+  // STRICT: Check for reasonable user_id format (should be meaningful)
+  if (payload.user_id.length < 5) {
     return {
       valid: false,
-      reason: 'Invalid user_id format in token',
+      reason: 'Invalid user_id format - too short',
       code: 'INVALID_USER_ID_FORMAT'
     };
   }
+  
+  // STRICT: Final check - ensure this looks like a real user email
+  if (payload.email.includes('-compute@') || 
+      payload.email.match(/^\d+-compute@/) ||
+      payload.email.match(/^[a-f0-9-]+-compute@/)) {
+    console.error('STRICT REJECTION: Compute service pattern in email:', payload.email);
+    return {
+      valid: false,
+      reason: 'Compute service account patterns are forbidden',
+      code: 'COMPUTE_PATTERN_REJECTED'
+    };
+  }
+  
+  console.log('✅ Token validation passed for user:', payload.email);
   
   // All validations passed
   return {
