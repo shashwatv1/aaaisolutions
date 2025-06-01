@@ -84,11 +84,16 @@ const ChatService = {
     /**
      * Build WebSocket URL with JWT authentication
      */
-    async _buildWebSocketURL(user, projectContext = {}) {
+    _buildWebSocketURL(user, projectContext = {}) {
         const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        let wsHost;
         
-        // Use main domain - nginx will proxy to gateway
-        const wsHost = window.location.host || 'aaai.solutions';
+        // Use Gateway for both development and production
+        if (window.AAAI_CONFIG?.ENVIRONMENT === 'development') {
+            wsHost = 'aaai-gateway-754x89jf.uc.gateway.dev';
+        } else {
+            wsHost = 'aaai-gateway-754x89jf.uc.gateway.dev';
+        }
         
         // Build basic parameters without JWT token (JWT will go in headers)
         const params = new URLSearchParams({
@@ -98,13 +103,13 @@ const ChatService = {
             reel_id: projectContext.reel_id || '',
             session_id: user.sessionId || 'jwt_session',
             auth_method: 'jwt_bearer',
-            token: await this.authService._ensureValidAccessToken(), // Add token fallback
             t: Date.now()
         });
         
         const url = `${wsProtocol}//${wsHost}/ws/${user.id}?${params}`;
         
-        this._log('Built JWT WebSocket URL for nginx proxy:', url.replace(/token=[^&]+/, 'token=***JWT_TOKEN***'));
+        // Log URL without exposing the full JWT token
+        this._log('Built JWT WebSocket URL:', url.replace(/token=[^&]+/, 'token=***JWT_TOKEN***'));
         
         return url;
     },
@@ -348,7 +353,7 @@ const ChatService = {
      * Load chat history with JWT authentication
      */
     async loadChatHistory() {
-        if (!this._isAuthenticationComplete()) {
+        if (!this.authService._isAuthenticationComplete()) {
             throw new Error('Complete JWT authentication required to load chat history');
         }
         
@@ -393,7 +398,7 @@ const ChatService = {
         this._log('Force reconnecting with JWT authentication');
         
         // Ensure we have complete authentication before reconnecting
-        if (!this._isAuthenticationComplete()) {
+        if (!this.authService._isAuthenticationComplete()) {
             throw new Error('Cannot reconnect: Complete JWT authentication required');
         }
         
@@ -419,21 +424,12 @@ const ChatService = {
             pendingMessages: this.pendingMessages.size,
             deliveredMessages: this.deliveredMessages.size,
             authMethod: 'jwt_bearer_only',
-            authenticationComplete: this._isAuthenticationComplete(),
-            hasValidAuth: this.authService ? this._isAuthenticationComplete() : false,
-            userInfo: this._isAuthenticationComplete() ? this.authService.getCurrentUser() : null,
-            jwtToken: this._isAuthenticationComplete() ? !!this.authService.getToken() : false,
+            authenticationComplete: this.authService._isAuthenticationComplete(),
+            hasValidAuth: this.authService ? this.authService._isAuthenticationComplete() : false,
+            userInfo: this.authService._isAuthenticationComplete() ? this.authService.getCurrentUser() : null,
+            jwtToken: this.authService._isAuthenticationComplete() ? !!this.authService.getToken() : false,
             gatewayRouting: true
         };
-    },
-    
-    /**
-     * Check if authentication is complete
-     */
-    _isAuthenticationComplete() {
-        return this.authService && 
-               this.authService.isAuthenticated() && 
-               this.authService.getToken();
     },
     
     // Event listeners (unchanged)
@@ -469,7 +465,7 @@ const ChatService = {
                               event.code !== 4001 && // Authentication failed
                               event.code !== 4002 && // JWT token expired/invalid
                               this.reconnectAttempts < this.options.maxReconnectAttempts &&
-                              this._isAuthenticationComplete(); // JWT auth check
+                              this.authService._isAuthenticationComplete(); // JWT auth check
         
         if (event.code === 4002) {
             // JWT token expired/invalid during connection
@@ -505,7 +501,7 @@ const ChatService = {
             await this.authService.refreshTokenIfNeeded();
             
             // Verify authentication is complete after refresh
-            if (!this._isAuthenticationComplete()) {
+            if (!this.authService._isAuthenticationComplete()) {
                 throw new Error('JWT authentication incomplete after token refresh');
             }
             
@@ -537,7 +533,7 @@ const ChatService = {
         
         this.reconnectTimer = setTimeout(() => {
             // Validate JWT authentication before attempting reconnect
-            if (!this._isAuthenticationComplete()) {
+            if (!this.authService._isAuthenticationComplete()) {
                 this._error('JWT reconnect failed: Authentication incomplete');
                 this._notifyErrorListeners({
                     type: 'reconnect_auth_failed',
@@ -583,7 +579,7 @@ const ChatService = {
         this._log('JWT project context updated', { chatId, projectName });
         
         // Notify server about context change if connected and authenticated
-        if (this.isConnected && this.socket?.readyState === WebSocket.OPEN && this._isAuthenticationComplete()) {
+        if (this.isConnected && this.socket?.readyState === WebSocket.OPEN && this.authService._isAuthenticationComplete()) {
             const user = this.authService.getCurrentUser();
             this.socket.send(JSON.stringify({
                 type: 'context_update',

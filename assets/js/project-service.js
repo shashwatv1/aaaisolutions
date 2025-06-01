@@ -66,7 +66,7 @@ const ProjectService = {
         }
         
         // Get user context only if authentication is complete
-        if (this._isAuthenticationComplete()) {
+        if (this.authService._isAuthenticationComplete()) {
             const user = authService.getCurrentUser();
             if (user) {
                 this.currentContext.user_id = user.id;
@@ -84,7 +84,7 @@ const ProjectService = {
             userId: this.currentContext.user_id,
             cacheEnabled: true,
             autoSync: this.options.autoSync,
-            authenticationComplete: this._isAuthenticationComplete()
+            authenticationComplete: this.authService._isAuthenticationComplete()
         });
         
         return this;
@@ -237,7 +237,7 @@ const ProjectService = {
      */
     async getProject(projectId, forceRefresh = false) {
         try {
-            this._ensureAuthReady();
+            await this._ensureAuthReady();
             
             if (!projectId) {
                 throw new Error('Project ID is required');
@@ -294,7 +294,7 @@ const ProjectService = {
      */
     async switchToProject(projectId, projectName = null) {
         try {
-            this._ensureAuthReady();
+            await this._ensureAuthReady();
             
             // Wait for authentication to be ready
             await this._waitForAuthReady();
@@ -364,7 +364,7 @@ const ProjectService = {
      */
     async getCurrentContext() {
         try {
-            this._ensureAuthReady();
+            await this._ensureAuthReady();
             
             // Wait for authentication to be ready
             await this._waitForAuthReady();
@@ -410,7 +410,7 @@ const ProjectService = {
      */
     async updateProject(projectId, updateData) {
         try {
-            this._ensureAuthReady();
+            await this._ensureAuthReady();
             this._validateProjectData(updateData, false);
             
             // Wait for authentication to be ready
@@ -468,7 +468,7 @@ const ProjectService = {
      */
     async deleteProject(projectId) {
         try {
-            this._ensureAuthReady();
+            await this._ensureAuthReady();
             
             // Wait for authentication to be ready
             await this._waitForAuthReady();
@@ -574,7 +574,7 @@ const ProjectService = {
                 ? Math.round((this.stats.cacheHits / (this.stats.cacheHits + this.stats.cacheMisses)) * 100) 
                 : 0,
             context: this.currentContext,
-            authenticationComplete: this._isAuthenticationComplete(),
+            authenticationComplete: this.authService._isAuthenticationComplete(),
             authenticationSource: this.authService?.authenticationSource || 'unknown'
         };
     },
@@ -585,8 +585,30 @@ const ProjectService = {
      * CONSISTENT: Require complete authentication
      */
     _requireAuth() {
-        if (!this._isAuthenticationComplete()) {
+        if (!this.authService._isAuthenticationComplete()) {
             throw new Error('Complete authentication required');
+        }
+    },
+
+    /**
+     * Ensure authentication is ready
+     */
+    async _ensureAuthReady() {
+        if (!this.authService._isAuthenticationComplete()) {
+            const ready = await this.authService._ensureAuthReady();
+            if (!ready) {
+                throw new Error('Authentication not ready');
+            }
+        }
+    },
+
+    /**
+     * Wait for authentication to be ready
+     */
+    async _waitForAuthReady() {
+        const ready = await this.authService._waitForAuthReady();
+        if (!ready) {
+            throw new Error('Authentication timeout');
         }
     },
     
@@ -753,7 +775,7 @@ const ProjectService = {
         if (!this.options.autoSync) return;
         
         setInterval(async () => {
-            if (this._isAuthenticationComplete() && 
+            if (this.authService._isAuthenticationComplete() && 
                 document.visibilityState === 'visible') {
                 
                 try {
