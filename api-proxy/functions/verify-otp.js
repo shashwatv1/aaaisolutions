@@ -131,7 +131,7 @@ async function createUserJWTTokenPair(userData) {
     console.log('Creating JWT token pair for user:', userData.email);
     
     // Get JWT secret from Secret Manager
-    const jwtSecret = await getSecret('jwt-secret-key');
+    const jwtSecret = await getSecret('JWT_SECRET_KEY');
     
     if (!jwtSecret) {
       throw new Error('JWT secret key not configured');
@@ -197,8 +197,8 @@ async function createUserJWTTokenPair(userData) {
 async function storeRefreshToken(refreshToken, userId, sessionId) {
   try {
     // Get Supabase credentials
-    const supabaseUrl = await getSecret('supabase-url');
-    const supabaseKey = await getSecret('supabase-service-key');
+    const supabaseUrl = await getSecret('SUPABASE_URL');
+    const supabaseKey = await getSecret('SUPABASE_KEY');
     
     if (!supabaseUrl || !supabaseKey) {
       throw new Error('Supabase credentials not configured');
@@ -212,24 +212,32 @@ async function storeRefreshToken(refreshToken, userId, sessionId) {
     
     console.log('✅ Supabase client initialized successfully');
     
-    // Hash the refresh token for storage
-    const tokenHash = crypto.createHash('sha256').update(refreshToken).digest('hex');
+    // Decode the refresh token to get user email
+    const jwt = require('jsonwebtoken');
+    const jwtSecret = await getSecret('JWT_SECRET_KEY');
+    const payload = jwt.verify(refreshToken, jwtSecret);
     
-    // Store in refresh_tokens table
-    const { error } = await supabase
-      .from('refresh_tokens')
+    // Store in user_refresh_token table
+    const { data, error } = await supabase
+      .from('user_refresh_token')
       .insert({
-        token_hash: tokenHash,
         user_id: userId,
-        session_id: sessionId,
+        email: payload.email,
+        refresh_token: refreshToken,
         expires_at: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString(),
         created_at: new Date().toISOString(),
-        is_active: true
+        updated_at: new Date().toISOString(),
+        device_info: {
+          session_id: sessionId,
+          created_via: 'otp_verification'
+        },
+        is_active: true,
+        last_used_at: new Date().toISOString()
       });
     
     if (error) {
       console.error('❌ Failed to store refresh token:', error);
-      throw new Error('Failed to store refresh token');
+      throw new Error(`Failed to store refresh token: ${error.message}`);
     }
     
     console.log('✅ Refresh token stored successfully');
