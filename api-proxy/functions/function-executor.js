@@ -4,8 +4,8 @@ const {getSecret} = require('../utils/secret-manager');
 const {validateJWTMiddleware, extractBearerToken} = require('../utils/jwt-utils');
 
 /**
- * Simplified JWT-based Function Executor
- * Uses Bearer tokens instead of complex cookie parsing
+ * Enhanced JWT-based Function Executor
+ * Validates user JWT tokens (not service account tokens)
  */
 async function functionExecutor(req, res) {
   // Declare functionName outside try-catch to avoid scoping issues
@@ -21,7 +21,7 @@ async function functionExecutor(req, res) {
       // Get API key from Secret Manager
       const apiKey = await getSecret('api-key');
       
-      console.log('🚀 JWT-based function execution starting...');
+      console.log('🚀 Enhanced JWT-based function execution starting...');
       console.log('📍 Request URL:', req.url);
       console.log('📍 Request path:', req.path);
       console.log('📍 Request originalUrl:', req.originalUrl);
@@ -68,15 +68,9 @@ async function functionExecutor(req, res) {
       
       if (!functionName) {
         console.error('❌ No function name found');
-        console.error('📍 URL analysis failed for:', urlPath);
         return res.status(400).json({ 
           error: 'Function name is required',
           code: 'MISSING_FUNCTION_NAME',
-          debug: {
-            urlPath: urlPath,
-            pathMatch: pathMatch,
-            queryParams: req.query
-          },
           expected_formats: [
             'URL: /api/function/{functionName}',
             'Query: ?function_name={functionName}'
@@ -97,14 +91,49 @@ async function functionExecutor(req, res) {
         });
       }
       
-      console.log(`🎟️ JWT token found, executing function: ${functionName}`);
-      console.log('Token preview:', accessToken.substring(0, 20) + '...');
+      // Validate that this is a user JWT token, not a service account token
+      try {
+        const tokenPayload = parseJWTPayload(accessToken);
+        
+        // Check if this is a service account token
+        if (tokenPayload.email && tokenPayload.email.includes('@developer.gserviceaccount.com')) {
+          console.error('❌ Service account token not allowed for user operations');
+          return res.status(401).json({
+            error: 'Invalid token type',
+            message: 'Service account tokens are not allowed for user operations',
+            code: 'SERVICE_ACCOUNT_TOKEN_REJECTED'
+          });
+        }
+        
+        // Check if this is a Google-issued token (should be user token)
+        if (tokenPayload.iss === 'https://accounts.google.com' && tokenPayload.email && tokenPayload.email.includes('@developer.gserviceaccount.com')) {
+          console.error('❌ Google service account token detected');
+          return res.status(401).json({
+            error: 'Invalid token type',
+            message: 'Google service account tokens are not allowed for user operations',
+            code: 'GOOGLE_SERVICE_ACCOUNT_REJECTED'
+          });
+        }
+        
+        console.log(`🎟️ Valid user JWT token found, executing function: ${functionName}`);
+        console.log('User email:', tokenPayload.email || 'not specified');
+        console.log('Token issuer:', tokenPayload.iss || 'not specified');
+        
+      } catch (parseError) {
+        console.error('❌ Failed to parse JWT token:', parseError.message);
+        return res.status(401).json({
+          error: 'Invalid token format',
+          message: 'JWT token could not be parsed',
+          code: 'INVALID_JWT_FORMAT'
+        });
+      }
       
       // Build headers for API server
       const headers = {
         'Content-Type': 'application/json',
         'X-API-Key': apiKey,
-        'Authorization': `Bearer ${accessToken}`
+        'Authorization': `Bearer ${accessToken}`,
+        'X-Token-Type': 'user_jwt'
       };
       
       // Create API client
@@ -118,7 +147,7 @@ async function functionExecutor(req, res) {
       const requestBody = { ...req.body };
       delete requestBody.function_name;
       
-      console.log('📡 Making request to API server...');
+      console.log('📡 Making request to API server with user JWT...');
       console.log('Function:', functionName);
       console.log('Body keys:', Object.keys(requestBody));
       
@@ -128,7 +157,7 @@ async function functionExecutor(req, res) {
         requestBody
       );
       
-      console.log(`✅ Function ${functionName} executed successfully`);
+      console.log(`✅ Function ${functionName} executed successfully with user JWT`);
       console.log('Response status:', response.status);
       
       // Return the API server response
@@ -145,8 +174,8 @@ async function functionExecutor(req, res) {
         
         return res.status(401).json({
           error: 'Authentication failed',
-          message: errorData.detail || 'Invalid or expired JWT token',
-          code: 'JWT_AUTHENTICATION_FAILED',
+          message: errorData.detail || 'Invalid or expired user JWT token',
+          code: 'USER_JWT_AUTHENTICATION_FAILED',
           expired: errorData.expired || false,
           timestamp: new Date().toISOString()
         });
@@ -183,6 +212,26 @@ async function functionExecutor(req, res) {
       });
     }
   });
+}
+
+/**
+ * Parse JWT payload without verification (for validation only)
+ */
+function parseJWTPayload(token) {
+  try {
+    const parts = token.split('.');
+    if (parts.length !== 3) {
+      throw new Error('Invalid JWT format');
+    }
+    
+    const payload = parts[1];
+    // Add padding if needed
+    const paddedPayload = payload + '='.repeat((4 - payload.length % 4) % 4);
+    const decoded = Buffer.from(paddedPayload.replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString();
+    return JSON.parse(decoded);
+  } catch (error) {
+    throw new Error(`Failed to parse JWT payload: ${error.message}`);
+  }
 }
 
 module.exports = functionExecutor;
