@@ -18,6 +18,41 @@ const JWT_CONFIG = {
   ISSUER: 'aaai-solutions',
   AUDIENCE: 'aaai-users'
 };
+/**
+ * Extract Bearer token from request headers with proper priority
+ */
+function extractBearerToken(authorizationHeader, forwardedAuthHeader) {
+  // Priority 1: Use forwarded auth header (original user token)
+  if (forwardedAuthHeader && forwardedAuthHeader.startsWith('Bearer ')) {
+    return forwardedAuthHeader.substring(7);
+  }
+  
+  // Priority 2: Use authorization header (might be service account)
+  if (authorizationHeader && authorizationHeader.startsWith('Bearer ')) {
+    return authorizationHeader.substring(7);
+  }
+  
+  return null;
+}
+
+/**
+ * Extract user token from request with proper header priority
+ */
+function extractUserToken(req) {
+  const token = extractBearerToken(
+    req.headers.authorization,
+    req.headers['x-forwarded-authorization']
+  );
+  
+  const source = req.headers['x-forwarded-authorization'] ? 'x-forwarded-authorization' : 'authorization';
+  
+  return {
+    token,
+    source,
+    hasForwardedAuth: !!req.headers['x-forwarded-authorization'],
+    hasRegularAuth: !!req.headers.authorization
+  };
+}
 
 /**
  * Initialize Supabase client lazily
@@ -398,5 +433,7 @@ module.exports = {
   validateJWTMiddleware,
   getDeviceInfo,
   getSupabaseClient,
-  JWT_CONFIG
+  JWT_CONFIG,
+  extractBearerToken,
+  extractUserToken
 };
