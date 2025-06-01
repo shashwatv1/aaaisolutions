@@ -76,24 +76,25 @@ const AuthService = {
             // Try to restore access token from sessionStorage
             const storedToken = this._getStoredAccessToken();
             
-            if (storedToken && this._isTokenValid(storedToken) && this._validateUserToken(storedToken.token)) {
-                this._setAccessToken(storedToken.token, storedToken.expiresIn);
-                this._setUserInfo(storedToken.user);
-                
-                this._log('Authentication state restored from storage');
-                return { success: true };
-            } else {
-                // Clear invalid token and rely on refresh token
-                if (storedToken) {
-                    this._log('Stored token invalid or not a user token, will refresh on demand');
+            if (storedToken && this._isTokenValid(storedToken)) {
+                // Validate that stored token is a user token
+                const validationResult = this._validateUserToken(storedToken.token);
+                if (validationResult.valid) {
+                    this._setAccessToken(storedToken.token, storedToken.expiresIn);
+                    this._setUserInfo(storedToken.user);
+                    
+                    this._log('Authentication state restored from storage');
+                    return { success: true };
+                } else {
+                    this._log('Stored token is not a valid user token:', validationResult.reason);
                     sessionStorage.removeItem('aaai_access_token');
                 }
-                
-                // We have refresh token but no valid access token
-                // This will be handled by silent refresh when needed
-                this._log('Refresh token available, access token will be refreshed on demand');
-                return { success: true };
             }
+            
+            // We have refresh token but no valid access token
+            // This will be handled by silent refresh when needed
+            this._log('Refresh token available, access token will be refreshed on demand');
+            return { success: true };
             
         } catch (error) {
             console.error('Error initializing auth state:', error);
@@ -103,42 +104,70 @@ const AuthService = {
     },
 
     /**
-     * Validate that token is a user token (not service account)
+     * Enhanced user token validation
      */
     _validateUserToken(token) {
         try {
-            if (!token) return false;
+            if (!token || typeof token !== 'string') {
+                return { valid: false, reason: 'Invalid token format' };
+            }
             
-            // Decode token payload (without verification - just for claims check)
+            // Parse token payload
             const parts = token.split('.');
-            if (parts.length !== 3) return false;
-            
-            const payload = JSON.parse(atob(parts[1]));
-            
-            // Check that this is a user token, not service account
-            // User tokens should have email and user_id claims
-            // Service account tokens typically have different claim structure
-            if (!payload.email || !payload.user_id) {
-                this._log('Token missing user claims (email or user_id)');
-                return false;
+            if (parts.length !== 3) {
+                return { valid: false, reason: 'Invalid JWT format' };
             }
             
-            // Check that it's not a service account token
+            // Decode payload
+            let payload;
+            try {
+                const paddedPayload = parts[1] + '='.repeat((4 - parts[1].length % 4) % 4);
+                const decoded = atob(paddedPayload.replace(/-/g, '+').replace(/_/g, '/'));
+                payload = JSON.parse(decoded);
+            } catch (error) {
+                return { valid: false, reason: 'Failed to decode token payload' };
+            }
+            
+            // Check for required user claims
+            if (!payload.email) {
+                return { valid: false, reason: 'Token missing email claim' };
+            }
+            
+            if (!payload.user_id) {
+                return { valid: false, reason: 'Token missing user_id claim' };
+            }
+            
+            // Check that this is NOT a service account token
+            if (payload.email.includes('@developer.gserviceaccount.com') || 
+                payload.email.includes('.gserviceaccount.com')) {
+                return { valid: false, reason: 'Service account token not allowed' };
+            }
+            
+            // Check issuer
             if (payload.iss && payload.iss.includes('serviceaccount')) {
-                this._log('Token is from service account, not user');
-                return false;
+                return { valid: false, reason: 'Service account issued token not allowed' };
             }
             
-            // Additional validation for user-specific claims
-            if (payload.token_type && payload.token_type === 'service_account') {
-                this._log('Token explicitly marked as service account');
-                return false;
+            // Check token type
+            if (payload.token_type === 'service_account') {
+                return { valid: false, reason: 'Explicit service account token not allowed' };
             }
             
-            return true;
+            // Check expiration
+            if (payload.exp && payload.exp < Math.floor(Date.now() / 1000)) {
+                return { valid: false, reason: 'Token expired' };
+            }
+            
+            // Validate email format
+            const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+            if (!emailRegex.test(payload.email)) {
+                return { valid: false, reason: 'Invalid email format' };
+            }
+            
+            return { valid: true, payload: payload };
+            
         } catch (error) {
-            this._log('Token validation error:', error);
-            return false;
+            return { valid: false, reason: `Token validation error: ${error.message}` };
         }
     },
 
@@ -202,9 +231,16 @@ const AuthService = {
             const { user, tokens, authentication } = data;
             
             // Validate that we received a user access token
-            if (!this._validateUserToken(tokens.access_token)) {
-                throw new Error('Received invalid user token from authentication');
+            const validationResult = this._validateUserToken(tokens.access_token);
+            if (!validationResult.valid) {
+                this._log('Received invalid user token from authentication:', validationResult.reason);
+                throw new Error(`Invalid token received: ${validationResult.reason}`);
             }
+            
+            this._log('Valid user token received from authentication:', {
+                email: validationResult.payload.email,
+                user_id: validationResult.payload.user_id
+            });
             
             // Set access token and user information
             this._setAccessToken(tokens.access_token, tokens.expires_in);
@@ -232,72 +268,6 @@ const AuthService = {
         }
     },
 
-    
-    /**
-     * Check if user is authenticated
-     */
-    isAuthenticated() {
-        return this.authenticated && this.userEmail && this.userId;
-    },
-
-    /**
-     * Enhanced authentication check - validates complete authentication state
-     */
-    _isAuthenticationComplete() {
-        return this.authenticated && 
-               this.userEmail && 
-               this.userId && 
-               this.accessToken && 
-               this._isAccessTokenValid();
-    },
-
-    /**
-     * Wait for authentication to be ready
-     */
-    async _waitForAuthReady(timeout = 5000) {
-        const startTime = Date.now();
-        
-        while (!this._isAuthenticationComplete() && (Date.now() - startTime) < timeout) {
-            // Try to refresh token if we have refresh capability
-            if (this._hasRefreshTokenCookie() && !this.refreshInProgress) {
-                try {
-                    const refreshed = await this.refreshTokenIfNeeded();
-                    if (refreshed && this._isAuthenticationComplete()) {
-                        return true;
-                    }
-                } catch (error) {
-                    console.warn('Auth refresh failed during wait:', error);
-                }
-            }
-            
-            // Wait a bit before checking again
-            await new Promise(resolve => setTimeout(resolve, 100));
-        }
-        
-        return this._isAuthenticationComplete();
-    },
-
-    /**
-     * Ensure authentication is ready before proceeding
-     */
-    async _ensureAuthReady() {
-        if (this._isAuthenticationComplete()) {
-            return true;
-        }
-        
-        if (this._hasRefreshTokenCookie()) {
-            try {
-                const refreshed = await this.refreshTokenIfNeeded();
-                return refreshed && this._isAuthenticationComplete();
-            } catch (error) {
-                console.error('Failed to ensure auth ready:', error);
-                return false;
-            }
-        }
-        
-        return false;
-    },
-
     /**
      * Execute authenticated function calls via Gateway
      */
@@ -310,14 +280,15 @@ const AuthService = {
             // Ensure we have a valid access token
             const accessToken = await this._ensureValidAccessToken();
             
-            // Validate token before using
-            if (!this._validateUserToken(accessToken)) {
-                this._log('Invalid user token detected, clearing auth state');
+            // Double-check token validity before using
+            const validationResult = this._validateUserToken(accessToken);
+            if (!validationResult.valid) {
+                this._log('Current token validation failed:', validationResult.reason);
                 this._clearAuthState();
-                throw new Error('Invalid user token - please login again');
+                throw new Error(`Invalid token: ${validationResult.reason}`);
             }
             
-            this._log(`Executing function: ${functionName} via Gateway`);
+            this._log(`Executing function: ${functionName} via Gateway with user token for:`, validationResult.payload.email);
             
             const response = await fetch(`${this.AUTH_BASE_URL}/api/function/${functionName}`, {
                 method: 'POST',
@@ -369,7 +340,12 @@ const AuthService = {
         
         // Check if token needs refresh
         if (this.accessToken && this._isAccessTokenValid()) {
-            return true;
+            const validationResult = this._validateUserToken(this.accessToken);
+            if (validationResult.valid) {
+                return true;
+            } else {
+                this._log('Current token invalid, forcing refresh:', validationResult.reason);
+            }
         }
         
         return this._performTokenRefresh();
@@ -437,11 +413,17 @@ const AuthService = {
             }
             
             // Validate that we received a user access token
-            if (!this._validateUserToken(accessToken)) {
-                this._log('Received invalid user token from refresh');
+            const validationResult = this._validateUserToken(accessToken);
+            if (!validationResult.valid) {
+                this._log('Received invalid user token from refresh:', validationResult.reason);
                 this._clearAuthState();
                 return false;
             }
+            
+            this._log('Valid user token received from refresh:', {
+                email: validationResult.payload.email,
+                user_id: validationResult.payload.user_id
+            });
             
             // Update access token
             this._setAccessToken(accessToken, expiresIn);
@@ -513,7 +495,21 @@ const AuthService = {
      * Check if user is authenticated
      */
     isAuthenticated() {
-        return this.authenticated && this.userEmail && this.userId && this.accessToken;
+        const hasBasicAuth = this.authenticated && this.userEmail && this.userId && this.accessToken;
+        
+        if (!hasBasicAuth) {
+            return false;
+        }
+        
+        // Additional validation that token is a user token
+        const validationResult = this._validateUserToken(this.accessToken);
+        if (!validationResult.valid) {
+            this._log('Authentication invalid due to token validation:', validationResult.reason);
+            this._clearAuthState();
+            return false;
+        }
+        
+        return true;
     },
 
     /**
@@ -536,8 +532,14 @@ const AuthService = {
      * Get valid access token
      */
     getToken() {
-        if (this._isAccessTokenValid() && this._validateUserToken(this.accessToken)) {
-            return this.accessToken;
+        if (this._isAccessTokenValid()) {
+            const validationResult = this._validateUserToken(this.accessToken);
+            if (validationResult.valid) {
+                return this.accessToken;
+            } else {
+                this._log('Token invalid during getToken():', validationResult.reason);
+                return null;
+            }
         }
         return null;
     },
@@ -554,24 +556,30 @@ const AuthService = {
      */
     async _ensureValidAccessToken() {
         // Check if current token is valid
-        if (this._isAccessTokenValid() && this._validateUserToken(this.accessToken)) {
-            return this.accessToken;
-        }
-        
-        // Clear invalid token
-        if (this.accessToken && !this._validateUserToken(this.accessToken)) {
-            this._log('Current token is not a valid user token, clearing');
-            this.accessToken = null;
-            this.tokenExpiry = null;
+        if (this._isAccessTokenValid()) {
+            const validationResult = this._validateUserToken(this.accessToken);
+            if (validationResult.valid) {
+                return this.accessToken;
+            } else {
+                this._log('Current token validation failed:', validationResult.reason);
+                this.accessToken = null;
+                this.tokenExpiry = null;
+            }
         }
         
         // Try to restore from session storage
         const storedToken = this._getStoredAccessToken();
-        if (storedToken && this._isTokenValid(storedToken) && this._validateUserToken(storedToken.token)) {
-            this._log('Restoring valid token from session storage');
-            this._setAccessToken(storedToken.token, storedToken.expiresIn);
-            this._setUserInfo(storedToken.user);
-            return this.accessToken;
+        if (storedToken && this._isTokenValid(storedToken)) {
+            const validationResult = this._validateUserToken(storedToken.token);
+            if (validationResult.valid) {
+                this._log('Restoring valid user token from session storage');
+                this._setAccessToken(storedToken.token, storedToken.expiresIn);
+                this._setUserInfo(storedToken.user);
+                return this.accessToken;
+            } else {
+                this._log('Stored token validation failed:', validationResult.reason);
+                sessionStorage.removeItem('aaai_access_token');
+            }
         }
         
         // Try to refresh token
@@ -650,6 +658,13 @@ const AuthService = {
      */
     _storeAccessToken(token, expiresIn, user) {
         try {
+            // Validate token before storing
+            const validationResult = this._validateUserToken(token);
+            if (!validationResult.valid) {
+                this._log('Refusing to store invalid user token:', validationResult.reason);
+                return;
+            }
+            
             const tokenData = {
                 token: token,
                 expiry: Date.now() + (expiresIn * 1000),
@@ -659,6 +674,7 @@ const AuthService = {
             };
             
             sessionStorage.setItem('aaai_access_token', JSON.stringify(tokenData));
+            this._log('Valid user token stored successfully');
         } catch (error) {
             console.warn('Failed to store access token:', error);
         }
