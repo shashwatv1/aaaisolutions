@@ -1,6 +1,6 @@
 /**
  * JWT-Based Authentication Service for AAAI Solutions
- * Fixed to use Gateway routing and proper token refresh
+ * Fixed to properly store and use user JWT tokens
  */
 const AuthService = {
     // Core authentication state
@@ -104,9 +104,6 @@ const AuthService = {
     },
 
     /**
-     * Enhanced user token validation
-     */
-    /**
      * Enhanced user token validation with strict service account rejection
      */
     _validateUserToken(token) {
@@ -166,55 +163,21 @@ const AuthService = {
                 };
             }
             
-            // STRICT: Check issuer for service account patterns
-            if (payload.iss) {
-                const issuerPatterns = [
-                    'serviceaccount',
-                    'gserviceaccount',
-                    'compute@developer'
-                ];
-                
-                const hasServiceAccountIssuer = issuerPatterns.some(pattern => 
-                    payload.iss.includes(pattern)
-                );
-                
-                if (hasServiceAccountIssuer) {
-                    this._log('STRICT REJECTION: Service account issuer detected:', payload.iss);
-                    return { 
-                        valid: false, 
-                        reason: 'Service account issued tokens are forbidden', 
-                        code: 'SERVICE_ACCOUNT_ISSUER' 
-                    };
-                }
-            }
-            
-            // STRICT: Check audience for service account patterns
-            if (payload.aud) {
-                const audiencePatterns = [
-                    'gserviceaccount',
-                    'developer.gserviceaccount'
-                ];
-                
-                const hasServiceAccountAudience = audiencePatterns.some(pattern => 
-                    payload.aud.includes(pattern)
-                );
-                
-                if (hasServiceAccountAudience) {
-                    this._log('STRICT REJECTION: Service account audience detected:', payload.aud);
-                    return { 
-                        valid: false, 
-                        reason: 'Service account audience tokens are forbidden', 
-                        code: 'SERVICE_ACCOUNT_AUDIENCE' 
-                    };
-                }
-            }
-            
-            // STRICT: Explicit service account token type check
-            if (payload.token_type === 'service_account') {
+            // STRICT: Check token type
+            if (payload.token_type !== 'user_access') {
                 return { 
                     valid: false, 
-                    reason: 'Explicit service account token type forbidden', 
-                    code: 'EXPLICIT_SERVICE_ACCOUNT' 
+                    reason: 'Invalid token type, must be user_access', 
+                    code: 'INVALID_TOKEN_TYPE' 
+                };
+            }
+            
+            // STRICT: Check issuer
+            if (payload.iss !== 'aaai-solutions') {
+                return { 
+                    valid: false, 
+                    reason: 'Invalid token issuer', 
+                    code: 'INVALID_ISSUER' 
                 };
             }
             
@@ -227,24 +190,6 @@ const AuthService = {
             const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
             if (!emailRegex.test(payload.email)) {
                 return { valid: false, reason: 'Invalid email format', code: 'INVALID_EMAIL_FORMAT' };
-            }
-            
-            // Additional check: email should not contain "compute" or "developer" 
-            if (payload.email.includes('compute@') || payload.email.includes('developer@')) {
-                return { 
-                    valid: false, 
-                    reason: 'Compute or developer service emails are forbidden', 
-                    code: 'FORBIDDEN_EMAIL_TYPE' 
-                };
-            }
-            
-            // STRICT: Validate user_id format (should be meaningful, not empty)
-            if (payload.user_id.length < 5) {
-                return { 
-                    valid: false, 
-                    reason: 'Invalid user_id format - too short', 
-                    code: 'INVALID_USER_ID_FORMAT' 
-                };
             }
             
             this._log('Token validation passed for user:', payload.email);
@@ -318,6 +263,13 @@ const AuthService = {
             // Extract tokens and user info
             const { user, tokens, authentication } = data;
             
+            this._log('OTP verification response received:', {
+                hasUser: !!user,
+                hasTokens: !!tokens,
+                userEmail: user?.email,
+                tokenType: authentication?.token_type
+            });
+            
             // STRICT: Validate that we received a valid user access token
             const validationResult = this._validateUserToken(tokens.access_token);
             if (!validationResult.valid) {
@@ -352,7 +304,8 @@ const AuthService = {
             this._log('Valid user token received from authentication:', {
                 email: validationResult.payload.email,
                 user_id: validationResult.payload.user_id,
-                tokenCode: validationResult.code
+                tokenCode: validationResult.code,
+                tokenType: validationResult.payload.token_type
             });
             
             // Set access token and user information
@@ -393,6 +346,10 @@ const AuthService = {
             // Ensure we have a valid access token
             const accessToken = await this._ensureValidAccessToken();
             
+            if (!accessToken) {
+                throw new Error('No valid access token available');
+            }
+            
             // STRICT: Pre-validate token before sending to server
             const validationResult = this._validateUserToken(accessToken);
             if (!validationResult.valid) {
@@ -406,6 +363,12 @@ const AuthService = {
             }
             
             this._log(`Executing function: ${functionName} via Gateway with validated user token for:`, validationResult.payload.email);
+            this._log('Token details for function execution:', {
+                tokenType: validationResult.payload.token_type,
+                userId: validationResult.payload.user_id,
+                issuer: validationResult.payload.iss,
+                audience: validationResult.payload.aud
+            });
             
             const response = await fetch(`${this.AUTH_BASE_URL}/api/function/${functionName}`, {
                 method: 'POST',
@@ -565,7 +528,8 @@ const AuthService = {
             this._log('Valid user token received from refresh:', {
                 email: validationResult.payload.email,
                 user_id: validationResult.payload.user_id,
-                tokenCode: validationResult.code
+                tokenCode: validationResult.code,
+                tokenType: validationResult.payload.token_type
             });
             
             // Update access token
@@ -592,7 +556,6 @@ const AuthService = {
             return false;
         }
     },
-
 
     /**
      * Logout user via Gateway
@@ -734,14 +697,7 @@ const AuthService = {
         
         return this.accessToken;
     },
-        
-    /**
-     * Check if user is authenticated
-     */
-    isAuthenticated() {
-        return this.authenticated && this.userEmail && this.userId;
-    },
-
+    
     /**
      * Enhanced authentication check - validates complete authentication state
      */
