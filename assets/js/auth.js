@@ -42,7 +42,7 @@ const AuthService = {
         }
         
         // Use Gateway URLs from config
-        this.AUTH_BASE_URL = window.AAAI_CONFIG.API_BASE_URL;
+        this.AUTH_BASE_URL = '';
         
         // Initialize authentication state
         const authResult = this._initializeAuthState();
