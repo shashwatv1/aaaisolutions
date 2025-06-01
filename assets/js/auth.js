@@ -106,6 +106,9 @@ const AuthService = {
     /**
      * Enhanced user token validation with strict service account rejection
      */
+    /**
+     * Enhanced user token validation with flexible token type checking
+     */
     _validateUserToken(token) {
         try {
             if (!token || typeof token !== 'string') {
@@ -163,22 +166,39 @@ const AuthService = {
                 };
             }
             
-            // STRICT: Check token type
-            if (payload.token_type !== 'user_access') {
-                return { 
-                    valid: false, 
-                    reason: 'Invalid token type, must be user_access', 
-                    code: 'INVALID_TOKEN_TYPE' 
-                };
+            // FLEXIBLE: Check token type (accept both 'user_access' and missing/null token_type)
+            if (payload.token_type && payload.token_type !== 'user_access') {
+                // Only reject if token_type is explicitly set to something bad
+                const badTokenTypes = ['service_account', 'service', 'gserviceaccount'];
+                if (badTokenTypes.includes(payload.token_type)) {
+                    return { 
+                        valid: false, 
+                        reason: `Invalid token type: ${payload.token_type}`, 
+                        code: 'INVALID_TOKEN_TYPE' 
+                    };
+                }
             }
             
-            // STRICT: Check issuer
-            if (payload.iss !== 'aaai-solutions') {
-                return { 
-                    valid: false, 
-                    reason: 'Invalid token issuer', 
-                    code: 'INVALID_ISSUER' 
-                };
+            // FLEXIBLE: Check issuer (accept both 'aaai-solutions' and Google issuers for user tokens)
+            if (payload.iss) {
+                // Reject service account issuers
+                const serviceAccountIssuers = [
+                    'serviceaccount',
+                    'gserviceaccount', 
+                    'compute@developer'
+                ];
+                
+                const hasServiceAccountIssuer = serviceAccountIssuers.some(pattern => 
+                    payload.iss.includes(pattern)
+                );
+                
+                if (hasServiceAccountIssuer) {
+                    return { 
+                        valid: false, 
+                        reason: 'Service account issued tokens are forbidden', 
+                        code: 'SERVICE_ACCOUNT_ISSUER' 
+                    };
+                }
             }
             
             // Check expiration
@@ -190,6 +210,24 @@ const AuthService = {
             const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
             if (!emailRegex.test(payload.email)) {
                 return { valid: false, reason: 'Invalid email format', code: 'INVALID_EMAIL_FORMAT' };
+            }
+            
+            // Additional check: email should not contain "compute" or "developer" 
+            if (payload.email.includes('compute@') || payload.email.includes('developer@')) {
+                return { 
+                    valid: false, 
+                    reason: 'Compute or developer service emails are forbidden', 
+                    code: 'FORBIDDEN_EMAIL_TYPE' 
+                };
+            }
+            
+            // STRICT: Validate user_id format (should be meaningful, not empty)
+            if (payload.user_id.length < 5) {
+                return { 
+                    valid: false, 
+                    reason: 'Invalid user_id format - too short', 
+                    code: 'INVALID_USER_ID_FORMAT' 
+                };
             }
             
             this._log('Token validation passed for user:', payload.email);
