@@ -590,6 +590,71 @@ const AuthService = {
         
         return this.accessToken;
     },
+        
+    /**
+     * Check if user is authenticated
+     */
+    isAuthenticated() {
+        return this.authenticated && this.userEmail && this.userId;
+    },
+
+    /**
+     * Enhanced authentication check - validates complete authentication state
+     */
+    _isAuthenticationComplete() {
+        return this.authenticated && 
+               this.userEmail && 
+               this.userId && 
+               this.accessToken && 
+               this._isAccessTokenValid();
+    },
+
+    /**
+     * Wait for authentication to be ready
+     */
+    async _waitForAuthReady(timeout = 5000) {
+        const startTime = Date.now();
+        
+        while (!this._isAuthenticationComplete() && (Date.now() - startTime) < timeout) {
+            // Try to refresh token if we have refresh capability
+            if (this._hasRefreshTokenCookie() && !this.refreshInProgress) {
+                try {
+                    const refreshed = await this.refreshTokenIfNeeded();
+                    if (refreshed && this._isAuthenticationComplete()) {
+                        return true;
+                    }
+                } catch (error) {
+                    console.warn('Auth refresh failed during wait:', error);
+                }
+            }
+            
+            // Wait a bit before checking again
+            await new Promise(resolve => setTimeout(resolve, 100));
+        }
+        
+        return this._isAuthenticationComplete();
+    },
+
+    /**
+     * Ensure authentication is ready before proceeding
+     */
+    async _ensureAuthReady() {
+        if (this._isAuthenticationComplete()) {
+            return true;
+        }
+        
+        if (this._hasRefreshTokenCookie()) {
+            try {
+                const refreshed = await this.refreshTokenIfNeeded();
+                return refreshed && this._isAuthenticationComplete();
+            } catch (error) {
+                console.error('Failed to ensure auth ready:', error);
+                return false;
+            }
+        }
+        
+        return false;
+    },
 
     // Private methods
 
