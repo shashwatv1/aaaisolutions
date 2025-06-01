@@ -1,7 +1,7 @@
+// assets/js/websocket-chat.js (UPDATED FOR JWT-ONLY)
 /**
- * Enhanced JWT WebSocket Chat Service for AAAI Solutions
- * WITH CONSISTENT AUTHENTICATION INTEGRATION
- * Ensures proper authentication checks before WebSocket operations
+ * JWT-Only WebSocket Chat Service for AAAI Solutions
+ * Simplified to work only with JWT authentication
  */
 const ChatService = {
     // Core WebSocket state
@@ -21,18 +21,13 @@ const ChatService = {
     heartbeatTimer: null,
     sessionId: null,
     
-    // Message handling with delivery tracking
+    // Message handling
     messageQueue: [],
     messageListeners: [],
     statusListeners: [],
     errorListeners: [],
     pendingMessages: new Map(),
     deliveredMessages: new Set(),
-    
-    // Performance tracking
-    connectionStartTime: 0,
-    lastPongTime: 0,
-    messageCount: 0,
     
     // Configuration
     options: {
@@ -44,16 +39,16 @@ const ChatService = {
     },
     
     /**
-     * ENHANCED: Initialize with consistent authentication checking
+     * Initialize JWT-only ChatService
      */
     init(authService, options = {}) {
         if (this.isInitialized) {
-            console.log('💬 Enhanced ChatService already initialized');
+            console.log('💬 JWT ChatService already initialized');
             return this;
         }
         
         if (!authService) {
-            throw new Error('AuthService is required for ChatService initialization');
+            throw new Error('AuthService is required for JWT ChatService');
         }
         
         this.authService = authService;
@@ -65,42 +60,65 @@ const ChatService = {
             this.options.debug = true;
         }
         
-        // Only get user context if authentication is complete
-        if (this._isAuthenticationComplete()) {
-            const user = authService.getCurrentUser();
-            if (user) {
-                this._log('Enhanced ChatService initialized for user:', user.email);
-            }
-        }
-        
         this.isInitialized = true;
         
-        this._log('Enhanced ChatService initialized successfully', {
+        this._log('JWT ChatService initialized successfully', {
             hasAuthService: !!this.authService,
             hasProjectService: !!this.projectService,
-            authMethod: 'jwt_bearer',
-            authenticationComplete: this._isAuthenticationComplete()
+            authMethod: 'jwt_only'
         });
         
         return this;
     },
-    
     /**
-     * CONSISTENT: Check if authentication is complete and ready for WebSocket
+     * Check if authentication is ready for WebSocket operations
      */
-    _isAuthenticationComplete() {
-        if (!this.authService) {
-            return false;
+    _requireAuth() {
+        if (!this.authService || !this.authService.isAuthenticated()) {
+            throw new Error('Authentication required for WebSocket operations');
+        }
+        return true;
+    },
+
+    /**
+     * Build WebSocket URL with JWT authentication
+     */
+    _buildWebSocketURL(user, projectContext = {}) {
+        const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        let wsHost;
+        
+        if (window.AAAI_CONFIG?.ENVIRONMENT === 'development') {
+            wsHost = 'localhost:8080';
+        } else {
+            wsHost = 'api-server-559730737995.us-central1.run.app';
         }
         
-        // Use enhanced authentication check if available
-        return this.authService._isAuthenticationComplete ? 
-               this.authService._isAuthenticationComplete() : 
-               this.authService.isAuthenticated();
+        // Get JWT token
+        const accessToken = this.authService.getToken();
+        if (!accessToken) {
+            throw new Error('No access token available for WebSocket authentication');
+        }
+        
+        const params = new URLSearchParams({
+            auth: 'jwt',
+            token: accessToken,
+            email: encodeURIComponent(user.email),
+            user_id: user.id,
+            chat_id: projectContext.chat_id || '',
+            reel_id: projectContext.reel_id || '',
+            session_id: user.sessionId || 'jwt_session',
+            t: Date.now()
+        });
+        
+        const url = `${wsProtocol}//${wsHost}/ws/${user.id}?${params}`;
+        
+        // Log URL without exposing the full JWT token
+        this._log('Built JWT WebSocket URL:', url.replace(/token=[^&]+/, 'token=***JWT_TOKEN***'));
+        
+        return url;
     },
-    
     /**
-     * ENHANCED: Connect with comprehensive authentication validation
+     * ENHANCED: Connect with JWT authentication validation
      */
     async connect() {
         if (this.isConnected && this.isAuthenticated) {
@@ -113,25 +131,14 @@ const ChatService = {
             return false;
         }
         
-        this._log('Starting enhanced JWT WebSocket connection...');
+        this._log('Starting JWT WebSocket connection...');
         
-        // STRICT authentication check
-        if (!this._isAuthenticationComplete()) {
-            throw new Error('Complete authentication required for WebSocket connection');
-        }
+        // Require authentication
+        this._requireAuth();
         
         const user = this.authService.getCurrentUser();
         if (!user || !user.id || !user.email) {
             throw new Error('Complete user information not available');
-        }
-        
-        // Ensure we have a valid JWT token
-        try {
-            if (typeof this.authService._ensureValidToken === 'function') {
-                await this.authService._ensureValidToken();
-            }
-        } catch (error) {
-            throw new Error('Failed to ensure valid JWT token: ' + error.message);
         }
         
         return new Promise((resolve, reject) => {
@@ -151,13 +158,13 @@ const ChatService = {
             }
             
             // Build WebSocket URL with JWT authentication
-            const wsUrl = this._buildEnhancedWebSocketURL(user, projectContext);
-            this._log('Connecting to enhanced JWT WebSocket:', wsUrl);
+            const wsUrl = this._buildWebSocketURL(user, projectContext);
+            this._log('Connecting to JWT WebSocket:', wsUrl);
             
             // Connection timeout
             const timeout = setTimeout(() => {
                 if (this.isConnecting) {
-                    this._log('Enhanced JWT WebSocket connection timeout');
+                    this._log('JWT WebSocket connection timeout');
                     this._cleanup();
                     this.isConnecting = false;
                     this._notifyStatusChange('disconnected');
@@ -166,26 +173,26 @@ const ChatService = {
             }, this.options.connectionTimeout);
             
             try {
-                // Create WebSocket with enhanced JWT token
+                // Create WebSocket with JWT token
                 this.socket = new WebSocket(wsUrl);
                 
                 // Handle open
                 this.socket.onopen = () => {
                     const connectionTime = Date.now() - this.connectionStartTime;
-                    this._log(`Enhanced JWT WebSocket opened in ${connectionTime}ms`);
+                    this._log(`JWT WebSocket opened in ${connectionTime}ms`);
                     this.isConnected = true;
                 };
                 
-                // Handle messages with enhanced authentication context
+                // Handle messages with JWT authentication context
                 this.socket.onmessage = (event) => {
                     try {
                         const data = JSON.parse(event.data);
                         const messageTime = Date.now() - this.connectionStartTime;
-                        this._log(`Enhanced JWT Message received (${data.type}) after ${messageTime}ms`);
+                        this._log(`JWT Message received (${data.type}) after ${messageTime}ms`);
                         
                         // Handle JWT session establishment
                         if (data.type === 'session_established') {
-                            this._log('Enhanced JWT session established with server');
+                            this._log('JWT session established with server');
                             
                             this.isAuthenticated = true;
                             this.isConnecting = false;
@@ -204,14 +211,13 @@ const ChatService = {
                         
                         // Handle JWT authentication errors
                         if (data.type === 'error' && this.isConnecting) {
-                            this._log('Enhanced JWT connection error:', data.message);
+                            this._log('JWT connection error:', data.message);
                             clearTimeout(timeout);
                             this.isConnecting = false;
                             this._cleanup();
                             
-                            // Check if it's a JWT-specific error
                             if (data.message.includes('token') || data.message.includes('authentication')) {
-                                reject(new Error(`Enhanced JWT Authentication failed: ${data.message}`));
+                                reject(new Error(`JWT Authentication failed: ${data.message}`));
                             } else {
                                 reject(new Error(`Connection failed: ${data.message}`));
                             }
@@ -222,15 +228,15 @@ const ChatService = {
                         this._handleMessage(data);
                         
                     } catch (e) {
-                        this._error('Enhanced JWT Message parse error:', e);
+                        this._error('JWT Message parse error:', e);
                         this._error('Raw message:', event.data);
                     }
                 };
                 
-                // Handle close with enhanced authentication context
+                // Handle close with JWT authentication context
                 this.socket.onclose = (event) => {
                     const connectionTime = Date.now() - this.connectionStartTime;
-                    this._log(`Enhanced JWT WebSocket closed after ${connectionTime}ms:`, event.code, event.reason);
+                    this._log(`JWT WebSocket closed after ${connectionTime}ms:`, event.code, event.reason);
                     
                     if (this.isConnecting) {
                         clearTimeout(timeout);
@@ -239,18 +245,18 @@ const ChatService = {
                         return;
                     }
                     
-                    this._handleEnhancedClose(event);
+                    this._handleClose(event);
                 };
                 
                 // Handle errors
                 this.socket.onerror = (event) => {
-                    this._error('Enhanced JWT WebSocket error:', event);
+                    this._error('JWT WebSocket error:', event);
                     
                     if (this.isConnecting) {
                         clearTimeout(timeout);
                         this.isConnecting = false;
                         this._cleanup();
-                        reject(new Error('Enhanced JWT WebSocket connection error'));
+                        reject(new Error('JWT WebSocket connection error'));
                     }
                 };
                 
@@ -264,17 +270,15 @@ const ChatService = {
     },
     
     /**
-     * ENHANCED: Send message with strict authentication validation
+     * ENHANCED: Send message with JWT authentication validation
      */
     async sendMessage(text) {
         if (!text || !text.trim()) {
             throw new Error('Message cannot be empty');
         }
         
-        // STRICT authentication check
-        if (!this._isAuthenticationComplete()) {
-            throw new Error('Complete authentication required to send messages');
-        }
+        // Require authentication
+        this._requireAuth();
         
         const messageId = this._generateId();
         
@@ -304,11 +308,11 @@ const ChatService = {
             id: messageId,
             timestamp: new Date().toISOString(),
             context: context,
-            auth_method: 'jwt_bearer_enhanced'
+            auth_method: 'jwt_bearer'
         };
         
         if (this.isAuthenticated && this.socket && this.socket.readyState === WebSocket.OPEN) {
-            this._log('Sending enhanced JWT-authenticated message:', messageId);
+            this._log('Sending JWT-authenticated message:', messageId);
             this.socket.send(JSON.stringify(message));
             
             // Track as pending
@@ -319,7 +323,7 @@ const ChatService = {
             
             return messageId;
         } else if (this.isConnected && !this.isAuthenticated) {
-            throw new Error('Connected but not authenticated with enhanced JWT');
+            throw new Error('Connected but not authenticated with JWT');
         } else {
             // Queue message and try to connect
             this._queueMessage(message);
@@ -328,7 +332,7 @@ const ChatService = {
                 try {
                     await this.connect();
                 } catch (e) {
-                    throw new Error(`Enhanced JWT connection failed: ${e.message}`);
+                    throw new Error(`JWT connection failed: ${e.message}`);
                 }
             }
             
@@ -337,11 +341,11 @@ const ChatService = {
     },
     
     /**
-     * Load chat history with enhanced authentication
+     * Load chat history with JWT authentication
      */
     async loadChatHistory() {
         if (!this._isAuthenticationComplete()) {
-            throw new Error('Complete authentication required to load chat history');
+            throw new Error('Complete JWT authentication required to load chat history');
         }
         
         if (!this.projectService) {
@@ -357,7 +361,7 @@ const ChatService = {
                 return [];
             }
             
-            this._log('Loading enhanced JWT chat history for context:', context);
+            this._log('Loading JWT chat history for context:', context);
             
             const result = await this.authService.executeFunction('get_chat_messages', {
                 user_id: context.user_id,
@@ -373,29 +377,20 @@ const ChatService = {
             return [];
             
         } catch (error) {
-            this._error('Failed to load enhanced JWT chat history:', error);
+            this._error('Failed to load JWT chat history:', error);
             return [];
         }
     },
     
     /**
-     * Force reconnect with enhanced authentication validation
+     * Force reconnect with JWT authentication
      */
     async forceReconnect() {
-        this._log('Force reconnecting with enhanced JWT authentication');
+        this._log('Force reconnecting with JWT authentication');
         
         // Ensure we have complete authentication before reconnecting
         if (!this._isAuthenticationComplete()) {
-            throw new Error('Cannot reconnect: Complete authentication required');
-        }
-        
-        // Ensure we have a valid token before reconnecting
-        try {
-            if (typeof this.authService._ensureValidToken === 'function') {
-                await this.authService._ensureValidToken();
-            }
-        } catch (error) {
-            throw new Error('Cannot reconnect: JWT token validation failed');
+            throw new Error('Cannot reconnect: Complete JWT authentication required');
         }
         
         this.disconnect();
@@ -407,7 +402,7 @@ const ChatService = {
     },
     
     /**
-     * Get enhanced status with authentication details
+     * Get status with JWT details
      */
     getStatus() {
         return {
@@ -416,15 +411,14 @@ const ChatService = {
             connecting: this.isConnecting,
             reconnectAttempts: this.reconnectAttempts,
             sessionId: this.sessionId,
-            messageCount: this.messageCount,
-            lastPongTime: this.lastPongTime,
             socketState: this.socket ? this.socket.readyState : null,
             pendingMessages: this.pendingMessages.size,
             deliveredMessages: this.deliveredMessages.size,
-            authMethod: 'jwt_bearer_enhanced',
+            authMethod: 'jwt_only',
             authenticationComplete: this._isAuthenticationComplete(),
             hasValidAuth: this.authService ? this._isAuthenticationComplete() : false,
-            userInfo: this._isAuthenticationComplete() ? this.authService.getCurrentUser() : null
+            userInfo: this._isAuthenticationComplete() ? this.authService.getCurrentUser() : null,
+            jwtToken: this._isAuthenticationComplete() ? !!this.authService.getToken() : false
         };
     },
     
@@ -450,9 +444,9 @@ const ChatService = {
     // Private methods
     
     /**
-     * ENHANCED: Build WebSocket URL with comprehensive authentication
+     * Build JWT WebSocket URL
      */
-    _buildEnhancedWebSocketURL(user, projectContext = {}) {
+    _buildJWTWebSocketURL(user, jwtToken, projectContext = {}) {
         const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
         let wsHost;
         
@@ -462,77 +456,65 @@ const ChatService = {
             wsHost = 'api-server-559730737995.us-central1.run.app';
         }
         
-        // Get JWT token with validation
-        const jwtToken = this.authService.getToken();
-        if (!jwtToken) {
-            throw new Error('No JWT token available for enhanced WebSocket authentication');
-        }
-        
         const params = new URLSearchParams({
-            auth: 'jwt_enhanced',
-            token: jwtToken,
+            token: jwtToken,  // JWT token as query parameter
             email: encodeURIComponent(user.email),
             user_id: user.id,
             chat_id: projectContext.chat_id || '',
             reel_id: projectContext.reel_id || '',
-            session_id: user.sessionId || 'enhanced_jwt_session',
+            session_id: user.sessionId || 'jwt_session',
             auth_complete: this._isAuthenticationComplete() ? 'true' : 'false',
             t: Date.now()
         });
         
-        const url = `${wsProtocol}//${wsHost}/ws/${user.id}?${params}`;
-        
-        // Log URL without exposing the full JWT token
-        this._log('Built enhanced JWT WebSocket URL:', url.replace(/token=[^&]+/, 'token=***ENHANCED_JWT_TOKEN***'));
-        
-        return url;
+        return `${wsProtocol}//${wsHost}/ws/${user.id}?${params}`;
     },
     
     /**
-     * ENHANCED: Handle connection close with better authentication context
+     * Handle connection close with JWT context
      */
-    _handleEnhancedClose(event) {
+    _handleClose(event) {
         this._cleanup();
         this._notifyStatusChange('disconnected');
         
         const shouldReconnect = event.code !== 1000 && // Normal closure
                               event.code !== 1001 && // Going away
                               event.code !== 4001 && // Authentication failed
-                              event.code !== 4002 && // JWT token expired
+                              event.code !== 4002 && // JWT token expired/invalid
                               this.reconnectAttempts < this.options.maxReconnectAttempts &&
-                              this._isAuthenticationComplete(); // Enhanced auth check
+                              this._isAuthenticationComplete(); // JWT auth check
         
         if (event.code === 4002) {
-            // JWT token expired during connection
-            this._log('Enhanced WebSocket closed due to JWT token expiration');
-            this._handleEnhancedTokenExpiration().catch(error => {
-                this._error('Enhanced token expiration handling failed:', error);
+            // JWT token expired/invalid during connection
+            this._log('JWT WebSocket closed due to token expiration/invalid');
+            this._handleJWTTokenExpiration().catch(error => {
+                this._error('JWT token expiration handling failed:', error);
             });
             return;
         }
         
         if (shouldReconnect) {
-            this._log(`Enhanced JWT connection lost (code ${event.code}), attempting reconnect...`);
-            this._scheduleEnhancedReconnect();
-        } else if (event.code === 4001) {
-            this._error('Enhanced JWT authentication failed - please login again');
+            this._log(`JWT connection lost (code ${event.code}), attempting reconnect...`);
+            this._scheduleReconnect();
+        } else if (event.code === 4001 || event.code === 4002) {
+            this._error('JWT authentication failed - please login again');
             this._notifyErrorListeners({
-                type: 'enhanced_jwt_auth_failed',
-                message: 'Enhanced JWT authentication failed, please login again'
+                type: 'jwt_auth_failed',
+                message: 'JWT authentication failed, please login again'
             });
         } else {
-            this._log(`Enhanced JWT connection closed permanently (code ${event.code}): ${event.reason}`);
+            this._log(`JWT connection closed permanently (code ${event.code}): ${event.reason}`);
         }
     },
     
     /**
-     * ENHANCED: Handle JWT token expiration with authentication service integration
+     * Handle JWT token expiration
      */
-    async _handleEnhancedTokenExpiration() {
-        this._log('Enhanced JWT token expired during WebSocket connection, refreshing...');
+    async _handleJWTTokenExpiration() {
+        this._log('JWT token expired during WebSocket connection, refreshing...');
         
         try {
-            // Use enhanced token refresh if available
+            // Use token refresh if available
             if (typeof this.authService.refreshTokenIfNeeded === 'function') {
                 await this.authService.refreshTokenIfNeeded();
             } else if (typeof this.authService.refreshToken === 'function') {
@@ -541,7 +523,7 @@ const ChatService = {
             
             // Verify authentication is complete after refresh
             if (!this._isAuthenticationComplete()) {
-                throw new Error('Authentication incomplete after token refresh');
+                throw new Error('JWT authentication incomplete after token refresh');
             }
             
             // Reconnect with new token
@@ -549,56 +531,56 @@ const ChatService = {
             await new Promise(resolve => setTimeout(resolve, 1000));
             await this.connect();
             
-            this._log('Enhanced JWT token refreshed and WebSocket reconnected');
+            this._log('JWT token refreshed and WebSocket reconnected');
         } catch (error) {
-            this._error('Enhanced JWT token refresh failed:', error);
+            this._error('JWT token refresh failed:', error);
             this._notifyErrorListeners({
-                type: 'enhanced_jwt_token_expired',
-                message: 'Enhanced authentication expired, please login again'
+                type: 'jwt_token_expired',
+                message: 'JWT authentication expired, please login again'
             });
         }
     },
     
     /**
-     * ENHANCED: Schedule reconnect with authentication validation
+     * Schedule reconnect with JWT validation
      */
-    _scheduleEnhancedReconnect() {
+    _scheduleReconnect() {
         this.reconnectAttempts++;
         let delay = this.reconnectAttempts === 1 ? 1000 : (this.options.reconnectInterval * this.reconnectAttempts);
         delay = Math.min(delay, 10000);
         
-        this._log(`Enhanced JWT reconnecting in ${delay}ms (attempt ${this.reconnectAttempts}/${this.options.maxReconnectAttempts})`);
+        this._log(`JWT reconnecting in ${delay}ms (attempt ${this.reconnectAttempts}/${this.options.maxReconnectAttempts})`);
         this._notifyStatusChange('reconnecting');
         
         this.reconnectTimer = setTimeout(() => {
-            // Validate authentication before attempting reconnect
+            // Validate JWT authentication before attempting reconnect
             if (!this._isAuthenticationComplete()) {
-                this._error('Enhanced JWT reconnect failed: Authentication incomplete');
+                this._error('JWT reconnect failed: Authentication incomplete');
                 this._notifyErrorListeners({
                     type: 'reconnect_auth_failed',
-                    message: 'Cannot reconnect: Authentication incomplete'
+                    message: 'Cannot reconnect: JWT authentication incomplete'
                 });
                 return;
             }
             
             this.connect().catch(e => {
-                this._error('Enhanced JWT reconnect failed:', e.message);
+                this._error('JWT reconnect failed:', e.message);
                 if (this.reconnectAttempts < this.options.maxReconnectAttempts) {
-                    this._scheduleEnhancedReconnect();
+                    this._scheduleReconnect();
                 } else {
-                    this._error('Max enhanced JWT reconnect attempts reached');
+                    this._error('Max JWT reconnect attempts reached');
                     this._notifyErrorListeners({
                         type: 'max_reconnect_attempts',
-                        message: 'Maximum enhanced JWT reconnection attempts reached'
+                        message: 'Maximum JWT reconnection attempts reached'
                     });
                 }
             });
         }, delay);
     },
     
-    // Include all other existing methods (unchanged)...
+    // Include all other existing methods but ensure they use JWT context...
     disconnect() {
-        this._log('Disconnecting enhanced JWT WebSocket');
+        this._log('Disconnecting JWT WebSocket');
         
         this._cleanup();
         
@@ -616,7 +598,7 @@ const ChatService = {
     },
     
     setProjectContext(chatId, projectName) {
-        this._log('Enhanced JWT project context updated', { chatId, projectName });
+        this._log('JWT project context updated', { chatId, projectName });
         
         // Notify server about context change if connected and authenticated
         if (this.isConnected && this.socket?.readyState === WebSocket.OPEN && this._isAuthenticationComplete()) {
@@ -628,95 +610,66 @@ const ChatService = {
                     project_name: projectName,
                     user_id: user?.id
                 },
-                auth_method: 'jwt_bearer_enhanced',
+                auth_method: 'jwt_only',
                 timestamp: new Date().toISOString()
             }));
         }
     },
     
-    // Include all other existing private methods...
+    // Include all other utility methods...
     _handleMessage(data) {
-        this.messageCount++;
-        
-        if (data.type === 'session_established') {
-            this.isAuthenticated = true;
-            this._log('Enhanced JWT session established with context:', data.context);
-            this._notifyStatusChange('connected');
-            return;
-        }
-
-        // Handle server heartbeat
+        // Handle different message types (implementation same as before)
         if (data.type === 'heartbeat' || data.type === 'ping') {
-            this._log('Heartbeat from server');
             this._sendPong();
             return;
         }
         
-        // Handle pong response
         if (data.type === 'pong') {
-            this.lastPongTime = Date.now();
             return;
         }
         
-        // Handle message queued confirmation
-        if (data.type === 'message_queued' || data.type === 'message_status') {
-            const messageId = data.message_id || data.messageId;
-            this._log('Enhanced message status update:', data.status || 'queued', messageId);
-            
+        if (data.type === 'message_queued') {
+            const messageId = data.message_id;
             this.pendingMessages.set(messageId, {
                 queuedAt: Date.now(),
-                status: data.status || 'pending'
+                status: 'pending'
             });
             
-            if (!this.deliveredMessages.has(messageId)) {
-                this._notifyMessageListeners({
-                    type: 'message_queued',
-                    messageId: messageId,
-                    text: data.message || 'Processing your message...',
-                    timestamp: Date.now()
-                });
-            }
+            this._notifyMessageListeners({
+                type: 'message_queued',
+                messageId: messageId,
+                text: 'Processing your message...',
+                timestamp: Date.now()
+            });
             return;
         }
         
-        // Handle chat response with delivery tracking
         if (data.type === 'chat_response') {
             const messageId = data.message_id;
-            this._log('Enhanced chat response received:', messageId);
             
             if (this.deliveredMessages.has(messageId)) {
-                this._log('Duplicate response ignored:', messageId);
                 return;
             }
             
             this.deliveredMessages.add(messageId);
             this.pendingMessages.delete(messageId);
             
-            const response = data.response || {};
-            const text = response.text || 'No response text';
-            const processingTime = data.processing_time || 0;
-            
             this._notifyMessageListeners({
                 type: 'chat_response',
                 messageId: messageId,
-                text: text,
-                components: response.components || [],
-                processingTime: processingTime,
+                text: data.response?.text || 'No response text',
+                components: data.response?.components || [],
+                processingTime: data.processing_time || 0,
                 timestamp: Date.now(),
                 context: data.context
             });
-            
-            this._confirmDelivery([messageId]);
             return;
         }
         
-        // Handle chat error
         if (data.type === 'chat_error') {
             const messageId = data.message_id;
-            this._log('Enhanced chat error received:', messageId);
             
             if (this.deliveredMessages.has(messageId)) {
-                this._log('Duplicate error ignored:', messageId);
                 return;
             }
             
@@ -729,128 +682,21 @@ const ChatService = {
                 error: data.error || 'Unknown error occurred',
                 timestamp: Date.now()
             });
-            
-            this._confirmDelivery([messageId]);
-            return;
-        }
-        
-        // Handle pending messages response
-        if (data.type === 'pending_messages') {
-            this._log('Received enhanced pending messages:', data.messages?.length || 0);
-            
-            if (data.messages && data.messages.length > 0) {
-                const messageIds = [];
-                
-                data.messages.forEach(message => {
-                    const messageId = message.message_id;
-                    
-                    if (this.deliveredMessages.has(messageId)) {
-                        return;
-                    }
-                    
-                    this.deliveredMessages.add(messageId);
-                    messageIds.push(messageId);
-                    this.pendingMessages.delete(messageId);
-                    
-                    if (message.response) {
-                        const response = typeof message.response === 'string' 
-                            ? JSON.parse(message.response) 
-                            : message.response;
-                        
-                        this._notifyMessageListeners({
-                            type: 'bot_response',
-                            messageId: messageId,
-                            text: response.text || 'Response received',
-                            components: response.components || [],
-                            processingTime: response.metadata?.processing_time || 0,
-                            timestamp: Date.now(),
-                            metadata: response.metadata || {}
-                        });
-                    }
-                });
-                
-                if (messageIds.length > 0) {
-                    this._confirmDelivery(messageIds);
-                }
-            }
-            return;
-        }
-        
-        // Handle delivery confirmation
-        if (data.type === 'delivery_confirmed') {
-            this._log('Enhanced server confirmed delivery of messages:', data.message_ids);
-            return;
-        }
-        
-        // Handle general error messages
-        if (data.type === 'error') {
-            this._error('Enhanced server error:', data.message);
-            this._notifyErrorListeners({
-                type: 'server_error',
-                message: data.message,
-                errorId: data.error_id,
-                retryAfter: data.retry_after
-            });
             return;
         }
         
         // Handle unknown message types
-        this._log('Unknown enhanced message type:', data.type, data);
         this._notifyMessageListeners(data);
-    },
-    
-    _requestPendingMessages() {
-        if (this.isConnected && this.socket.readyState === WebSocket.OPEN && this._isAuthenticationComplete()) {
-            this._log('Requesting enhanced pending messages from server');
-            const user = this.authService.getCurrentUser();
-            this.socket.send(JSON.stringify({
-                type: 'get_pending_messages',
-                user_id: user?.id,
-                auth_method: 'jwt_bearer_enhanced',
-                timestamp: new Date().toISOString()
-            }));
-        }
-    },
-    
-    _confirmDelivery(messageIds) {
-        if (!Array.isArray(messageIds) || messageIds.length === 0) return;
-        
-        if (this.isConnected && this.socket.readyState === WebSocket.OPEN) {
-            this._log('Confirming enhanced delivery of messages:', messageIds);
-            this.socket.send(JSON.stringify({
-                type: 'confirm_delivery',
-                message_ids: messageIds,
-                delivery_method: 'websocket_enhanced',
-                auth_method: 'jwt_bearer_enhanced',
-                timestamp: new Date().toISOString()
-            }));
-        }
-    },
-    
-    clearDeliveredCache() {
-        const cacheSize = this.deliveredMessages.size;
-        
-        if (cacheSize > 1000) {
-            const deliveredArray = Array.from(this.deliveredMessages);
-            const keepRecent = deliveredArray.slice(-500);
-            
-            this.deliveredMessages.clear();
-            keepRecent.forEach(id => this.deliveredMessages.add(id));
-            
-            this._log(`Cleared enhanced delivered cache: ${cacheSize} → ${this.deliveredMessages.size}`);
-        }
     },
     
     _startHeartbeat() {
         this._stopHeartbeat();
         
-        this._log('Starting enhanced heartbeat');
         this.heartbeatTimer = setInterval(() => {
             if (this.socket && this.socket.readyState === WebSocket.OPEN) {
-                this._log('Sending enhanced ping to server');
                 this.socket.send(JSON.stringify({ 
                     type: 'ping',
-                    auth_method: 'jwt_bearer_enhanced',
+                    auth_method: 'jwt_only',
                     timestamp: Date.now()
                 }));
             }
@@ -861,7 +707,6 @@ const ChatService = {
         if (this.heartbeatTimer) {
             clearInterval(this.heartbeatTimer);
             this.heartbeatTimer = null;
-            this._log('Enhanced heartbeat stopped');
         }
     },
     
@@ -869,7 +714,7 @@ const ChatService = {
         if (this.socket && this.socket.readyState === WebSocket.OPEN) {
             this.socket.send(JSON.stringify({ 
                 type: 'pong',
-                auth_method: 'jwt_bearer_enhanced',
+                auth_method: 'jwt_only',
                 timestamp: Date.now()
             }));
         }
@@ -877,7 +722,7 @@ const ChatService = {
     
     _queueMessage(message) {
         this.messageQueue.push(message);
-        this._log('Enhanced message queued (total:', this.messageQueue.length, ')');
+        this._log('JWT message queued (total:', this.messageQueue.length, ')');
     },
     
     _processQueuedMessages() {
@@ -886,7 +731,7 @@ const ChatService = {
         const messages = [...this.messageQueue];
         this.messageQueue = [];
         
-        this._log(`Processing ${messages.length} enhanced queued messages`);
+        this._log(`Processing ${messages.length} JWT queued messages`);
         
         messages.forEach(msg => {
             if (this.socket && this.socket.readyState === WebSocket.OPEN) {
@@ -912,12 +757,10 @@ const ChatService = {
         
         this.isConnected = false;
         this.isAuthenticated = false;
-        
-        this.clearDeliveredCache();
     },
     
     _generateId() {
-        return `enhanced_msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+        return `jwt_msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     },
     
     _notifyMessageListeners(data) {
@@ -925,18 +768,18 @@ const ChatService = {
             try {
                 callback(data);
             } catch (e) {
-                this._error('Error in enhanced message listener:', e);
+                this._error('Error in JWT message listener:', e);
             }
         });
     },
     
     _notifyStatusChange(status) {
-        this._log(`Enhanced status change: ${status}`);
+        this._log(`JWT status change: ${status}`);
         this.statusListeners.forEach(callback => {
             try {
                 callback(status, this.getStatus());
             } catch (e) {
-                this._error('Error in enhanced status listener:', e);
+                this._error('Error in JWT status listener:', e);
             }
         });
     },
@@ -946,379 +789,28 @@ const ChatService = {
             try {
                 callback(data);
             } catch (e) {
-                this._error('Error in enhanced error listener:', e);
+                this._error('Error in JWT error listener:', e);
             }
         });
     },
     
     _log(...args) {
         if (this.options.debug) {
-            console.log('[Enhanced JWT ChatService]', ...args);
+            console.log('[JWT ChatService]', ...args);
         }
     },
     
     _error(...args) {
-        console.error('[Enhanced JWT ChatService]', ...args);
+        console.error('[JWT ChatService]', ...args);
     }
 };
-
-// Keep the existing ChatIntegration with minimal changes for consistency
-const ChatIntegration = {
-    // UI elements
-    chatContainer: null,
-    messageContainer: null,
-    inputElement: null,
-    statusElement: null,
-    tempMessages: new Map(),
-    
-    // State
-    isInitialized: false,
-    currentProjectId: null,
-    currentProjectName: null,
-    
-    /**
-     * Initialize chat integration with enhanced authentication checks
-     */
-    init(chatContainerId = 'chat-container') {
-        if (this.isInitialized) {
-            console.log('💬 Enhanced ChatIntegration already initialized');
-            return this;
-        }
-        
-        // Find UI elements
-        this.chatContainer = document.getElementById(chatContainerId);
-        this.messageContainer = document.getElementById('chatBody') || 
-                               document.getElementById('messages') || 
-                               document.getElementById('chat-messages');
-        this.inputElement = document.getElementById('messageInput') || 
-                           document.getElementById('message-input') || 
-                           document.querySelector('input[type="text"], textarea');
-        this.statusElement = document.getElementById('connection-status');
-        
-        if (!this.messageContainer) {
-            console.warn('💬 Message container not found - enhanced chat integration may not work properly');
-        }
-        
-        // Set up enhanced ChatService listeners
-        if (window.ChatService) {
-            window.ChatService.onStatusChange((status) => this.updateConnectionStatus(status));
-            window.ChatService.onMessage((data) => this.handleMessage(data));
-            window.ChatService.onError((error) => this.handleError(error));
-        }
-        
-        // Set up input handler
-        this.setupInputHandler();
-        
-        this.isInitialized = true;
-        
-        console.log('💬 Enhanced ChatIntegration initialized successfully', {
-            hasMessageContainer: !!this.messageContainer,
-            hasInputElement: !!this.inputElement,
-            hasStatusElement: !!this.statusElement
-        });
-        
-        return this;
-    },
-    
-    /**
-     * Initialize with project context using enhanced authentication
-     */
-    async initializeWithProject(projectId, projectName) {
-        try {
-            console.log('💬 Initializing enhanced chat with project context:', { projectId, projectName });
-            
-            this.currentProjectId = projectId;
-            this.currentProjectName = projectName;
-            
-            // Switch project context with enhanced validation
-            if (window.ProjectService) {
-                const contextResult = await window.ProjectService.switchToProject(projectId, projectName);
-                if (!contextResult.success) {
-                    throw new Error('Failed to switch project context');
-                }
-                console.log('✅ Enhanced project context switched for chat');
-            }
-            
-            // Initialize/connect enhanced ChatService
-            if (window.ChatService) {
-                if (!window.ChatService.isInitialized) {
-                    window.ChatService.init(window.AuthService);
-                }
-                
-                // Connect if not connected (with enhanced authentication)
-                if (!window.ChatService.isConnected) {
-                    await window.ChatService.connect();
-                }
-                
-                console.log('✅ Enhanced ChatService connected with project context');
-            }
-            
-            // Load chat history
-            await this.loadProjectChatHistory();
-            
-            return true;
-            
-        } catch (error) {
-            console.error('❌ Failed to initialize enhanced chat with project:', error);
-            return false;
-        }
-    },
-    
-    /**
-     * Load project chat history with enhanced authentication
-     */
-    async loadProjectChatHistory() {
-        try {
-            if (!window.ChatService) {
-                console.warn('Enhanced ChatService not available for loading history');
-                return;
-            }
-            
-            const messages = await window.ChatService.loadChatHistory();
-            console.log(`📚 Loaded ${messages.length} messages for project (Enhanced JWT auth)`);
-            
-            // Display messages in chat
-            if (this.messageContainer && messages.length > 0) {
-                // Clear existing messages
-                this.messageContainer.innerHTML = '';
-                
-                // Add each message
-                messages.forEach(message => {
-                    this.addMessage({
-                        type: message.sender || 'system',
-                        text: message.content,
-                        timestamp: message.timestamp,
-                        messageId: message.message_id
-                    });
-                });
-                
-                console.log('✅ Enhanced chat history displayed');
-            }
-            
-        } catch (error) {
-            console.error('❌ Failed to load enhanced project chat history:', error);
-        }
-    },
-    
-    // Include all other existing methods unchanged...
-    setupInputHandler() {
-        const form = this.inputElement?.closest('form');
-        if (form) {
-            form.addEventListener('submit', (e) => {
-                e.preventDefault();
-                this.sendMessage();
-            });
-        } else if (this.inputElement) {
-            this.inputElement.addEventListener('keypress', (e) => {
-                if (e.key === 'Enter' && !e.shiftKey) {
-                    e.preventDefault();
-                    this.sendMessage();
-                }
-            });
-        }
-    },
-    
-    async sendMessage() {
-        const message = this.inputElement?.value?.trim();
-        if (!message) return;
-        
-        try {
-            // Add user message to chat immediately
-            this.addMessage({
-                type: 'user',
-                text: message,
-                timestamp: new Date().toISOString()
-            });
-            
-            // Send via enhanced ChatService
-            const messageId = await window.ChatService.sendMessage(message);
-            console.log('📤 Enhanced message sent with ID:', messageId);
-            
-            // Clear input
-            if (this.inputElement) {
-                this.inputElement.value = '';
-            }
-            
-        } catch (error) {
-            console.error('❌ Failed to send enhanced message:', error);
-            this.addMessage({
-                type: 'error',
-                text: `Failed to send: ${error.message}`,
-                timestamp: new Date().toISOString()
-            });
-        }
-    },
-    
-    handleMessage(data) {
-        console.log('💬 Enhanced chat integration - Message received:', data.type);
-        
-        switch (data.type) {
-            case 'message_queued':
-                const tempMsg = {
-                    type: 'system',
-                    text: data.text || 'Processing your message...',
-                    timestamp: new Date(data.timestamp).toISOString(),
-                    isTemporary: true,
-                    messageId: data.messageId
-                };
-                
-                this.addMessage(tempMsg);
-                this.tempMessages.set(data.messageId, tempMsg);
-                break;
-                
-            case 'chat_response':
-                if (data.messageId) {
-                    this.removeTemporaryMessage(data.messageId);
-                    this.tempMessages.delete(data.messageId);
-                }
-                
-                if (!this.isDuplicateMessage(data.messageId)) {
-                    let processingInfo = '';
-                    if (data.processingTime) {
-                        processingInfo = ` (${data.processingTime.toFixed(2)}s)`;
-                    }
-                    
-                    this.addMessage({
-                        type: 'bot',
-                        text: data.text + processingInfo,
-                        components: data.components,
-                        timestamp: new Date(data.timestamp).toISOString(),
-                        messageId: data.messageId
-                    });
-                } else {
-                    console.log('🔄 Duplicate enhanced response prevented:', data.messageId);
-                }
-                break;
-                
-            case 'chat_error':
-                if (data.messageId) {
-                    this.removeTemporaryMessage(data.messageId);
-                    this.tempMessages.delete(data.messageId);
-                }
-                
-                this.addMessage({
-                    type: 'error',
-                    text: `Error: ${data.error}`,
-                    timestamp: new Date(data.timestamp).toISOString(),
-                    messageId: data.messageId
-                });
-                break;
-                
-            default:
-                console.log('💬 Unknown enhanced message type in integration:', data.type);
-                break;
-        }
-    },
-    
-    handleError(error) {
-        console.error('💬 Enhanced chat integration error:', error);
-        
-        this.addMessage({
-            type: 'error',
-            text: error.message || 'An error occurred',
-            timestamp: new Date().toISOString()
-        });
-    },
-    
-    addMessage(message) {
-        if (!this.messageContainer) {
-            console.warn('Enhanced message container not found');
-            return;
-        }
-        
-        if (message.messageId && this.isDuplicateMessage(message.messageId)) {
-            console.log('🔄 Duplicate enhanced message prevented in addMessage:', message.messageId);
-            return;
-        }
-        
-        const messageDiv = document.createElement('div');
-        messageDiv.className = `message message-${message.type || 'default'}`;
-        
-        if (message.messageId) {
-            messageDiv.setAttribute('data-message-id', message.messageId);
-        }
-        
-        if (message.isTemporary) {
-            messageDiv.classList.add('temporary-message');
-        }
-        
-        let content = `
-            <div class="message-content">
-                <div class="message-text">${this.escapeHtml(message.text)}</div>
-                <div class="message-time">${this.formatTime(message.timestamp)}</div>
-            </div>
-        `;
-        
-        messageDiv.innerHTML = content;
-        
-        this.messageContainer.appendChild(messageDiv);
-        this.messageContainer.scrollTop = this.messageContainer.scrollHeight;
-        
-        console.log('✅ Enhanced message added to chat:', message.type, message.text.substring(0, 30), message.messageId || 'no-id');
-        
-        return messageDiv;
-    },
-    
-    removeTemporaryMessage(messageId) {
-        const messageElement = document.querySelector(`[data-message-id="${messageId}"]`);
-        if (messageElement && messageElement.classList.contains('temporary-message')) {
-            messageElement.remove();
-            console.log('🗑️ Removed enhanced temporary message:', messageId);
-        }
-    },
-    
-    isDuplicateMessage(messageId) {
-        if (!messageId || !this.messageContainer) return false;
-        
-        const existingMessage = this.messageContainer.querySelector(`[data-message-id="${messageId}"]`);
-        return !!existingMessage;
-    },
-    
-    updateConnectionStatus(status) {
-        if (!this.statusElement) return;
-        
-        const statusInfo = window.ChatService?.getStatus() || {};
-        const pendingCount = statusInfo.pendingMessages || 0;
-        const deliveredCount = statusInfo.deliveredMessages || 0;
-        const authComplete = statusInfo.authenticationComplete ? '✓' : '✗';
-        
-        const statusText = `${status} [Enhanced:${authComplete}]${pendingCount > 0 ? ` (${pendingCount} pending)` : ''}${deliveredCount > 0 ? ` [${deliveredCount} delivered]` : ''}`;
-        
-        this.statusElement.textContent = statusText;
-        this.statusElement.className = `connection-status ${status}`;
-    },
-    
-    // Utility methods
-    escapeHtml(text) {
-        const div = document.createElement('div');
-        div.textContent = text;
-        return div.innerHTML;
-    },
-    
-    formatTime(timestamp) {
-        return new Date(timestamp).toLocaleTimeString([], { 
-            hour: '2-digit', 
-            minute: '2-digit' 
-        });
-    }
-};
-
-// Auto-initialize when DOM is ready
-document.addEventListener('DOMContentLoaded', function() {
-    // Only initialize if not on main chat page (which handles its own initialization)
-    if (!document.getElementById('chatBody')) {
-        ChatIntegration.init();
-        console.log('💬 Enhanced chat integration initialized for embedded use');
-    }
-});
 
 // Export for global access
 if (typeof window !== 'undefined') {
     window.ChatService = ChatService;
-    window.ChatIntegration = ChatIntegration;
 }
 
 // Export for module environments
 if (typeof module !== 'undefined' && module.exports) {
-    module.exports = { ChatService, ChatIntegration };
+    module.exports = ChatService;
 }

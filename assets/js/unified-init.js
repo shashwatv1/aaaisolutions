@@ -100,58 +100,38 @@
     }
     
     /**
-     * ENHANCED: Handle page authentication with better state management
+     * ENHANCED: Handle page authentication with JWT system
      */
     async function handleEnhancedPageAuthentication(pageType) {
         console.log('🔐 ENHANCED: Handling page authentication for:', pageType);
         
         try {
-            // Initialize AuthService first with enhanced checking
+            // Initialize AuthService first
             if (!window.AuthService) {
                 throw new Error('AuthService not available');
             }
             
-            // Initialize AuthService and get detailed result
+            // Initialize AuthService
             console.log('🔐 Initializing AuthService...');
             const authInitResult = window.AuthService.init();
             
             console.log('🔐 AuthService initialization result:', authInitResult);
             
-            // Check authentication completeness
-            const isAuthComplete = window.AuthService._isAuthenticationComplete ? 
-                                 window.AuthService._isAuthenticationComplete() : 
-                                 window.AuthService.isAuthenticated();
-            
-            console.log('🔐 Authentication completeness check:', isAuthComplete);
-            
-            // Get authentication details
-            const authDetails = {
-                authenticated: window.AuthService.isAuthenticated(),
-                authenticationComplete: isAuthComplete,
-                sessionInfo: window.AuthService.getSessionInfo ? 
-                           window.AuthService.getSessionInfo() : {},
-                hasPersistentSession: window.AuthService.hasPersistentSession()
-            };
-            
-            console.log('🔐 Detailed authentication status:', authDetails);
-            
-            // Handle based on page type with enhanced logic
+            // Handle based on page type
             switch (pageType) {
                 case 'login':
-                    return await handleLoginPageAuth(authDetails);
+                    return await handleLoginPageAuth();
                     
                 case 'project':
                 case 'chat':
-                    return await handleProtectedPageAuth(authDetails, pageType);
+                    return await handleProtectedPageAuth(pageType);
                     
                 default:
                     // Public pages
                     return { 
                         success: true, 
-                        authenticated: authDetails.authenticated,
-                        authenticationComplete: authDetails.authenticationComplete,
-                        authStatus: authDetails.authenticationComplete ? 'complete' : 
-                                  authDetails.authenticated ? 'partial' : 'none'
+                        authenticated: window.AuthService.isAuthenticated(),
+                        authStatus: window.AuthService.isAuthenticated() ? 'complete' : 'none'
                     };
             }
             
@@ -164,41 +144,79 @@
             };
         }
     }
-    
-    /**
-     * Handle authentication for login page
-     */
-    async function handleLoginPageAuth(authDetails) {
+
+    async function handleProtectedPageAuth(pageType) {
+        console.log(`🔐 Handling protected page authentication for: ${pageType}`);
+        
+        // If authenticated, proceed
+        if (window.AuthService.isAuthenticated()) {
+            console.log('🔐 Already authenticated for protected page');
+            return { 
+                success: true, 
+                authenticated: true,
+                authStatus: 'complete',
+                user: window.AuthService.getCurrentUser()
+            };
+        }
+        
+        // If no persistent session, redirect to login
+        if (!window.AuthService.hasPersistentSession()) {
+            console.log('🔐 No persistent session, redirecting to login...');
+            window.location.href = 'login.html';
+            return { success: false, redirect: true };
+        }
+        
+        // Try to restore session
+        console.log('🔐 Attempting session restoration...');
+        
+        try {
+            const refreshed = await window.AuthService.refreshTokenIfNeeded();
+            
+            if (refreshed && window.AuthService.isAuthenticated()) {
+                console.log('🔐 Session restored successfully');
+                return { 
+                    success: true, 
+                    authenticated: true,
+                    authStatus: 'complete',
+                    user: window.AuthService.getCurrentUser()
+                };
+            } else {
+                console.log('🔐 Session restoration failed, redirecting to login...');
+                window.location.href = 'login.html';
+                return { success: false, redirect: true };
+            }
+            
+        } catch (error) {
+            console.error('🔐 Session restoration error:', error);
+            window.location.href = 'login.html';
+            return { success: false, redirect: true };
+        }
+    }
+
+
+    async function handleLoginPageAuth() {
         console.log('🔐 Handling login page authentication...');
         
-        // If authentication is complete, redirect to projects
-        if (authDetails.authenticationComplete) {
-            console.log('🔐 Complete authentication detected, redirecting to projects...');
+        // If already authenticated, redirect to projects
+        if (window.AuthService.isAuthenticated()) {
+            console.log('🔐 Already authenticated, redirecting to projects...');
             window.location.href = 'project.html';
             return { success: false, redirect: true };
         }
         
-        // If partial authentication, try to restore
-        if (authDetails.authenticated && !authDetails.authenticationComplete) {
-            console.log('🔐 Partial authentication detected, attempting restoration...');
+        // If has persistent session, try to restore
+        if (window.AuthService.hasPersistentSession()) {
+            console.log('🔐 Persistent session found, attempting restoration...');
             
             try {
-                // Try immediate validation if available
-                if (typeof window.AuthService._attemptImmediateValidation === 'function') {
-                    await window.AuthService._attemptImmediateValidation();
-                    
-                    // Re-check after validation attempt
-                    const isNowComplete = window.AuthService._isAuthenticationComplete();
-                    if (isNowComplete) {
-                        console.log('🔐 Authentication restored, redirecting to projects...');
-                        window.location.href = 'project.html';
-                        return { success: false, redirect: true };
-                    }
+                const refreshed = await window.AuthService.refreshTokenIfNeeded();
+                if (refreshed && window.AuthService.isAuthenticated()) {
+                    console.log('🔐 Session restored, redirecting to projects...');
+                    window.location.href = 'project.html';
+                    return { success: false, redirect: true };
                 }
             } catch (error) {
-                console.warn('🔐 Failed to restore authentication:', error);
-                // Clear inconsistent state
-                window.AuthService.clearAuthData();
+                console.warn('🔐 Failed to restore session:', error);
             }
         }
         
@@ -206,133 +224,10 @@
         return { 
             success: true, 
             authenticated: false,
-            authenticationComplete: false,
             authStatus: 'none'
         };
     }
-    
-    /**
-     * Handle authentication for protected pages
-     */
-    async function handleProtectedPageAuth(authDetails, pageType) {
-        console.log(`🔐 Handling protected page authentication for: ${pageType}`);
-        
-        // If authentication is complete, proceed
-        if (authDetails.authenticationComplete) {
-            console.log('🔐 Complete authentication confirmed for protected page');
-            return { 
-                success: true, 
-                authenticated: true,
-                authenticationComplete: true,
-                authStatus: 'complete',
-                user: window.AuthService.getCurrentUser()
-            };
-        }
-        
-        // If no authentication at all, redirect to login
-        if (!authDetails.authenticated && !authDetails.hasPersistentSession) {
-            console.log('🔐 No authentication found, redirecting to login...');
-            window.location.href = 'login.html';
-            return { success: false, redirect: true };
-        }
-        
-        // If partial authentication, try to restore with timeout
-        if (authDetails.authenticated || authDetails.hasPersistentSession) {
-            console.log('🔐 Partial authentication detected, attempting restoration...');
-            
-            try {
-                const restorationResult = await attemptAuthenticationRestoration();
-                
-                if (restorationResult.success) {
-                    console.log('🔐 Authentication successfully restored');
-                    return { 
-                        success: true, 
-                        authenticated: true,
-                        authenticationComplete: true,
-                        authStatus: 'complete',
-                        user: window.AuthService.getCurrentUser()
-                    };
-                } else {
-                    console.log('🔐 Authentication restoration failed, redirecting to login...');
-                    window.location.href = 'login.html';
-                    return { success: false, redirect: true };
-                }
-                
-            } catch (error) {
-                console.error('🔐 Authentication restoration error:', error);
-                window.location.href = 'login.html';
-                return { success: false, redirect: true };
-            }
-        }
-        
-        // Fallback: redirect to login
-        console.log('🔐 Authentication state unclear, redirecting to login...');
-        window.location.href = 'login.html';
-        return { success: false, redirect: true };
-    }
-    
-    /**
-     * Attempt to restore authentication with timeout and retries
-     */
-    async function attemptAuthenticationRestoration(timeoutMs = 5000, maxAttempts = 3) {
-        const startTime = Date.now();
-        let attempts = 0;
-        
-        while (attempts < maxAttempts && (Date.now() - startTime) < timeoutMs) {
-            attempts++;
-            console.log(`🔐 Authentication restoration attempt ${attempts}/${maxAttempts}...`);
-            
-            try {
-                // Try immediate validation if available
-                if (typeof window.AuthService._attemptImmediateValidation === 'function') {
-                    await window.AuthService._attemptImmediateValidation();
-                }
-                
-                // Try token refresh if available
-                if (typeof window.AuthService.refreshTokenIfNeeded === 'function') {
-                    const refreshResult = await Promise.race([
-                        window.AuthService.refreshTokenIfNeeded(),
-                        new Promise((_, reject) => 
-                            setTimeout(() => reject(new Error('Timeout')), 3000)
-                        )
-                    ]);
-                    
-                    if (refreshResult) {
-                        console.log('🔐 Token refresh successful');
-                    }
-                }
-                
-                // Check if authentication is now complete
-                const isComplete = window.AuthService._isAuthenticationComplete ? 
-                                 window.AuthService._isAuthenticationComplete() : 
-                                 window.AuthService.isAuthenticated();
-                
-                if (isComplete) {
-                    const user = window.AuthService.getCurrentUser();
-                    if (user && user.email && user.id) {
-                        console.log('✅ Authentication restoration successful');
-                        return { success: true, user: user };
-                    }
-                }
-                
-                // Wait before next attempt
-                if (attempts < maxAttempts) {
-                    await new Promise(resolve => setTimeout(resolve, 1000));
-                }
-                
-            } catch (error) {
-                console.warn(`🔐 Restoration attempt ${attempts} failed:`, error.message);
-                
-                if (attempts < maxAttempts) {
-                    await new Promise(resolve => setTimeout(resolve, 1000));
-                }
-            }
-        }
-        
-        console.log('❌ Authentication restoration failed after all attempts');
-        return { success: false };
-    }
-    
+
     /**
      * Initialize services with enhanced error handling and retries
      */

@@ -91,74 +91,12 @@ const ProjectService = {
     },
 
     /**
-     * CONSISTENT: Check if authentication is complete and ready for API calls
-     */
-    _isAuthenticationComplete() {
-        if (!this.authService) {
-            return false;
-        }
-        
-        // Use the enhanced authentication check
-        return this.authService._isAuthenticationComplete ? 
-               this.authService._isAuthenticationComplete() : 
-               this.authService.isAuthenticated();
-    },
-
-    /**
-     * CONSISTENT: Ensure authentication is ready for API calls
-     */
-    _ensureAuthReady() {
-        if (!this.authService) {
-            throw new Error('AuthService not available');
-        }
-        
-        if (!this._isAuthenticationComplete()) {
-            throw new Error('Complete authentication required for API operations');
-        }
-        
-        return true;
-    },
-
-    /**
-     * CONSISTENT: Wait for authentication to be ready with timeout
-     */
-    async _waitForAuthReady(timeoutMs = 15000) {
-        const startTime = Date.now();
-        
-        while (Date.now() - startTime < timeoutMs) {
-            if (this._isAuthenticationComplete()) {
-                return true;
-            }
-            
-            // Check if AuthService has a validation method
-            if (typeof this.authService._attemptImmediateValidation === 'function') {
-                try {
-                    await this.authService._attemptImmediateValidation();
-                    if (this._isAuthenticationComplete()) {
-                        return true;
-                    }
-                } catch (error) {
-                    console.warn('Immediate validation failed:', error);
-                }
-            }
-            
-            // Wait a bit before checking again
-            await new Promise(resolve => setTimeout(resolve, 200));
-        }
-        
-        throw new Error('Authentication readiness timeout');
-    },
-    
-    /**
-     * Create a new project with consistent authentication
+     * Create a new project with JWT authentication
      */
     async createProject(projectData) {
         try {
-            this._ensureAuthReady();
+            this._requireAuth();
             this._validateProjectData(projectData);
-            
-            // Wait for authentication to be ready
-            await this._waitForAuthReady();
             
             const user = this.authService.getCurrentUser();
             if (!user || !user.email) {
@@ -215,16 +153,14 @@ const ProjectService = {
             throw new Error(`Failed to create project: ${error.message}`);
         }
     },
+
     
     /**
-     * Get all projects with consistent authentication
+     * Get all projects with JWT authentication
      */
     async getProjects(options = {}) {
         try {
-            this._ensureAuthReady();
-            
-            // Wait for authentication to be ready
-            await this._waitForAuthReady();
+            this._requireAuth();
             
             const {
                 limit = 20,
@@ -263,7 +199,7 @@ const ProjectService = {
                 tag_filter: tagFilter
             });
             
-            if (result.status === 'success' && result.data.success) {
+            if (result?.data?.success) {
                 const projectData = {
                     projects: result.data.projects,
                     total: result.data.total,
@@ -295,7 +231,7 @@ const ProjectService = {
             throw new Error(`Failed to get projects: ${error.message}`);
         }
     },
-    
+
     /**
      * Get specific project by ID with consistent authentication
      */

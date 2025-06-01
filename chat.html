@@ -1006,11 +1006,26 @@
           if (!window.AuthService || !window.AuthService.init()) {
             redirectToLogin('Authentication service not available');
             return;
-          }
+          }        
           
           if (!window.AuthService.isAuthenticated()) {
-            redirectToLogin('Not authenticated');
-            return;
+            // Try to restore session if refresh token exists
+            if (window.AuthService.hasPersistentSession()) {
+                try {
+                    const refreshed = await window.AuthService.refreshTokenIfNeeded();
+                    if (!refreshed || !window.AuthService.isAuthenticated()) {
+                        redirectToLogin('Session restoration failed');
+                        return;
+                    }
+                } catch (error) {
+                    console.error('Session restoration failed:', error);
+                    redirectToLogin('Authentication error');
+                    return;
+                }
+            } else {
+                redirectToLogin('Not authenticated');
+                return;
+            }
           }
           
           // Get project ID from URL

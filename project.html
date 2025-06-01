@@ -921,59 +921,58 @@
         }
       }
       
-      /**
-       * Enhanced authentication initialization with retries and validation
-       */
-      async function initializeAuthentication() {
-        console.log('🔐 Initializing authentication...');
-        
-        try {
-          // Step 1: Initialize AuthService
-          if (!window.AuthService) {
-            throw new Error('AuthService not available');
+        async function initializeAuthentication() {
+          console.log('🔐 Initializing JWT authentication...');
+          
+          try {
+              // Initialize AuthService
+              if (!window.AuthService) {
+                  throw new Error('AuthService not available');
+              }
+              
+              // Initialize AuthService
+              const authInitResult = window.AuthService.init();
+              console.log('🔐 AuthService.init() result:', authInitResult);
+              
+              // Check if authenticated
+              if (!window.AuthService.isAuthenticated()) {
+                  // Try to restore session if refresh token exists
+                  if (window.AuthService.hasPersistentSession()) {
+                      console.log('🔐 Persistent session found, attempting restoration...');
+                      
+                      try {
+                          const refreshed = await window.AuthService.refreshTokenIfNeeded();
+                          if (!refreshed || !window.AuthService.isAuthenticated()) {
+                              return { success: false, reason: 'Session restoration failed' };
+                          }
+                      } catch (error) {
+                          console.error('🔐 Session restoration failed:', error);
+                          return { success: false, reason: 'Session restoration error' };
+                      }
+                  } else {
+                      return { success: false, reason: 'No authentication found' };
+                  }
+              }
+              
+              // Verify user information
+              const user = window.AuthService.getCurrentUser();
+              if (!user || !user.email || !user.id) {
+                  console.error('🔐 User information incomplete:', user);
+                  return { success: false, reason: 'Incomplete user information' };
+              }
+              
+              console.log('✅ JWT Authentication successful:', {
+                  email: user.email,
+                  id: user.id,
+                  sessionId: user.sessionId
+              });
+              
+              return { success: true, user: user };
+              
+          } catch (error) {
+              console.error('🔐 JWT Authentication initialization error:', error);
+              return { success: false, reason: error.message };
           }
-          
-          // Initialize AuthService
-          const authInitResult = window.AuthService.init();
-          console.log('🔐 AuthService.init() result:', authInitResult);
-          
-          // Step 2: If not authenticated, try to validate session with retry
-          if (!authInitResult) {
-            console.log('🔐 Initial auth failed, attempting session validation...');
-            
-            const validationResult = await validateSessionWithRetry();
-            if (!validationResult) {
-              return { success: false, reason: 'Session validation failed' };
-            }
-          }
-          
-          // Step 3: Final authentication check
-          const finalAuthCheck = window.AuthService.isAuthenticated();
-          console.log('🔐 Final authentication check:', finalAuthCheck);
-          
-          if (!finalAuthCheck) {
-            return { success: false, reason: 'Final authentication check failed' };
-          }
-          
-          // Step 4: Verify user information
-          const user = window.AuthService.getCurrentUser();
-          if (!user || !user.email || !user.id) {
-            console.error('🔐 User information incomplete:', user);
-            return { success: false, reason: 'Incomplete user information' };
-          }
-          
-          console.log('✅ Authentication successful:', {
-            email: user.email,
-            id: user.id,
-            sessionId: user.sessionId
-          });
-          
-          return { success: true, user: user };
-          
-        } catch (error) {
-          console.error('🔐 Authentication initialization error:', error);
-          return { success: false, reason: error.message };
-        }
       }
       
       /**

@@ -416,13 +416,13 @@
   <script nomodule src="https://unpkg.com/ionicons@5.5.2/dist/ionicons/ionicons.js"></script>
   
     <!-- Login application script -->
-    <script>
-        document.addEventListener('DOMContentLoaded', function() {
-        // Initialize environment features
-        function initEnvironmentFeatures() {
-            const hasConfig = window.AAAI_CONFIG && window.AAAI_CONFIG.ENVIRONMENT;
-            
-            if (hasConfig) {
+  <script>
+  document.addEventListener('DOMContentLoaded', function() {
+    // Initialize environment features
+    function initEnvironmentFeatures() {
+        const hasConfig = window.AAAI_CONFIG && window.AAAI_CONFIG.ENVIRONMENT;
+        
+        if (hasConfig) {
             const environment = window.AAAI_CONFIG.ENVIRONMENT;
             
             if (environment !== 'production') {
@@ -436,16 +436,16 @@
             
             if (window.AAAI_LOGGER) {
                 window.AAAI_LOGGER.info('Environment features initialized', {
-                environment: environment,
-                version: window.AAAI_CONFIG.VERSION || 'unknown'
+                    environment: environment,
+                    version: window.AAAI_CONFIG.VERSION || 'unknown'
                 });
             }
-            }
         }
-        
-        // Initialize AuthService
-        function initializeAuthService() {
-            if (!window.AAAI_CONFIG) {
+    }
+    
+    // Initialize AuthService
+    function initializeAuthService() {
+        if (!window.AAAI_CONFIG) {
             window.AAAI_CONFIG = {
                 ENVIRONMENT: 'production',
                 ENABLE_DEBUG: false
@@ -457,56 +457,56 @@
                 warn: console.warn.bind(console, '[WARN]'),
                 error: console.error.bind(console, '[ERROR]')
             };
-            }
-            
-            try {
+        }
+        
+        try {
             return AuthService.init();
-            } catch (error) {
+        } catch (error) {
             console.error('Failed to initialize AuthService:', error);
             return false;
-            }
         }
+    }
+    
+    // Initialize environment features
+    initEnvironmentFeatures();
+    
+    // Check if already authenticated
+    if (initializeAuthService() && window.AuthService.isAuthenticated()) {
+        window.location.href = 'project.html';
+        return;
+    }
+    
+    // Get DOM elements
+    const authSection = document.getElementById('authSection');
+    const otpSection = document.getElementById('otpSection');
+    const authForm = document.getElementById('authForm');
+    const otpForm = document.getElementById('otpForm');
+    const authError = document.getElementById('authError');
+    const authSuccess = document.getElementById('authSuccess');
+    const otpError = document.getElementById('otpError');
+    const otpSuccess = document.getElementById('otpSuccess');
+    const emailInput = document.getElementById('emailInput');
+    const otpInput = document.getElementById('otpInput');
+    const requestOtpBtn = document.getElementById('requestOtpBtn');
+    const verifyOtpBtn = document.getElementById('verifyOtpBtn');
+    const resendOtpBtn = document.getElementById('resendOtpBtn');
+    
+    let userEmail = '';
+    
+    // Event: Request OTP
+    authForm.addEventListener('submit', async function(e) {
+        e.preventDefault();
         
-        // Initialize environment features
-        initEnvironmentFeatures();
-        
-        // Check if already authenticated
-        if (initializeAuthService()) {
-            window.location.href = 'project.html';
-            return;
-        }
-        
-        // Get DOM elements
-        const authSection = document.getElementById('authSection');
-        const otpSection = document.getElementById('otpSection');
-        const authForm = document.getElementById('authForm');
-        const otpForm = document.getElementById('otpForm');
-        const authError = document.getElementById('authError');
-        const authSuccess = document.getElementById('authSuccess');
-        const otpError = document.getElementById('otpError');
-        const otpSuccess = document.getElementById('otpSuccess');
-        const emailInput = document.getElementById('emailInput');
-        const otpInput = document.getElementById('otpInput');
-        const requestOtpBtn = document.getElementById('requestOtpBtn');
-        const verifyOtpBtn = document.getElementById('verifyOtpBtn');
-        const resendOtpBtn = document.getElementById('resendOtpBtn');
-        
-        let userEmail = '';
-        
-        // Event: Request OTP
-        authForm.addEventListener('submit', async function(e) {
-            e.preventDefault();
-            
-            userEmail = emailInput.value.trim();
-            if (!userEmail) {
+        userEmail = emailInput.value.trim();
+        if (!userEmail) {
             showError(authError, 'Please enter your email address');
             return;
-            }
-            
-            const button = requestOtpBtn;
-            const originalText = button.querySelector('span').textContent;
-            
-            try {
+        }
+        
+        const button = requestOtpBtn;
+        const originalText = button.querySelector('span').textContent;
+        
+        try {
             clearMessages();
             setButtonLoading(button, 'Sending...');
             
@@ -522,33 +522,33 @@
                 startResendCountdown();
             }, 1000);
             
-            } catch (error) {
+        } catch (error) {
             console.error('OTP request error:', error);
             showError(authError, error.message || 'Failed to send verification code. Please try again.');
-            } finally {
+        } finally {
             setButtonLoading(button, originalText, false);
-            }
-        });
+        }
+    });
+    
+    // Event: Verify OTP
+    otpForm.addEventListener('submit', async function(e) {
+        e.preventDefault();
         
-        // Event: Verify OTP
-        otpForm.addEventListener('submit', async function(e) {
-            e.preventDefault();
-            
-            const otp = otpInput.value.trim();
-            if (!otp) {
+        const otp = otpInput.value.trim();
+        if (!otp) {
             showError(otpError, 'Please enter the verification code');
             return;
-            }
-            
-            if (otp.length !== 6) {
+        }
+        
+        if (otp.length !== 6) {
             showError(otpError, 'Verification code must be 6 digits');
             return;
-            }
-            
-            const button = verifyOtpBtn;
-            const originalText = button.querySelector('span').textContent;
-            
-            try {
+        }
+        
+        const button = verifyOtpBtn;
+        const originalText = button.querySelector('span').textContent;
+        
+        try {
             clearMessages();
             setButtonLoading(button, 'Verifying...');
             
@@ -561,75 +561,75 @@
                 window.location.href = 'project.html';
             }, 1500);
             
-            } catch (error) {
+        } catch (error) {
             console.error('OTP verification error:', error);
             showError(otpError, error.message || 'Invalid verification code. Please try again.');
-            } finally {
+        } finally {
             setButtonLoading(button, originalText, false);
-            }
-        });
+        }
+    });
+    
+    // Event: Resend OTP
+    resendOtpBtn.addEventListener('click', async function(e) {
+        e.preventDefault();
         
-        // Event: Resend OTP
-        resendOtpBtn.addEventListener('click', async function(e) {
-            e.preventDefault();
-            
-            if (this.classList.contains('disabled')) {
+        if (this.classList.contains('disabled')) {
             return;
-            }
-            
-            try {
+        }
+        
+        try {
             await AuthService.requestOTP(userEmail);
             showSuccess(otpSuccess, 'Verification code sent again!');
             startResendCountdown();
-            } catch (error) {
+        } catch (error) {
             console.error('Resend OTP error:', error);
             showError(otpError, 'Failed to resend code. Please try again.');
-            }
-        });
-        
-        // Helper functions
-        function showError(element, message) {
-            element.textContent = message;
-            element.style.display = 'block';
-            setTimeout(() => {
-            element.style.display = 'none';
-            }, 5000);
         }
-        
-        function showSuccess(element, message) {
-            element.textContent = message;
-            element.style.display = 'block';
-            setTimeout(() => {
+    });
+    
+    // Helper functions
+    function showError(element, message) {
+        element.textContent = message;
+        element.style.display = 'block';
+        setTimeout(() => {
             element.style.display = 'none';
-            }, 3000);
-        }
-        
-        function clearMessages() {
-            [authError, authSuccess, otpError, otpSuccess].forEach(el => {
+        }, 5000);
+    }
+    
+    function showSuccess(element, message) {
+        element.textContent = message;
+        element.style.display = 'block';
+        setTimeout(() => {
+            element.style.display = 'none';
+        }, 3000);
+    }
+    
+    function clearMessages() {
+        [authError, authSuccess, otpError, otpSuccess].forEach(el => {
             el.style.display = 'none';
             el.textContent = '';
-            });
-        }
-        
-        function setButtonLoading(button, text, loading = true) {
-            const span = button.querySelector('span');
-            if (span) {
+        });
+    }
+    
+    function setButtonLoading(button, text, loading = true) {
+        const span = button.querySelector('span');
+        if (span) {
             span.textContent = text;
-            }
-            button.disabled = loading;
-            if (loading) {
-            button.classList.add('loading');
-            } else {
-            button.classList.remove('loading');
-            }
         }
+        button.disabled = loading;
+        if (loading) {
+            button.classList.add('loading');
+        } else {
+            button.classList.remove('loading');
+        }
+    }
+    
+    function startResendCountdown() {
+        let countdown = 60;
+        resendOtpBtn.classList.add('disabled');
+        resendOtpBtn.style.color = 'rgba(255, 255, 255, 0.5)';
         
-        function startResendCountdown() {
-            let countdown = 60;
-            resendOtpBtn.classList.add('disabled');
-            resendOtpBtn.style.color = 'rgba(255, 255, 255, 0.5)';
-            
-            const interval = setInterval(() => {
+        const interval = setInterval(() => {
             resendOtpBtn.textContent = `Resend (${countdown}s)`;
             countdown--;
             
@@ -639,12 +639,12 @@
                 resendOtpBtn.style.color = 'var(--orange-soda)';
                 resendOtpBtn.textContent = 'Resend';
             }
-            }, 1000);
-        }
-        
-        console.log('✓ Login application initialized successfully');
-        });
-    </script>
+        }, 1000);
+    }
+    
+    console.log('✓ Login application initialized successfully');
+  });
+  </script>
 </body>
 
 </html>

@@ -8,6 +8,9 @@ const {validateJWTMiddleware, extractBearerToken} = require('../utils/jwt-utils'
  * Uses Bearer tokens instead of complex cookie parsing
  */
 async function functionExecutor(req, res) {
+  // Declare functionName outside try-catch to avoid scoping issues
+  let functionName = null;
+  
   return cors(req, res, async () => {
     if (req.method === 'OPTIONS') {
       res.status(204).send('');
@@ -19,29 +22,61 @@ async function functionExecutor(req, res) {
       const apiKey = await getSecret('api-key');
       
       console.log('🚀 JWT-based function execution starting...');
+      console.log('📍 Request URL:', req.url);
+      console.log('📍 Request path:', req.path);
+      console.log('📍 Request originalUrl:', req.originalUrl);
       
-      // Extract function name from URL path
-      let functionName = null;
+      // Extract function name - prioritize query parameter first
+      console.log('🔍 Request details:');
+      console.log('  URL:', req.url);
+      console.log('  Path:', req.path);
+      console.log('  Query:', req.query);
+      console.log('  OriginalUrl:', req.originalUrl);
       
-      // Try to extract from URL path first (e.g., /api/function/functionName)
-      const urlPath = req.url || req.path || req.originalUrl || '';
-      const pathMatch = urlPath.match(/\/api\/function\/([^?]+)/);
-      if (pathMatch) {
-        functionName = pathMatch[1];
-        console.log('✅ Function name extracted from URL path:', functionName);
+      // Method 1: Check query parameter first (most reliable)
+      if (req.query?.function_name) {
+        functionName = req.query.function_name.trim();
+        console.log('✅ Function name extracted from query params:', functionName);
       }
       
-      // Fallback to query parameter
-      if (!functionName && req.query?.function_name) {
-        functionName = req.query.function_name;
-        console.log('✅ Function name extracted from query params:', functionName);
+      // Method 2: Extract from URL path (e.g., /api/function/functionName)
+      if (!functionName) {
+        const urlPath = req.url || req.path || req.originalUrl || '';
+        // Split by '?' to remove query parameters, then extract function name
+        const pathOnly = urlPath.split('?')[0];
+        const pathMatch = pathOnly.match(/\/api\/function\/([^\/]+)$/);
+        if (pathMatch && pathMatch[1]) {
+          functionName = decodeURIComponent(pathMatch[1]).trim();
+          console.log('✅ Function name extracted from URL path:', functionName);
+        }
+      }
+      
+      // Method 3: Additional fallback - check if path ends with function name
+      if (!functionName) {
+        const urlPath = req.url || req.path || req.originalUrl || '';
+        const pathOnly = urlPath.split('?')[0];
+        const pathParts = pathOnly.split('/').filter(part => part.trim());
+        
+        if (pathParts.length > 0) {
+          const lastPart = pathParts[pathParts.length - 1];
+          if (lastPart && lastPart !== 'function' && lastPart !== 'api') {
+            functionName = lastPart.trim();
+            console.log('✅ Function name extracted from path end:', functionName);
+          }
+        }
       }
       
       if (!functionName) {
         console.error('❌ No function name found');
+        console.error('📍 URL analysis failed for:', urlPath);
         return res.status(400).json({ 
           error: 'Function name is required',
           code: 'MISSING_FUNCTION_NAME',
+          debug: {
+            urlPath: urlPath,
+            pathMatch: pathMatch,
+            queryParams: req.query
+          },
           expected_formats: [
             'URL: /api/function/{functionName}',
             'Query: ?function_name={functionName}'

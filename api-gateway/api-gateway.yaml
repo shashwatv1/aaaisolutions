@@ -17,6 +17,7 @@ securityDefinitions:
 x-google-endpoints:
   - name: aaai-gateway-754x89jf.uc.gateway.dev
     allowCors: true
+
 # Global CORS configuration for JWT
 responses:
   CorsResponse:
@@ -37,6 +38,7 @@ responses:
       Access-Control-Max-Age:
         type: string
         default: '3600'
+
 paths:
   /auth/request-otp:
     post:
@@ -141,7 +143,7 @@ paths:
           type: string
           description: Name of the function to execute
       x-google-backend:
-        address: https://us-central1-aai-solutions-api-021201.cloudfunctions.net/functionExecutor
+        address: https://us-central1-aai-solutions-api-021201.cloudfunctions.net/executeFunction
       security:
         - bearerAuth: []
       responses:
@@ -171,7 +173,7 @@ paths:
           required: true
           type: string
       x-google-backend:
-        address: https://us-central1-aai-solutions-api-021201.cloudfunctions.net/functionExecutor
+        address: https://us-central1-aai-solutions-api-021201.cloudfunctions.net/executeFunction
       responses:
         '204':
           description: CORS preflight response

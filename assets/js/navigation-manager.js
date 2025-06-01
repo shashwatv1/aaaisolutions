@@ -486,6 +486,7 @@ const NavigationManager = {
         });
     },
     
+    
     /**
      * Initialize current page from URL
      */
@@ -784,11 +785,15 @@ const NavigationManager = {
             }
         });
     },
-    
+
+    /**
+     * Check authentication for navigation operations
+     */
     _requireAuth() {
-        if (!this.authService.isAuthenticated()) {
+        if (!this.authService || !this.authService.isAuthenticated()) {
             throw new Error('Authentication required');
         }
+        return true;
     },
     
     _log(...args) {
