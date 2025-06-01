@@ -673,24 +673,49 @@ const AuthService = {
         }
     },
 
+
     /**
-     * Check if user is authenticated
+     * Check if user is authenticated - ENHANCED
      */
     isAuthenticated() {
-        const hasBasicAuth = this.authenticated && this.userEmail && this.userId && this.accessToken;
+        const hasBasicAuth = this.authenticated && this.userEmail && this.userId;
+        
+        this._log('🔍 isAuthenticated() check:', {
+            authenticated: this.authenticated,
+            userEmail: this.userEmail,
+            userId: this.userId,
+            hasBasicAuth: hasBasicAuth,
+            hasAccessToken: !!this.accessToken
+        });
         
         if (!hasBasicAuth) {
+            // Try to restore from storage
+            const storedToken = this._getStoredAccessToken();
+            if (storedToken && this._isTokenValid(storedToken)) {
+                const validationResult = this._validateUserToken(storedToken.token);
+                if (validationResult.valid) {
+                    this._log('✅ Restoring authentication state from storage');
+                    this._setAccessToken(storedToken.token, storedToken.expiresIn);
+                    this._setUserInfo(storedToken.user);
+                    return true;
+                }
+            }
+            
+            this._log('❌ Not authenticated - no valid state');
             return false;
         }
         
         // Additional validation that token is a user token
-        const validationResult = this._validateUserToken(this.accessToken);
-        if (!validationResult.valid) {
-            this._log('Authentication invalid due to token validation:', validationResult.reason);
-            this._clearAuthState();
-            return false;
+        if (this.accessToken) {
+            const validationResult = this._validateUserToken(this.accessToken);
+            if (!validationResult.valid) {
+                this._log('❌ Authentication invalid due to token validation:', validationResult.reason);
+                this._clearAuthState();
+                return false;
+            }
         }
         
+        this._log('✅ Authentication valid');
         return true;
     },
 
@@ -711,18 +736,41 @@ const AuthService = {
     },
 
     /**
-     * Get valid access token
+     * Get valid access token - COMPLETELY REWRITTEN
      */
     getToken() {
-        if (this._isAccessTokenValid()) {
+        this._log('🔍 getToken() called');
+        
+        // First check memory
+        if (this.accessToken && this._isAccessTokenValid()) {
             const validationResult = this._validateUserToken(this.accessToken);
             if (validationResult.valid) {
+                this._log('✅ Returning valid token from memory:', {
+                    email: validationResult.payload.email,
+                    userId: validationResult.payload.user_id,
+                    tokenPreview: this.accessToken.substring(0, 50) + '...'
+                });
                 return this.accessToken;
             } else {
-                this._log('Token invalid during getToken():', validationResult.reason);
-                return null;
+                this._log('❌ Memory token invalid:', validationResult.reason);
+                this.accessToken = null;
+                this.tokenExpiry = null;
             }
         }
+        
+        // Try to restore from storage
+        const storedToken = this._getStoredAccessToken();
+        if (storedToken && this._isTokenValid(storedToken)) {
+            const validationResult = this._validateUserToken(storedToken.token);
+            if (validationResult.valid) {
+                this._log('✅ Restoring token from storage to memory');
+                this._setAccessToken(storedToken.token, storedToken.expiresIn);
+                this._setUserInfo(storedToken.user);
+                return this.accessToken;
+            }
+        }
+        
+        this._log('❌ No valid token available');
         return null;
     },
 
@@ -734,34 +782,70 @@ const AuthService = {
     },
 
     /**
-     * Ensure we have a valid access token
+     * Debug function to check token state
+     */
+    debugTokenState() {
+        console.log('🔍 DEBUG: Current token state:', {
+            authenticated: this.authenticated,
+            userEmail: this.userEmail,
+            userId: this.userId,
+            sessionId: this.sessionId,
+            hasAccessToken: !!this.accessToken,
+            tokenExpiry: this.tokenExpiry,
+            isTokenValid: this._isAccessTokenValid(),
+            sessionStorageToken: !!sessionStorage.getItem('aaai_access_token'),
+            refreshTokenCookie: this._hasRefreshTokenCookie()
+        });
+        
+        // Check what's actually in session storage
+        const stored = sessionStorage.getItem('aaai_access_token');
+        if (stored) {
+            try {
+                const parsed = JSON.parse(stored);
+                console.log('🔍 DEBUG: Session storage content:', {
+                    userEmail: parsed.user?.email,
+                    userId: parsed.user?.id,
+                    tokenType: parsed.tokenType,
+                    hasToken: !!parsed.token,
+                    tokenPreview: parsed.token ? parsed.token.substring(0, 50) + '...' : 'none'
+                });
+            } catch (e) {
+                console.log('🔍 DEBUG: Session storage parse error:', e);
+            }
+        }
+        
+        // Check current token validation
+        if (this.accessToken) {
+            const validation = this._validateUserToken(this.accessToken);
+            console.log('🔍 DEBUG: Current token validation:', {
+                valid: validation.valid,
+                reason: validation.reason,
+                payload: validation.payload
+            });
+        }
+    },
+
+    /**
+     * Ensure we have a valid access token - COMPLETELY REWRITTEN
      */
     async _ensureValidAccessToken() {
         this._log('🔍 _ensureValidAccessToken called');
         
-        // DEBUGGING: Log current state
-        this._log('🔍 Current token state:', {
-            hasAccessToken: !!this.accessToken,
-            tokenExpiry: this.tokenExpiry,
-            isValid: this._isAccessTokenValid(),
-            currentTokenPreview: this.accessToken ? this.accessToken.substring(0, 50) + '...' : 'none'
-        });
-        
-        // Check if current token is valid
-        if (this._isAccessTokenValid()) {
+        // Step 1: Check memory token
+        if (this.accessToken && this._isAccessTokenValid()) {
             const validationResult = this._validateUserToken(this.accessToken);
             if (validationResult.valid) {
-                this._log('✅ Current access token is valid, returning it');
+                this._log('✅ Using valid token from memory');
                 return this.accessToken;
             } else {
-                this._log('❌ Current token validation failed:', validationResult.reason);
+                this._log('❌ Memory token validation failed:', validationResult.reason);
                 this.accessToken = null;
                 this.tokenExpiry = null;
             }
         }
         
-        // Try to restore from session storage
-        this._log('🔍 Attempting to restore token from session storage...');
+        // Step 2: Try to restore from session storage
+        this._log('🔍 Checking session storage...');
         const storedToken = this._getStoredAccessToken();
         if (storedToken && this._isTokenValid(storedToken)) {
             const validationResult = this._validateUserToken(storedToken.token);
@@ -776,14 +860,15 @@ const AuthService = {
             }
         }
         
-        // Try to refresh token
-        this._log('🔍 Attempting to refresh token...');
+        // Step 3: Try to refresh token
+        this._log('🔍 Attempting token refresh...');
         const refreshed = await this.refreshTokenIfNeeded();
         if (!refreshed) {
+            this._log('❌ Token refresh failed');
             throw new Error('Unable to obtain valid user access token');
         }
         
-        this._log('✅ Token refreshed successfully');
+        this._log('✅ Token refresh successful');
         return this.accessToken;
     },
     
@@ -848,21 +933,33 @@ const AuthService = {
     // Private methods
 
     /**
-     * Set access token and expiry
+     * Set access token and expiry - ENHANCED
      */
     _setAccessToken(token, expiresIn) {
         this.accessToken = token;
         this.tokenExpiry = Date.now() + (expiresIn * 1000);
+        
+        this._log('✅ Access token set in memory:', {
+            tokenPreview: token ? token.substring(0, 50) + '...' : 'none',
+            expiresIn: expiresIn,
+            tokenExpiry: this.tokenExpiry
+        });
     },
-
     /**
-     * Set user information
+     * Set user information - FIXED
      */
     _setUserInfo(user) {
         this.authenticated = true;
         this.userEmail = user.email;
         this.userId = user.id;
         this.sessionId = user.session_id;
+        
+        this._log('✅ User info set:', {
+            authenticated: this.authenticated,
+            userEmail: this.userEmail,
+            userId: this.userId,
+            sessionId: this.sessionId
+        });
     },
 
     /**
@@ -924,6 +1021,9 @@ const AuthService = {
     /**
      * Store access token in sessionStorage
      */
+    /**
+     * Store access token in sessionStorage - FIXED
+     */
     _storeAccessToken(token, expiresIn, user) {
         try {
             // STRICT: Validate token before storing
@@ -940,30 +1040,66 @@ const AuthService = {
                 token: token,
                 expiry: Date.now() + (expiresIn * 1000),
                 expiresIn: expiresIn,
-                user: user,
+                user: {
+                    id: user.id,
+                    email: user.email,
+                    session_id: user.session_id
+                },
                 stored: Date.now(),
-                validated: true
+                validated: true,
+                tokenType: 'user_access',
+                payload: validationResult.payload
             };
             
             sessionStorage.setItem('aaai_access_token', JSON.stringify(tokenData));
-            this._log('Valid user token stored successfully for:', validationResult.payload.email);
+            
+            // DEBUGGING: Verify storage immediately
+            const verifyStored = sessionStorage.getItem('aaai_access_token');
+            if (verifyStored) {
+                const parsed = JSON.parse(verifyStored);
+                this._log('✅ Token stored and verified in sessionStorage:', {
+                    userEmail: parsed.user?.email,
+                    userId: parsed.user?.id,
+                    tokenType: parsed.tokenType,
+                    payloadEmail: parsed.payload?.email,
+                    payloadUserId: parsed.payload?.user_id,
+                    tokenPreview: parsed.token ? parsed.token.substring(0, 50) + '...' : 'none'
+                });
+            } else {
+                this._log('❌ Failed to verify token storage');
+            }
+            
         } catch (error) {
             console.warn('Failed to store access token:', error);
         }
     },
 
     /**
-     * Get stored access token
+     * Get stored access token - FIXED
      */
     _getStoredAccessToken() {
         try {
             const stored = sessionStorage.getItem('aaai_access_token');
-            if (!stored) return null;
+            if (!stored) {
+                this._log('❌ No token found in sessionStorage');
+                return null;
+            }
             
             const tokenData = JSON.parse(stored);
             
+            this._log('🔍 Retrieved token from sessionStorage:', {
+                hasToken: !!tokenData.token,
+                userEmail: tokenData.user?.email,
+                userId: tokenData.user?.id,
+                tokenType: tokenData.tokenType,
+                expiry: tokenData.expiry,
+                isExpired: Date.now() >= tokenData.expiry,
+                tokenPreview: tokenData.token ? tokenData.token.substring(0, 50) + '...' : 'none'
+            });
+            
             // Check if token is expired
             if (Date.now() >= tokenData.expiry) {
+                this._log('❌ Stored token is expired, removing');
                 sessionStorage.removeItem('aaai_access_token');
                 return null;
             }
@@ -971,12 +1107,14 @@ const AuthService = {
             // STRICT: Re-validate stored token
             const validationResult = this._validateUserToken(tokenData.token);
             if (!validationResult.valid) {
-                this._log('Stored token validation failed, removing:', validationResult.reason);
+                this._log('❌ Stored token validation failed, removing:', validationResult.reason);
                 sessionStorage.removeItem('aaai_access_token');
                 return null;
             }
             
+            this._log('✅ Stored token validation passed');
             return tokenData;
+            
         } catch (error) {
             console.warn('Failed to retrieve stored token:', error);
             sessionStorage.removeItem('aaai_access_token');
