@@ -1,6 +1,6 @@
 /**
  * JWT-Based Authentication Service for AAAI Solutions
- * Implements dual-token system with access tokens and refresh tokens
+ * Fixed to use Gateway routing and proper token refresh
  */
 const AuthService = {
     // Core authentication state
@@ -29,7 +29,7 @@ const AuthService = {
      * Initialize the authentication service
      */
     init() {
-        console.log('🔐 Initializing JWT Authentication Service...');
+        console.log('🔐 Initializing JWT Authentication Service with Gateway routing...');
         
         // Wait for config to be available
         if (!window.AAAI_CONFIG) {
@@ -41,22 +41,19 @@ const AuthService = {
             this.options.debug = true;
         }
         
-        // Set up URLs based on environment
-        if (window.AAAI_CONFIG.ENVIRONMENT === 'development') {
-            this.AUTH_BASE_URL = 'http://localhost:8080';
-        } else {
-            this.AUTH_BASE_URL = '';
-        }
+        // Use Gateway URLs from config
+        this.AUTH_BASE_URL = window.AAAI_CONFIG.API_BASE_URL;
         
         // Initialize authentication state
         const authResult = this._initializeAuthState();
         
         if (authResult.success) {
             this._setupAutoRefresh();
-            this._log('JWT Authentication initialized successfully', {
+            this._log('JWT Authentication initialized successfully with Gateway', {
                 authenticated: this.authenticated,
                 hasAccessToken: !!this.accessToken,
-                hasRefreshToken: this._hasRefreshTokenCookie()
+                hasRefreshToken: this._hasRefreshTokenCookie(),
+                gatewayURL: this.AUTH_BASE_URL
             });
         }
         
@@ -100,11 +97,11 @@ const AuthService = {
     },
 
     /**
-     * Request OTP for authentication
+     * Request OTP for authentication via Gateway
      */
     async requestOTP(email) {
         try {
-            this._log(`Requesting OTP for: ${email}`);
+            this._log(`Requesting OTP for: ${email} via Gateway`);
             
             const response = await fetch(`${this.AUTH_BASE_URL}/auth/request-otp`, {
                 method: 'POST',
@@ -121,7 +118,7 @@ const AuthService = {
                 throw new Error(data.error || data.detail || 'Failed to request OTP');
             }
             
-            this._log('OTP request successful');
+            this._log('OTP request successful via Gateway');
             return data;
             
         } catch (error) {
@@ -131,11 +128,11 @@ const AuthService = {
     },
 
     /**
-     * Verify OTP and establish JWT session
+     * Verify OTP and establish JWT session via Gateway
      */
     async verifyOTP(email, otp) {
         try {
-            this._log(`Verifying OTP for: ${email}`);
+            this._log(`Verifying OTP for: ${email} via Gateway`);
             
             // Clear any existing state
             this._clearAuthState();
@@ -168,7 +165,7 @@ const AuthService = {
             // Setup auto-refresh
             this._setupAutoRefresh();
             
-            this._log('JWT authentication successful', {
+            this._log('JWT authentication successful via Gateway', {
                 userId: user.id,
                 email: user.email,
                 expiresIn: tokens.expires_in
@@ -184,7 +181,7 @@ const AuthService = {
     },
 
     /**
-     * Execute authenticated function calls
+     * Execute authenticated function calls via Gateway
      */
     async executeFunction(functionName, inputData) {
         if (!this.isAuthenticated()) {
@@ -195,7 +192,7 @@ const AuthService = {
             // Ensure we have a valid access token
             const accessToken = await this._ensureValidAccessToken();
             
-            this._log(`Executing function: ${functionName}`);
+            this._log(`Executing function: ${functionName} via Gateway`);
             
             const response = await fetch(`${this.AUTH_BASE_URL}/api/function/${functionName}`, {
                 method: 'POST',
@@ -226,7 +223,7 @@ const AuthService = {
             }
             
             const result = await response.json();
-            this._log(`Function ${functionName} executed successfully`);
+            this._log(`Function ${functionName} executed successfully via Gateway`);
             return result;
             
         } catch (error) {
@@ -236,7 +233,7 @@ const AuthService = {
     },
 
     /**
-     * Refresh access token using refresh token
+     * Refresh access token using refresh token via Gateway
      */
     async refreshTokenIfNeeded() {
         // Check if refresh is already in progress
@@ -253,7 +250,7 @@ const AuthService = {
     },
 
     /**
-     * Perform token refresh
+     * Perform token refresh via Gateway
      */
     async _performTokenRefresh() {
         if (this.refreshInProgress) {
@@ -273,11 +270,11 @@ const AuthService = {
     },
 
     /**
-     * Execute the actual token refresh
+     * Execute the actual token refresh via Gateway
      */
     async _doTokenRefresh() {
         try {
-            this._log('Performing token refresh...');
+            this._log('Performing token refresh via Gateway...');
             
             const response = await fetch(`${this.AUTH_BASE_URL}/auth/refresh`, {
                 method: 'POST',
@@ -298,12 +295,27 @@ const AuthService = {
                 throw new Error(data.error || 'Token refresh failed');
             }
             
+            // Handle different response formats
+            let accessToken, expiresIn;
+            
+            if (data.tokens) {
+                // New format: { tokens: { access_token, expires_in } }
+                accessToken = data.tokens.access_token;
+                expiresIn = data.tokens.expires_in;
+            } else if (data.access_token) {
+                // Direct format: { access_token, expires_in }
+                accessToken = data.access_token;
+                expiresIn = data.expires_in;
+            } else {
+                throw new Error('Invalid refresh response format');
+            }
+            
             // Update access token
-            this._setAccessToken(data.tokens.access_token, data.tokens.expires_in);
+            this._setAccessToken(accessToken, expiresIn);
             
             // Update stored token
             if (this.userEmail && this.userId) {
-                this._storeAccessToken(data.tokens.access_token, data.tokens.expires_in, {
+                this._storeAccessToken(accessToken, expiresIn, {
                     id: this.userId,
                     email: this.userEmail,
                     session_id: this.sessionId
@@ -313,7 +325,7 @@ const AuthService = {
             // Setup next refresh
             this._setupAutoRefresh();
             
-            this._log('Token refresh successful');
+            this._log('Token refresh successful via Gateway');
             return true;
             
         } catch (error) {
@@ -324,11 +336,11 @@ const AuthService = {
     },
 
     /**
-     * Logout user
+     * Logout user via Gateway
      */
     async logout() {
         try {
-            this._log('Logging out user...');
+            this._log('Logging out user via Gateway...');
             
             // Clear auto-refresh timer
             if (this.refreshTimer) {
@@ -336,7 +348,7 @@ const AuthService = {
                 this.refreshTimer = null;
             }
             
-            // Call logout endpoint to invalidate refresh token
+            // Call logout endpoint to invalidate refresh token via Gateway
             if (this.accessToken) {
                 try {
                     await fetch(`${this.AUTH_BASE_URL}/auth/logout`, {
@@ -355,7 +367,7 @@ const AuthService = {
             // Clear local state
             this._clearAuthState();
             
-            this._log('Logout completed');
+            this._log('Logout completed via Gateway');
             
         } catch (error) {
             console.error('Logout error:', error);
@@ -402,6 +414,23 @@ const AuthService = {
      */
     hasPersistentSession() {
         return this._hasRefreshTokenCookie();
+    },
+
+    /**
+     * Ensure we have a valid access token
+     */
+    async _ensureValidAccessToken() {
+        if (this._isAccessTokenValid()) {
+            return this.accessToken;
+        }
+        
+        // Try to refresh token
+        const refreshed = await this.refreshTokenIfNeeded();
+        if (!refreshed) {
+            throw new Error('Unable to obtain valid access token');
+        }
+        
+        return this.accessToken;
     },
 
     // Private methods
@@ -464,23 +493,6 @@ const AuthService = {
                storedToken.token && 
                storedToken.expiry && 
                Date.now() < storedToken.expiry;
-    },
-
-    /**
-     * Ensure we have a valid access token
-     */
-    async _ensureValidAccessToken() {
-        if (this._isAccessTokenValid()) {
-            return this.accessToken;
-        }
-        
-        // Try to refresh token
-        const refreshed = await this.refreshTokenIfNeeded();
-        if (!refreshed) {
-            throw new Error('Unable to obtain valid access token');
-        }
-        
-        return this.accessToken;
     },
 
     /**

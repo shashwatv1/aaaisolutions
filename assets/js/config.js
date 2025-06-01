@@ -11,11 +11,27 @@ const getEnvironment = () => {
     }
 };
 
+// Get consistent API base URL for all environments
+const getAPIBaseURL = () => {
+    // Always use Gateway for consistency
+    return 'https://aaai-gateway-754x89jf.uc.gateway.dev';
+};
+
+// Get WebSocket base URL for all environments
+const getWebSocketBaseURL = () => {
+    // Always use Gateway for consistency
+    return 'aaai-gateway-754x89jf.uc.gateway.dev';
+};
+
 // Initialize AAAI Configuration
 window.AAAI_CONFIG = {
     // Environment Configuration
     ENVIRONMENT: getEnvironment(),
     VERSION: '2.1.0',
+    
+    // Consistent URL Configuration
+    API_BASE_URL: getAPIBaseURL(),
+    WEBSOCKET_BASE_URL: getWebSocketBaseURL(),
     
     // Feature Flags
     ENABLE_WEBSOCKETS: true,
@@ -24,14 +40,15 @@ window.AAAI_CONFIG = {
     ENABLE_BATCHING: false,
     ENABLE_CACHING: true,
     ENABLE_PERSISTENCE: true,
+    ENABLE_GATEWAY_ROUTING: true,
     
     // WebSocket Configuration
     WS_CONFIG: {
         // Connection Settings
         RECONNECT_INTERVAL: 5000,        // 5 seconds base interval
         MAX_RECONNECT_ATTEMPTS: 8,       // Maximum reconnection attempts
-        CONNECTION_TIMEOUT: 10000,       // 10 seconds connection timeout
-        HEARTBEAT_INTERVAL: 45000,       // 45 seconds heartbeat (increased)
+        CONNECTION_TIMEOUT: 15000,       // 15 seconds connection timeout
+        HEARTBEAT_INTERVAL: 45000,       // 45 seconds heartbeat
         MAX_CONNECTION_AGE: 3600000,     // 1 hour maximum connection age
         
         // Message Queue Settings
@@ -48,7 +65,12 @@ window.AAAI_CONFIG = {
         GRACEFUL_RECONNECT: true,
         BACKOFF_MULTIPLIER: 1.5,        // Exponential backoff multiplier
         MAX_BACKOFF_DELAY: 30000,       // Maximum 30 seconds delay
-        JITTER_RANGE: 2000              // 0-2 seconds random jitter
+        JITTER_RANGE: 2000,             // 0-2 seconds random jitter
+        
+        // JWT Specific Settings
+        JWT_BEARER_AUTH: true,          // Use JWT Bearer tokens for WebSocket
+        JWT_REFRESH_ON_CONNECT: true,   // Refresh token before WebSocket connection
+        JWT_PROTOCOLS: true             // Use WebSocket subprotocols for JWT
     },
     
     // Authentication Configuration
@@ -56,7 +78,9 @@ window.AAAI_CONFIG = {
         TOKEN_REFRESH_THRESHOLD: 300000,  // 5 minutes before expiry
         SESSION_CHECK_INTERVAL: 30000,    // 30 seconds
         AUTO_REFRESH: true,
-        PERSIST_SESSION: true
+        PERSIST_SESSION: true,
+        JWT_BEARER_ONLY: true,            // Only use Bearer tokens
+        GATEWAY_AUTH: true                // Route auth through gateway
     },
     
     // Development Configuration
@@ -64,7 +88,8 @@ window.AAAI_CONFIG = {
         MOCK_WEBSOCKET: false,
         VERBOSE_LOGGING: false,
         PERFORMANCE_MONITORING: true,
-        ERROR_SIMULATION: false
+        ERROR_SIMULATION: false,
+        GATEWAY_BYPASS: false             // Never bypass gateway
     }
 };
 
@@ -110,16 +135,47 @@ window.getChatServiceConfig = function() {
         enableCompression: window.AAAI_CONFIG.ENABLE_COMPRESSION,
         enableBatching: window.AAAI_CONFIG.ENABLE_BATCHING,
         retryOnError: window.AAAI_CONFIG.WS_CONFIG.RETRY_ON_ERROR,
-        gracefulReconnect: window.AAAI_CONFIG.WS_CONFIG.GRACEFUL_RECONNECT
+        gracefulReconnect: window.AAAI_CONFIG.WS_CONFIG.GRACEFUL_RECONNECT,
+        gatewayRouting: window.AAAI_CONFIG.ENABLE_GATEWAY_ROUTING,
+        jwtBearerAuth: window.AAAI_CONFIG.WS_CONFIG.JWT_BEARER_AUTH,
+        jwtRefreshOnConnect: window.AAAI_CONFIG.WS_CONFIG.JWT_REFRESH_ON_CONNECT,
+        jwtProtocols: window.AAAI_CONFIG.WS_CONFIG.JWT_PROTOCOLS
     };
 };
 
+// Enhanced URL helpers
+window.getAPIURL = function(endpoint) {
+    const baseURL = window.AAAI_CONFIG.API_BASE_URL;
+    const cleanEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
+    return `${baseURL}${cleanEndpoint}`;
+};
+
+window.getWebSocketURL = function(endpoint, params = {}) {
+    const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'wss:'; // Always use secure WebSocket
+    const baseURL = window.AAAI_CONFIG.WEBSOCKET_BASE_URL;
+    const cleanEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
+    
+    const url = new URL(`${wsProtocol}//${baseURL}${cleanEndpoint}`);
+    
+    // Add query parameters
+    Object.keys(params).forEach(key => {
+        if (params[key] !== null && params[key] !== undefined) {
+            url.searchParams.set(key, params[key]);
+        }
+    });
+    
+    return url.toString();
+};
+
 // Log configuration loaded
-window.AAAI_LOGGER.info('AAAI Configuration loaded', {
+window.AAAI_LOGGER.info('AAAI Configuration loaded with Gateway routing', {
     environment: window.AAAI_CONFIG.ENVIRONMENT,
     version: window.AAAI_CONFIG.VERSION,
+    apiBaseURL: window.AAAI_CONFIG.API_BASE_URL,
+    websocketBaseURL: window.AAAI_CONFIG.WEBSOCKET_BASE_URL,
     websocketsEnabled: window.AAAI_CONFIG.ENABLE_WEBSOCKETS,
-    debugEnabled: window.AAAI_CONFIG.ENABLE_DEBUG
+    debugEnabled: window.AAAI_CONFIG.ENABLE_DEBUG,
+    gatewayRouting: window.AAAI_CONFIG.ENABLE_GATEWAY_ROUTING
 });
 
 // Freeze configuration

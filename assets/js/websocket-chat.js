@@ -65,11 +65,12 @@ const ChatService = {
         this._log('JWT ChatService initialized successfully', {
             hasAuthService: !!this.authService,
             hasProjectService: !!this.projectService,
-            authMethod: 'jwt_only'
+            authMethod: 'jwt_bearer_only'
         });
         
         return this;
     },
+
     /**
      * Check if authentication is ready for WebSocket operations
      */
@@ -87,26 +88,21 @@ const ChatService = {
         const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
         let wsHost;
         
+        // Use Gateway for both development and production
         if (window.AAAI_CONFIG?.ENVIRONMENT === 'development') {
-            wsHost = 'localhost:8080';
+            wsHost = 'aaai-gateway-754x89jf.uc.gateway.dev';
         } else {
-            wsHost = 'api-server-559730737995.us-central1.run.app';
+            wsHost = 'aaai-gateway-754x89jf.uc.gateway.dev';
         }
         
-        // Get JWT token
-        const accessToken = this.authService.getToken();
-        if (!accessToken) {
-            throw new Error('No access token available for WebSocket authentication');
-        }
-        
+        // Build basic parameters without JWT token (JWT will go in headers)
         const params = new URLSearchParams({
-            auth: 'jwt',
-            token: accessToken,
-            email: encodeURIComponent(user.email),
             user_id: user.id,
+            email: encodeURIComponent(user.email),
             chat_id: projectContext.chat_id || '',
             reel_id: projectContext.reel_id || '',
             session_id: user.sessionId || 'jwt_session',
+            auth_method: 'jwt_bearer',
             t: Date.now()
         });
         
@@ -117,6 +113,7 @@ const ChatService = {
         
         return url;
     },
+
     /**
      * ENHANCED: Connect with JWT authentication validation
      */
@@ -139,6 +136,12 @@ const ChatService = {
         const user = this.authService.getCurrentUser();
         if (!user || !user.id || !user.email) {
             throw new Error('Complete user information not available');
+        }
+
+        // Get fresh JWT token
+        const accessToken = await this.authService._ensureValidAccessToken();
+        if (!accessToken) {
+            throw new Error('No valid access token available');
         }
         
         return new Promise((resolve, reject) => {
@@ -173,8 +176,14 @@ const ChatService = {
             }, this.options.connectionTimeout);
             
             try {
-                // Create WebSocket with JWT token
-                this.socket = new WebSocket(wsUrl);
+                // Create WebSocket with proper protocols and headers
+                const protocols = [`authorization.bearer.${accessToken}`];
+                this.socket = new WebSocket(wsUrl, protocols);
+                
+                // Set additional headers if supported by environment
+                if (this.socket.setRequestHeader) {
+                    this.socket.setRequestHeader('Authorization', `Bearer ${accessToken}`);
+                }
                 
                 // Handle open
                 this.socket.onopen = () => {
@@ -414,12 +423,22 @@ const ChatService = {
             socketState: this.socket ? this.socket.readyState : null,
             pendingMessages: this.pendingMessages.size,
             deliveredMessages: this.deliveredMessages.size,
-            authMethod: 'jwt_only',
+            authMethod: 'jwt_bearer_only',
             authenticationComplete: this._isAuthenticationComplete(),
             hasValidAuth: this.authService ? this._isAuthenticationComplete() : false,
             userInfo: this._isAuthenticationComplete() ? this.authService.getCurrentUser() : null,
-            jwtToken: this._isAuthenticationComplete() ? !!this.authService.getToken() : false
+            jwtToken: this._isAuthenticationComplete() ? !!this.authService.getToken() : false,
+            gatewayRouting: true
         };
+    },
+    
+    /**
+     * Check if authentication is complete
+     */
+    _isAuthenticationComplete() {
+        return this.authService && 
+               this.authService.isAuthenticated() && 
+               this.authService.getToken();
     },
     
     // Event listeners (unchanged)
@@ -442,33 +461,6 @@ const ChatService = {
     },
     
     // Private methods
-    
-    /**
-     * Build JWT WebSocket URL
-     */
-    _buildJWTWebSocketURL(user, jwtToken, projectContext = {}) {
-        const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        let wsHost;
-        
-        if (window.AAAI_CONFIG?.ENVIRONMENT === 'development') {
-            wsHost = 'localhost:8080';
-        } else {
-            wsHost = 'api-server-559730737995.us-central1.run.app';
-        }
-        
-        const params = new URLSearchParams({
-            token: jwtToken,  // JWT token as query parameter
-            email: encodeURIComponent(user.email),
-            user_id: user.id,
-            chat_id: projectContext.chat_id || '',
-            reel_id: projectContext.reel_id || '',
-            session_id: user.sessionId || 'jwt_session',
-            auth_complete: this._isAuthenticationComplete() ? 'true' : 'false',
-            t: Date.now()
-        });
-        
-        return `${wsProtocol}//${wsHost}/ws/${user.id}?${params}`;
-    },
     
     /**
      * Handle connection close with JWT context
@@ -514,12 +506,8 @@ const ChatService = {
         this._log('JWT token expired during WebSocket connection, refreshing...');
         
         try {
-            // Use token refresh if available
-            if (typeof this.authService.refreshTokenIfNeeded === 'function') {
-                await this.authService.refreshTokenIfNeeded();
-            } else if (typeof this.authService.refreshToken === 'function') {
-                await this.authService.refreshToken();
-            }
+            // Use token refresh
+            await this.authService.refreshTokenIfNeeded();
             
             // Verify authentication is complete after refresh
             if (!this._isAuthenticationComplete()) {
@@ -578,7 +566,6 @@ const ChatService = {
         }, delay);
     },
     
-    // Include all other existing methods but ensure they use JWT context...
     disconnect() {
         this._log('Disconnecting JWT WebSocket');
         
@@ -610,15 +597,13 @@ const ChatService = {
                     project_name: projectName,
                     user_id: user?.id
                 },
-                auth_method: 'jwt_only',
+                auth_method: 'jwt_bearer',
                 timestamp: new Date().toISOString()
             }));
         }
     },
     
-    // Include all other utility methods...
     _handleMessage(data) {
-        // Handle different message types (implementation same as before)
         if (data.type === 'heartbeat' || data.type === 'ping') {
             this._sendPong();
             return;
@@ -696,7 +681,7 @@ const ChatService = {
             if (this.socket && this.socket.readyState === WebSocket.OPEN) {
                 this.socket.send(JSON.stringify({ 
                     type: 'ping',
-                    auth_method: 'jwt_only',
+                    auth_method: 'jwt_bearer',
                     timestamp: Date.now()
                 }));
             }
@@ -714,7 +699,7 @@ const ChatService = {
         if (this.socket && this.socket.readyState === WebSocket.OPEN) {
             this.socket.send(JSON.stringify({ 
                 type: 'pong',
-                auth_method: 'jwt_only',
+                auth_method: 'jwt_bearer',
                 timestamp: Date.now()
             }));
         }
@@ -745,6 +730,17 @@ const ChatService = {
                 this.messageQueue.push(msg);
             }
         });
+    },
+    
+    _requestPendingMessages() {
+        // Request any pending messages from server
+        if (this.socket && this.socket.readyState === WebSocket.OPEN) {
+            this.socket.send(JSON.stringify({
+                type: 'request_pending_messages',
+                auth_method: 'jwt_bearer',
+                timestamp: Date.now()
+            }));
+        }
     },
     
     _cleanup() {

@@ -1,11 +1,12 @@
 swagger: '2.0'
 info:
-  title: AAAI Solutions JWT API
-  description: JWT-based API Gateway for AAAI Solutions with Bearer token authentication
-  version: 2.0.0
+  title: AAAI Solutions JWT API with WebSocket Support
+  description: JWT-based API Gateway for AAAI Solutions with Bearer token authentication and WebSocket routing
+  version: 2.1.0
 host: aaai-gateway-754x89jf.uc.gateway.dev
 schemes:
   - https
+  - wss
 produces:
   - application/json
 securityDefinitions:
@@ -18,20 +19,20 @@ x-google-endpoints:
   - name: aaai-gateway-754x89jf.uc.gateway.dev
     allowCors: true
 
-# Global CORS configuration for JWT
+# Enhanced CORS configuration for JWT with development support
 responses:
   CorsResponse:
-    description: CORS response for JWT API
+    description: Enhanced CORS response for JWT API with development support
     headers:
       Access-Control-Allow-Origin:
         type: string
-        default: 'https://aaai.solutions'
+        default: '*'
       Access-Control-Allow-Methods:
         type: string
-        default: 'GET, POST, PUT, DELETE, OPTIONS'
+        default: 'GET, POST, PUT, DELETE, OPTIONS, PATCH'
       Access-Control-Allow-Headers:
         type: string
-        default: 'Content-Type, Authorization'
+        default: 'Content-Type, Authorization, X-Requested-With, Accept'
       Access-Control-Allow-Credentials:
         type: string
         default: 'true'
@@ -52,7 +53,7 @@ paths:
           headers:
             Access-Control-Allow-Origin:
               type: string
-              default: 'https://aaai.solutions'
+              default: '*'
             Access-Control-Allow-Credentials:
               type: string
               default: 'true'
@@ -71,7 +72,7 @@ paths:
           headers:
             Access-Control-Allow-Origin:
               type: string
-              default: 'https://aaai.solutions'
+              default: '*'
             Access-Control-Allow-Methods:
               type: string
               default: 'POST, OPTIONS'
@@ -97,7 +98,7 @@ paths:
           headers:
             Access-Control-Allow-Origin:
               type: string
-              default: 'https://aaai.solutions'
+              default: '*'
             Access-Control-Allow-Credentials:
               type: string
               default: 'true'
@@ -118,7 +119,7 @@ paths:
           headers:
             Access-Control-Allow-Origin:
               type: string
-              default: 'https://aaai.solutions'
+              default: '*'
             Access-Control-Allow-Methods:
               type: string
               default: 'POST, OPTIONS'
@@ -152,7 +153,7 @@ paths:
           headers:
             Access-Control-Allow-Origin:
               type: string
-              default: 'https://aaai.solutions'
+              default: '*'
             Access-Control-Allow-Credentials:
               type: string
               default: 'true'
@@ -180,7 +181,7 @@ paths:
           headers:
             Access-Control-Allow-Origin:
               type: string
-              default: 'https://aaai.solutions'
+              default: '*'
             Access-Control-Allow-Methods:
               type: string
               default: 'POST, OPTIONS'
@@ -206,7 +207,7 @@ paths:
           headers:
             Access-Control-Allow-Origin:
               type: string
-              default: 'https://aaai.solutions'
+              default: '*'
             Access-Control-Allow-Credentials:
               type: string
               default: 'true'
@@ -227,7 +228,7 @@ paths:
           headers:
             Access-Control-Allow-Origin:
               type: string
-              default: 'https://aaai.solutions'
+              default: '*'
             Access-Control-Allow-Methods:
               type: string
               default: 'POST, OPTIONS'
@@ -255,7 +256,7 @@ paths:
           headers:
             Access-Control-Allow-Origin:
               type: string
-              default: 'https://aaai.solutions'
+              default: '*'
             Access-Control-Allow-Credentials:
               type: string
               default: 'true'
@@ -276,10 +277,170 @@ paths:
           headers:
             Access-Control-Allow-Origin:
               type: string
-              default: 'https://aaai.solutions'
+              default: '*'
             Access-Control-Allow-Methods:
               type: string
               default: 'POST, OPTIONS'
+            Access-Control-Allow-Headers:
+              type: string
+              default: 'Content-Type, Authorization'
+            Access-Control-Allow-Credentials:
+              type: string
+              default: 'true'
+            Access-Control-Max-Age:
+              type: string
+              default: '3600'
+
+  /ws/{user_id}:
+    get:
+      summary: WebSocket connection endpoint with JWT Bearer authentication
+      operationId: websocketConnection
+      parameters:
+        - name: user_id
+          in: path
+          required: true
+          type: string
+          description: User ID for WebSocket connection
+        - name: chat_id
+          in: query
+          required: false
+          type: string
+          description: Chat/Project ID for context
+        - name: email
+          in: query
+          required: true
+          type: string
+          description: User email for validation
+        - name: session_id
+          in: query
+          required: false
+          type: string
+          description: Session ID for tracking
+        - name: auth_method
+          in: query
+          required: false
+          type: string
+          description: Authentication method identifier
+      x-google-backend:
+        address: wss://api-server-559730737995.us-central1.run.app
+        protocol: websocket
+      security:
+        - bearerAuth: []
+      responses:
+        '101':
+          description: WebSocket connection established
+        '400':
+          description: Bad request
+        '401':
+          description: JWT authentication failed
+        '403':
+          description: Access forbidden
+        '404':
+          description: User not found
+        '500':
+          description: Server error
+
+  /api/chat:
+    post:
+      summary: Send chat message via HTTP with JWT authentication
+      operationId: sendChatMessage
+      x-google-backend:
+        address: https://api-server-559730737995.us-central1.run.app
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Message sent successfully
+          headers:
+            Access-Control-Allow-Origin:
+              type: string
+              default: '*'
+            Access-Control-Allow-Credentials:
+              type: string
+              default: 'true'
+        '400':
+          description: Bad request
+        '401':
+          description: JWT authentication failed
+        '500':
+          description: Server error
+    options:
+      summary: CORS support
+      operationId: corsChatMessage
+      x-google-backend:
+        address: https://api-server-559730737995.us-central1.run.app
+      responses:
+        '204':
+          description: CORS preflight response
+          headers:
+            Access-Control-Allow-Origin:
+              type: string
+              default: '*'
+            Access-Control-Allow-Methods:
+              type: string
+              default: 'POST, OPTIONS'
+            Access-Control-Allow-Headers:
+              type: string
+              default: 'Content-Type, Authorization'
+            Access-Control-Allow-Credentials:
+              type: string
+              default: 'true'
+            Access-Control-Max-Age:
+              type: string
+              default: '3600'
+
+  /api/chat/status/{message_id}:
+    get:
+      summary: Get chat message status with JWT authentication
+      operationId: getChatMessageStatus
+      parameters:
+        - name: message_id
+          in: path
+          required: true
+          type: string
+          description: Message ID to check status
+      x-google-backend:
+        address: https://api-server-559730737995.us-central1.run.app
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Message status retrieved successfully
+          headers:
+            Access-Control-Allow-Origin:
+              type: string
+              default: '*'
+            Access-Control-Allow-Credentials:
+              type: string
+              default: 'true'
+        '400':
+          description: Bad request
+        '401':
+          description: JWT authentication failed
+        '404':
+          description: Message not found
+        '500':
+          description: Server error
+    options:
+      summary: CORS support
+      operationId: corsChatMessageStatus
+      parameters:
+        - name: message_id
+          in: path
+          required: true
+          type: string
+      x-google-backend:
+        address: https://api-server-559730737995.us-central1.run.app
+      responses:
+        '204':
+          description: CORS preflight response
+          headers:
+            Access-Control-Allow-Origin:
+              type: string
+              default: '*'
+            Access-Control-Allow-Methods:
+              type: string
+              default: 'GET, OPTIONS'
             Access-Control-Allow-Headers:
               type: string
               default: 'Content-Type, Authorization'
