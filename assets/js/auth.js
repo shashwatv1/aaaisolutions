@@ -1,6 +1,6 @@
 /**
  * JWT-Based Authentication Service for AAAI Solutions
- * Implements proper user JWT token management after OTP verification
+ * Fixed to use Gateway routing and proper token refresh
  */
 const AuthService = {
     // Core authentication state
@@ -11,7 +11,6 @@ const AuthService = {
     
     // Token management
     accessToken: null,
-    refreshToken: null,
     tokenExpiry: null,
     refreshInProgress: false,
     refreshPromise: null,
@@ -43,7 +42,7 @@ const AuthService = {
         }
         
         // Use Gateway URLs from config
-        this.AUTH_BASE_URL = '';
+        this.AUTH_BASE_URL = window.AAAI_CONFIG.API_BASE_URL;
         
         // Initialize authentication state
         const authResult = this._initializeAuthState();
@@ -127,7 +126,6 @@ const AuthService = {
             throw new Error(`OTP request failed: ${error.message}`);
         }
     },
-
 
     /**
      * Verify OTP and establish JWT session via Gateway
@@ -236,11 +234,6 @@ const AuthService = {
             this._setAccessToken(accessToken, expiresIn);
             this._setUserInfo(user);
             
-            // Store refresh token if provided
-            if (refreshToken) {
-                this.refreshToken = refreshToken;
-            }
-            
             // Store for persistence across page refresh
             this._storeAccessToken(accessToken, expiresIn, user);
             
@@ -273,16 +266,10 @@ const AuthService = {
         }
         
         try {
-            // Ensure we have a valid user access token
+            // Ensure we have a valid access token
             const accessToken = await this._ensureValidAccessToken();
             
-            // Validate token is user token, not service account
-            const tokenPayload = this._parseJWTPayload(accessToken);
-            if (tokenPayload.email && tokenPayload.email.includes('@developer.gserviceaccount.com')) {
-                throw new Error('Cannot use service account token for user operations');
-            }
-            
-            this._log(`Executing function: ${functionName} via Gateway with user JWT`);
+            this._log(`Executing function: ${functionName} via Gateway`);
             
             const response = await fetch(`${this.AUTH_BASE_URL}/api/function/${functionName}`, {
                 method: 'POST',
@@ -364,7 +351,7 @@ const AuthService = {
      */
     async _doTokenRefresh() {
         try {
-            this._log('Performing user token refresh via Gateway...');
+            this._log('Performing token refresh via Gateway...');
             
             const response = await fetch(`${this.AUTH_BASE_URL}/auth/refresh`, {
                 method: 'POST',
@@ -388,20 +375,16 @@ const AuthService = {
             // Handle different response formats
             let accessToken, expiresIn;
             
-            if (data.access_token) {
-                accessToken = data.access_token;
-                expiresIn = data.expires_in;
-            } else if (data.tokens?.access_token) {
+            if (data.tokens) {
+                // New format: { tokens: { access_token, expires_in } }
                 accessToken = data.tokens.access_token;
                 expiresIn = data.tokens.expires_in;
+            } else if (data.access_token) {
+                // Direct format: { access_token, expires_in }
+                accessToken = data.access_token;
+                expiresIn = data.expires_in;
             } else {
                 throw new Error('Invalid refresh response format');
-            }
-            
-            // Validate that refreshed token is still a user token
-            const tokenPayload = this._parseJWTPayload(accessToken);
-            if (tokenPayload.email && tokenPayload.email.includes('@developer.gserviceaccount.com')) {
-                throw new Error('Received service account token during refresh');
             }
             
             // Update access token
@@ -419,7 +402,7 @@ const AuthService = {
             // Setup next refresh
             this._setupAutoRefresh();
             
-            this._log('User token refresh successful via Gateway');
+            this._log('Token refresh successful via Gateway');
             return true;
             
         } catch (error) {
@@ -474,7 +457,65 @@ const AuthService = {
      * Check if user is authenticated
      */
     isAuthenticated() {
-        return this.authenticated && this.userEmail && this.userId && this.accessToken;
+        return this.authenticated && this.userEmail && this.userId;
+    },
+
+    /**
+     * Enhanced authentication check - validates complete authentication state
+     */
+    _isAuthenticationComplete() {
+        return this.authenticated && 
+               this.userEmail && 
+               this.userId && 
+               this.accessToken && 
+               this._isAccessTokenValid();
+    },
+
+    /**
+     * Wait for authentication to be ready
+     */
+    async _waitForAuthReady(timeout = 5000) {
+        const startTime = Date.now();
+        
+        while (!this._isAuthenticationComplete() && (Date.now() - startTime) < timeout) {
+            // Try to refresh token if we have refresh capability
+            if (this._hasRefreshTokenCookie() && !this.refreshInProgress) {
+                try {
+                    const refreshed = await this.refreshTokenIfNeeded();
+                    if (refreshed && this._isAuthenticationComplete()) {
+                        return true;
+                    }
+                } catch (error) {
+                    console.warn('Auth refresh failed during wait:', error);
+                }
+            }
+            
+            // Wait a bit before checking again
+            await new Promise(resolve => setTimeout(resolve, 100));
+        }
+        
+        return this._isAuthenticationComplete();
+    },
+
+    /**
+     * Ensure authentication is ready before proceeding
+     */
+    async _ensureAuthReady() {
+        if (this._isAuthenticationComplete()) {
+            return true;
+        }
+        
+        if (this._hasRefreshTokenCookie()) {
+            try {
+                const refreshed = await this.refreshTokenIfNeeded();
+                return refreshed && this._isAuthenticationComplete();
+            } catch (error) {
+                console.error('Failed to ensure auth ready:', error);
+                return false;
+            }
+        }
+        
+        return false;
     },
 
     /**
@@ -527,25 +568,6 @@ const AuthService = {
         return this.accessToken;
     },
 
-    /**
-     * Parse JWT payload without verification (for validation only)
-     */
-    _parseJWTPayload(token) {
-        try {
-            const parts = token.split('.');
-            if (parts.length !== 3) {
-                throw new Error('Invalid JWT format');
-            }
-            
-            const payload = parts[1];
-            const decoded = atob(payload.replace(/-/g, '+').replace(/_/g, '/'));
-            return JSON.parse(decoded);
-        } catch (error) {
-            console.warn('Failed to parse JWT payload:', error);
-            return {};
-        }
-    },
-
     // Private methods
 
     /**
@@ -575,7 +597,6 @@ const AuthService = {
         this.userId = null;
         this.sessionId = null;
         this.accessToken = null;
-        this.refreshToken = null;
         this.tokenExpiry = null;
         
         // Clear stored tokens
@@ -619,8 +640,7 @@ const AuthService = {
                 expiry: Date.now() + (expiresIn * 1000),
                 expiresIn: expiresIn,
                 user: user,
-                stored: Date.now(),
-                tokenType: 'user_jwt'
+                stored: Date.now()
             };
             
             sessionStorage.setItem('aaai_access_token', JSON.stringify(tokenData));
@@ -641,13 +661,6 @@ const AuthService = {
             
             // Check if token is expired
             if (Date.now() >= tokenData.expiry) {
-                sessionStorage.removeItem('aaai_access_token');
-                return null;
-            }
-            
-            // Validate token type
-            if (tokenData.tokenType !== 'user_jwt') {
-                console.warn('Invalid token type in storage:', tokenData.tokenType);
                 sessionStorage.removeItem('aaai_access_token');
                 return null;
             }
