@@ -84,16 +84,11 @@ const ChatService = {
     /**
      * Build WebSocket URL with JWT authentication
      */
-    _buildWebSocketURL(user, projectContext = {}) {
+    async _buildWebSocketURL(user, projectContext = {}) {
         const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        let wsHost;
         
-        // Use Gateway for both development and production
-        if (window.AAAI_CONFIG?.ENVIRONMENT === 'development') {
-            wsHost = 'aaai-gateway-754x89jf.uc.gateway.dev';
-        } else {
-            wsHost = 'aaai-gateway-754x89jf.uc.gateway.dev';
-        }
+        // Use main domain - nginx will proxy to gateway
+        const wsHost = window.location.host || 'aaai.solutions';
         
         // Build basic parameters without JWT token (JWT will go in headers)
         const params = new URLSearchParams({
@@ -103,13 +98,13 @@ const ChatService = {
             reel_id: projectContext.reel_id || '',
             session_id: user.sessionId || 'jwt_session',
             auth_method: 'jwt_bearer',
+            token: await this.authService._ensureValidAccessToken(), // Add token fallback
             t: Date.now()
         });
         
         const url = `${wsProtocol}//${wsHost}/ws/${user.id}?${params}`;
         
-        // Log URL without exposing the full JWT token
-        this._log('Built JWT WebSocket URL:', url.replace(/token=[^&]+/, 'token=***JWT_TOKEN***'));
+        this._log('Built JWT WebSocket URL for nginx proxy:', url.replace(/token=[^&]+/, 'token=***JWT_TOKEN***'));
         
         return url;
     },

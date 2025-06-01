@@ -29,21 +29,21 @@ const AuthService = {
      * Initialize the authentication service
      */
     init() {
-        console.log('🔐 Initializing JWT Authentication Service with Gateway routing...');
-        
-        // Wait for config to be available
-        if (!window.AAAI_CONFIG) {
-            throw new Error('AAAI_CONFIG not available. Make sure config.js is loaded first.');
-        }
-        
-        // Set debug mode
-        if (window.AAAI_CONFIG?.ENABLE_DEBUG) {
-            this.options.debug = true;
-        }
-        
-        // Use Gateway URLs from config
-        this.AUTH_BASE_URL = window.AAAI_CONFIG.API_BASE_URL;
-        
+    console.log('🔐 Initializing JWT Authentication Service with nginx proxy...');
+    
+    // Wait for config to be available
+    if (!window.AAAI_CONFIG) {
+        throw new Error('AAAI_CONFIG not available. Make sure config.js is loaded first.');
+    }
+    
+    // Set debug mode
+    if (window.AAAI_CONFIG?.ENABLE_DEBUG) {
+        this.options.debug = true;
+    }
+    
+    // Use main domain - nginx will proxy to gateway
+    this.AUTH_BASE_URL = window.location.protocol + '//' + (window.location.host || 'aaai.solutions');
+    
         // Initialize authentication state
         const authResult = this._initializeAuthState();
         

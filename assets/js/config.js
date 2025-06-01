@@ -19,8 +19,8 @@ const getAPIBaseURL = () => {
 
 // Get WebSocket base URL for all environments
 const getWebSocketBaseURL = () => {
-    // Always use Gateway for consistency
-    return 'aaai-gateway-754x89jf.uc.gateway.dev';
+    // Always use main domain for consistency with nginx proxy
+    return window.location.host || 'aaai.solutions';
 };
 
 // Initialize AAAI Configuration
