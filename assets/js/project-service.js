@@ -66,7 +66,7 @@ const ProjectService = {
         }
         
         // Get user context only if authentication is complete
-        if (this.authService._isAuthenticationComplete()) {
+        if (this._isAuthenticationComplete()) {
             const user = authService.getCurrentUser();
             if (user) {
                 this.currentContext.user_id = user.id;
@@ -84,7 +84,7 @@ const ProjectService = {
             userId: this.currentContext.user_id,
             cacheEnabled: true,
             autoSync: this.options.autoSync,
-            authenticationComplete: this.authService._isAuthenticationComplete()
+            authenticationComplete: this._isAuthenticationComplete()
         });
         
         return this;
@@ -95,7 +95,7 @@ const ProjectService = {
      */
     async createProject(projectData) {
         try {
-            this._requireAuth();
+            await this._requireAuth();
             this._validateProjectData(projectData);
             
             const user = this.authService.getCurrentUser();
@@ -160,7 +160,7 @@ const ProjectService = {
      */
     async getProjects(options = {}) {
         try {
-            this._requireAuth();
+            await this._requireAuth();
             
             const {
                 limit = 20,
@@ -574,7 +574,7 @@ const ProjectService = {
                 ? Math.round((this.stats.cacheHits / (this.stats.cacheHits + this.stats.cacheMisses)) * 100) 
                 : 0,
             context: this.currentContext,
-            authenticationComplete: this.authService._isAuthenticationComplete(),
+            authenticationComplete: this._isAuthenticationComplete(),
             authenticationSource: this.authService?.authenticationSource || 'unknown'
         };
     },
@@ -582,34 +582,84 @@ const ProjectService = {
     // Private methods
     
     /**
-     * CONSISTENT: Require complete authentication
+     * ENHANCED: Require complete authentication with proper validation
      */
-    _requireAuth() {
-        if (!this.authService._isAuthenticationComplete()) {
-            throw new Error('Complete authentication required');
+    async _requireAuth() {
+        if (!this.authService) {
+            throw new Error('AuthService not available');
         }
+        
+        if (!this.authService.isAuthenticated()) {
+            throw new Error('User not authenticated');
+        }
+        
+        // Ensure we have a valid user access token
+        try {
+            const token = await this.authService._ensureValidAccessToken();
+            if (!token) {
+                throw new Error('No valid access token available');
+            }
+        } catch (error) {
+            throw new Error(`Authentication validation failed: ${error.message}`);
+        }
+        
+        return true;
     },
-
+    
     /**
-     * Ensure authentication is ready
+     * ENHANCED: Ensure authentication is ready
      */
     async _ensureAuthReady() {
-        if (!this.authService._isAuthenticationComplete()) {
-            const ready = await this.authService._ensureAuthReady();
-            if (!ready) {
-                throw new Error('Authentication not ready');
+        if (!this.authService) {
+            throw new Error('AuthService not available');
+        }
+        
+        // Check if already authenticated
+        if (this.authService.isAuthenticated()) {
+            return true;
+        }
+        
+        // Try to restore session
+        if (this.authService.hasPersistentSession()) {
+            try {
+                const refreshed = await this.authService.refreshTokenIfNeeded();
+                if (refreshed && this.authService.isAuthenticated()) {
+                    return true;
+                }
+            } catch (error) {
+                this._log('Failed to restore session:', error);
             }
         }
+        
+        throw new Error('Authentication not ready');
     },
-
+    
     /**
-     * Wait for authentication to be ready
+     * ENHANCED: Wait for authentication to be ready with timeout
      */
-    async _waitForAuthReady() {
-        const ready = await this.authService._waitForAuthReady();
-        if (!ready) {
-            throw new Error('Authentication timeout');
+    async _waitForAuthReady(maxWaitTime = 5000) {
+        const startTime = Date.now();
+        
+        while (Date.now() - startTime < maxWaitTime) {
+            try {
+                await this._ensureAuthReady();
+                return true;
+            } catch (error) {
+                // Wait a bit before retrying
+                await new Promise(resolve => setTimeout(resolve, 100));
+            }
         }
+        
+        throw new Error('Authentication readiness timeout');
+    },
+    
+    /**
+     * ENHANCED: Check if authentication is complete
+     */
+    _isAuthenticationComplete() {
+        return this.authService && 
+               this.authService.isAuthenticated() && 
+               this.authService.getToken();
     },
     
     _validateProjectData(data, isCreate = true) {
@@ -775,7 +825,7 @@ const ProjectService = {
         if (!this.options.autoSync) return;
         
         setInterval(async () => {
-            if (this.authService._isAuthenticationComplete() && 
+            if (this._isAuthenticationComplete() && 
                 document.visibilityState === 'visible') {
                 
                 try {

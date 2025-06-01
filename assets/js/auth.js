@@ -76,13 +76,19 @@ const AuthService = {
             // Try to restore access token from sessionStorage
             const storedToken = this._getStoredAccessToken();
             
-            if (storedToken && this._isTokenValid(storedToken)) {
+            if (storedToken && this._isTokenValid(storedToken) && this._validateUserToken(storedToken.token)) {
                 this._setAccessToken(storedToken.token, storedToken.expiresIn);
                 this._setUserInfo(storedToken.user);
                 
                 this._log('Authentication state restored from storage');
                 return { success: true };
             } else {
+                // Clear invalid token and rely on refresh token
+                if (storedToken) {
+                    this._log('Stored token invalid or not a user token, will refresh on demand');
+                    sessionStorage.removeItem('aaai_access_token');
+                }
+                
                 // We have refresh token but no valid access token
                 // This will be handled by silent refresh when needed
                 this._log('Refresh token available, access token will be refreshed on demand');
@@ -93,6 +99,46 @@ const AuthService = {
             console.error('Error initializing auth state:', error);
             this._clearAuthState();
             return { success: false };
+        }
+    },
+
+    /**
+     * Validate that token is a user token (not service account)
+     */
+    _validateUserToken(token) {
+        try {
+            if (!token) return false;
+            
+            // Decode token payload (without verification - just for claims check)
+            const parts = token.split('.');
+            if (parts.length !== 3) return false;
+            
+            const payload = JSON.parse(atob(parts[1]));
+            
+            // Check that this is a user token, not service account
+            // User tokens should have email and user_id claims
+            // Service account tokens typically have different claim structure
+            if (!payload.email || !payload.user_id) {
+                this._log('Token missing user claims (email or user_id)');
+                return false;
+            }
+            
+            // Check that it's not a service account token
+            if (payload.iss && payload.iss.includes('serviceaccount')) {
+                this._log('Token is from service account, not user');
+                return false;
+            }
+            
+            // Additional validation for user-specific claims
+            if (payload.token_type && payload.token_type === 'service_account') {
+                this._log('Token explicitly marked as service account');
+                return false;
+            }
+            
+            return true;
+        } catch (error) {
+            this._log('Token validation error:', error);
+            return false;
         }
     },
 
@@ -152,100 +198,29 @@ const AuthService = {
                 throw new Error(data.error || data.detail || 'Invalid OTP');
             }
             
-            this._log('OTP verification response received:', Object.keys(data));
+            // Extract tokens and user info
+            const { user, tokens, authentication } = data;
             
-            // Handle different response structures flexibly
-            let user, accessToken, refreshToken, expiresIn;
-            
-            // Structure 1: Direct properties
-            if (data.access_token && data.user) {
-                accessToken = data.access_token;
-                refreshToken = data.refresh_token;
-                expiresIn = data.expires_in;
-                user = data.user;
-            }
-            // Structure 2: Nested in tokens object
-            else if (data.tokens && data.user) {
-                accessToken = data.tokens.access_token;
-                refreshToken = data.tokens.refresh_token;
-                expiresIn = data.tokens.expires_in;
-                user = data.user;
-            }
-            // Structure 3: Nested in authentication object
-            else if (data.authentication && data.user) {
-                accessToken = data.authentication.access_token;
-                refreshToken = data.authentication.refresh_token;
-                expiresIn = data.authentication.expires_in;
-                user = data.user;
-            }
-            // Structure 4: Legacy structure with tokens nested
-            else if (data.tokens && data.tokens.access_token) {
-                accessToken = data.tokens.access_token;
-                refreshToken = data.tokens.refresh_token;
-                expiresIn = data.tokens.expires_in;
-                // Try to extract user from different locations
-                user = data.user || data.tokens.user || data.authentication?.user;
+            // Validate that we received a user access token
+            if (!this._validateUserToken(tokens.access_token)) {
+                throw new Error('Received invalid user token from authentication');
             }
             
-            // Validate we have the required data
-            if (!accessToken) {
-                console.error('Response structure:', data);
-                throw new Error('No access token found in response. Check server response format.');
-            }
-            
-            if (!user) {
-                console.error('Response structure:', data);
-                throw new Error('No user information found in response. Check server response format.');
-            }
-            
-            // Default expires_in if not provided
-            if (!expiresIn) {
-                expiresIn = 900; // 15 minutes default
-                console.warn('No expires_in provided, using default 15 minutes');
-            }
-            
-            // Validate that this is a user token, not a service account token
-            try {
-                const tokenPayload = this._parseJWTPayload(accessToken);
-                if (tokenPayload.email && tokenPayload.email.includes('@developer.gserviceaccount.com')) {
-                    console.error('Service account token detected:', tokenPayload.email);
-                    throw new Error('Received service account token instead of user token');
-                }
-                
-                // Additional validation for Google-issued service account tokens
-                if (tokenPayload.iss === 'https://accounts.google.com' && 
-                    tokenPayload.email && 
-                    tokenPayload.email.includes('@developer.gserviceaccount.com')) {
-                    console.error('Google service account token detected:', tokenPayload.email);
-                    throw new Error('Received Google service account token instead of user token');
-                }
-                
-                this._log('Valid user token verified:', {
-                    email: tokenPayload.email,
-                    iss: tokenPayload.iss,
-                    exp: tokenPayload.exp
-                });
-            } catch (parseError) {
-                console.warn('Token validation warning:', parseError.message);
-                // Continue anyway as parsing might fail for valid reasons
-            }
-            
-            // Set user JWT access token
-            this._setAccessToken(accessToken, expiresIn);
+            // Set access token and user information
+            this._setAccessToken(tokens.access_token, tokens.expires_in);
             this._setUserInfo(user);
             
             // Store for persistence across page refresh
-            this._storeAccessToken(accessToken, expiresIn, user);
+            this._storeAccessToken(tokens.access_token, tokens.expires_in, user);
             
             // Setup auto-refresh
             this._setupAutoRefresh();
             
-            this._log('User JWT authentication successful via Gateway', {
+            this._log('JWT authentication successful via Gateway', {
                 userId: user.id,
                 email: user.email,
-                expiresIn: expiresIn,
-                tokenType: 'user_jwt',
-                hasRefreshToken: !!refreshToken
+                expiresIn: tokens.expires_in,
+                tokenType: 'user_access_token'
             });
             
             return data;
@@ -269,6 +244,13 @@ const AuthService = {
             // Ensure we have a valid access token
             const accessToken = await this._ensureValidAccessToken();
             
+            // Validate token before using
+            if (!this._validateUserToken(accessToken)) {
+                this._log('Invalid user token detected, clearing auth state');
+                this._clearAuthState();
+                throw new Error('Invalid user token - please login again');
+            }
+            
             this._log(`Executing function: ${functionName} via Gateway`);
             
             const response = await fetch(`${this.AUTH_BASE_URL}/api/function/${functionName}`, {
@@ -285,7 +267,8 @@ const AuthService = {
                 const errorData = await response.json().catch(() => ({}));
                 
                 if (response.status === 401) {
-                    // Token expired, try refresh
+                    // Token expired or invalid, try refresh
+                    this._log('401 error, attempting token refresh');
                     const refreshed = await this.refreshTokenIfNeeded();
                     if (refreshed) {
                         // Retry with new token
@@ -387,6 +370,13 @@ const AuthService = {
                 throw new Error('Invalid refresh response format');
             }
             
+            // Validate that we received a user access token
+            if (!this._validateUserToken(accessToken)) {
+                this._log('Received invalid user token from refresh');
+                this._clearAuthState();
+                return false;
+            }
+            
             // Update access token
             this._setAccessToken(accessToken, expiresIn);
             
@@ -457,65 +447,7 @@ const AuthService = {
      * Check if user is authenticated
      */
     isAuthenticated() {
-        return this.authenticated && this.userEmail && this.userId;
-    },
-
-    /**
-     * Enhanced authentication check - validates complete authentication state
-     */
-    _isAuthenticationComplete() {
-        return this.authenticated && 
-               this.userEmail && 
-               this.userId && 
-               this.accessToken && 
-               this._isAccessTokenValid();
-    },
-
-    /**
-     * Wait for authentication to be ready
-     */
-    async _waitForAuthReady(timeout = 5000) {
-        const startTime = Date.now();
-        
-        while (!this._isAuthenticationComplete() && (Date.now() - startTime) < timeout) {
-            // Try to refresh token if we have refresh capability
-            if (this._hasRefreshTokenCookie() && !this.refreshInProgress) {
-                try {
-                    const refreshed = await this.refreshTokenIfNeeded();
-                    if (refreshed && this._isAuthenticationComplete()) {
-                        return true;
-                    }
-                } catch (error) {
-                    console.warn('Auth refresh failed during wait:', error);
-                }
-            }
-            
-            // Wait a bit before checking again
-            await new Promise(resolve => setTimeout(resolve, 100));
-        }
-        
-        return this._isAuthenticationComplete();
-    },
-
-    /**
-     * Ensure authentication is ready before proceeding
-     */
-    async _ensureAuthReady() {
-        if (this._isAuthenticationComplete()) {
-            return true;
-        }
-        
-        if (this._hasRefreshTokenCookie()) {
-            try {
-                const refreshed = await this.refreshTokenIfNeeded();
-                return refreshed && this._isAuthenticationComplete();
-            } catch (error) {
-                console.error('Failed to ensure auth ready:', error);
-                return false;
-            }
-        }
-        
-        return false;
+        return this.authenticated && this.userEmail && this.userId && this.accessToken;
     },
 
     /**
@@ -538,7 +470,7 @@ const AuthService = {
      * Get valid access token
      */
     getToken() {
-        if (this._isAccessTokenValid()) {
+        if (this._isAccessTokenValid() && this._validateUserToken(this.accessToken)) {
             return this.accessToken;
         }
         return null;
@@ -555,14 +487,31 @@ const AuthService = {
      * Ensure we have a valid access token
      */
     async _ensureValidAccessToken() {
-        if (this._isAccessTokenValid()) {
+        // Check if current token is valid
+        if (this._isAccessTokenValid() && this._validateUserToken(this.accessToken)) {
+            return this.accessToken;
+        }
+        
+        // Clear invalid token
+        if (this.accessToken && !this._validateUserToken(this.accessToken)) {
+            this._log('Current token is not a valid user token, clearing');
+            this.accessToken = null;
+            this.tokenExpiry = null;
+        }
+        
+        // Try to restore from session storage
+        const storedToken = this._getStoredAccessToken();
+        if (storedToken && this._isTokenValid(storedToken) && this._validateUserToken(storedToken.token)) {
+            this._log('Restoring valid token from session storage');
+            this._setAccessToken(storedToken.token, storedToken.expiresIn);
+            this._setUserInfo(storedToken.user);
             return this.accessToken;
         }
         
         // Try to refresh token
         const refreshed = await this.refreshTokenIfNeeded();
         if (!refreshed) {
-            throw new Error('Unable to obtain valid access token');
+            throw new Error('Unable to obtain valid user access token');
         }
         
         return this.accessToken;

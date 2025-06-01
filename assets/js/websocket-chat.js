@@ -78,6 +78,13 @@ const ChatService = {
         if (!this.authService || !this.authService.isAuthenticated()) {
             throw new Error('Authentication required for WebSocket operations');
         }
+        
+        // Additional validation for user access token
+        const token = this.authService.getToken();
+        if (!token) {
+            throw new Error('No valid user access token available for WebSocket');
+        }
+        
         return true;
     },
 
@@ -117,6 +124,9 @@ const ChatService = {
     /**
      * ENHANCED: Connect with JWT authentication validation
      */
+/**
+ * ENHANCED: Connect with JWT authentication validation
+ */
     async connect() {
         if (this.isConnected && this.isAuthenticated) {
             this._log('Already connected and authenticated');
@@ -130,7 +140,7 @@ const ChatService = {
         
         this._log('Starting JWT WebSocket connection...');
         
-        // Require authentication
+        // Require authentication with enhanced validation
         this._requireAuth();
         
         const user = this.authService.getCurrentUser();
@@ -138,10 +148,20 @@ const ChatService = {
             throw new Error('Complete user information not available');
         }
 
-        // Get fresh JWT token
-        const accessToken = await this.authService._ensureValidAccessToken();
-        if (!accessToken) {
-            throw new Error('No valid access token available');
+        // Get fresh JWT token and validate it's a user token
+        let accessToken;
+        try {
+            accessToken = await this.authService._ensureValidAccessToken();
+            if (!accessToken) {
+                throw new Error('No valid access token available');
+            }
+            
+            // Additional validation that this is a user token
+            if (!this.authService._validateUserToken || !this.authService._validateUserToken(accessToken)) {
+                throw new Error('Invalid user access token for WebSocket connection');
+            }
+        } catch (error) {
+            throw new Error(`Token validation failed: ${error.message}`);
         }
         
         return new Promise((resolve, reject) => {
