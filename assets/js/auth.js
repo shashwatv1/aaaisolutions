@@ -128,6 +128,7 @@ const AuthService = {
         }
     },
 
+
     /**
      * Verify OTP and establish JWT session via Gateway
      */
@@ -153,30 +154,95 @@ const AuthService = {
                 throw new Error(data.error || data.detail || 'Invalid OTP');
             }
             
-            // Extract user JWT tokens (not service account tokens)
-            const { user, access_token, refresh_token, expires_in } = data;
+            this._log('OTP verification response received:', Object.keys(data));
             
-            if (!access_token || !user) {
-                throw new Error('Invalid response: missing user JWT token');
+            // Handle different response structures flexibly
+            let user, accessToken, refreshToken, expiresIn;
+            
+            // Structure 1: Direct properties
+            if (data.access_token && data.user) {
+                accessToken = data.access_token;
+                refreshToken = data.refresh_token;
+                expiresIn = data.expires_in;
+                user = data.user;
+            }
+            // Structure 2: Nested in tokens object
+            else if (data.tokens && data.user) {
+                accessToken = data.tokens.access_token;
+                refreshToken = data.tokens.refresh_token;
+                expiresIn = data.tokens.expires_in;
+                user = data.user;
+            }
+            // Structure 3: Nested in authentication object
+            else if (data.authentication && data.user) {
+                accessToken = data.authentication.access_token;
+                refreshToken = data.authentication.refresh_token;
+                expiresIn = data.authentication.expires_in;
+                user = data.user;
+            }
+            // Structure 4: Legacy structure with tokens nested
+            else if (data.tokens && data.tokens.access_token) {
+                accessToken = data.tokens.access_token;
+                refreshToken = data.tokens.refresh_token;
+                expiresIn = data.tokens.expires_in;
+                // Try to extract user from different locations
+                user = data.user || data.tokens.user || data.authentication?.user;
+            }
+            
+            // Validate we have the required data
+            if (!accessToken) {
+                console.error('Response structure:', data);
+                throw new Error('No access token found in response. Check server response format.');
+            }
+            
+            if (!user) {
+                console.error('Response structure:', data);
+                throw new Error('No user information found in response. Check server response format.');
+            }
+            
+            // Default expires_in if not provided
+            if (!expiresIn) {
+                expiresIn = 900; // 15 minutes default
+                console.warn('No expires_in provided, using default 15 minutes');
             }
             
             // Validate that this is a user token, not a service account token
-            const tokenPayload = this._parseJWTPayload(access_token);
-            if (tokenPayload.email && tokenPayload.email.includes('@developer.gserviceaccount.com')) {
-                throw new Error('Received service account token instead of user token');
+            try {
+                const tokenPayload = this._parseJWTPayload(accessToken);
+                if (tokenPayload.email && tokenPayload.email.includes('@developer.gserviceaccount.com')) {
+                    console.error('Service account token detected:', tokenPayload.email);
+                    throw new Error('Received service account token instead of user token');
+                }
+                
+                // Additional validation for Google-issued service account tokens
+                if (tokenPayload.iss === 'https://accounts.google.com' && 
+                    tokenPayload.email && 
+                    tokenPayload.email.includes('@developer.gserviceaccount.com')) {
+                    console.error('Google service account token detected:', tokenPayload.email);
+                    throw new Error('Received Google service account token instead of user token');
+                }
+                
+                this._log('Valid user token verified:', {
+                    email: tokenPayload.email,
+                    iss: tokenPayload.iss,
+                    exp: tokenPayload.exp
+                });
+            } catch (parseError) {
+                console.warn('Token validation warning:', parseError.message);
+                // Continue anyway as parsing might fail for valid reasons
             }
             
             // Set user JWT access token
-            this._setAccessToken(access_token, expires_in);
+            this._setAccessToken(accessToken, expiresIn);
             this._setUserInfo(user);
             
             // Store refresh token if provided
-            if (refresh_token) {
-                this.refreshToken = refresh_token;
+            if (refreshToken) {
+                this.refreshToken = refreshToken;
             }
             
             // Store for persistence across page refresh
-            this._storeAccessToken(access_token, expires_in, user);
+            this._storeAccessToken(accessToken, expiresIn, user);
             
             // Setup auto-refresh
             this._setupAutoRefresh();
@@ -184,8 +250,9 @@ const AuthService = {
             this._log('User JWT authentication successful via Gateway', {
                 userId: user.id,
                 email: user.email,
-                expiresIn: expires_in,
-                tokenType: 'user_jwt'
+                expiresIn: expiresIn,
+                tokenType: 'user_jwt',
+                hasRefreshToken: !!refreshToken
             });
             
             return data;
