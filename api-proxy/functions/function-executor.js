@@ -91,33 +91,19 @@ async function functionExecutor(req, res) {
         });
       }
       
-      // Validate that this is a user JWT token, not a service account token
+      // Parse and validate JWT token payload
+      let tokenPayload;
       try {
-        const tokenPayload = parseJWTPayload(accessToken);
-        
-        // Check if this is a service account token
-        if (tokenPayload.email && tokenPayload.email.includes('@developer.gserviceaccount.com')) {
-          console.error('❌ Service account token not allowed for user operations');
-          return res.status(401).json({
-            error: 'Invalid token type',
-            message: 'Service account tokens are not allowed for user operations',
-            code: 'SERVICE_ACCOUNT_TOKEN_REJECTED'
-          });
-        }
-        
-        // Check if this is a Google-issued token (should be user token)
-        if (tokenPayload.iss === 'https://accounts.google.com' && tokenPayload.email && tokenPayload.email.includes('@developer.gserviceaccount.com')) {
-          console.error('❌ Google service account token detected');
-          return res.status(401).json({
-            error: 'Invalid token type',
-            message: 'Google service account tokens are not allowed for user operations',
-            code: 'GOOGLE_SERVICE_ACCOUNT_REJECTED'
-          });
-        }
-        
-        console.log(`🎟️ Valid user JWT token found, executing function: ${functionName}`);
-        console.log('User email:', tokenPayload.email || 'not specified');
-        console.log('Token issuer:', tokenPayload.iss || 'not specified');
+        tokenPayload = parseJWTPayload(accessToken);
+        console.log('🔍 Token payload parsed successfully');
+        console.log('Token claims:', {
+          email: tokenPayload.email || 'not present',
+          user_id: tokenPayload.user_id || 'not present',
+          iss: tokenPayload.iss || 'not present',
+          aud: tokenPayload.aud || 'not present',
+          token_type: tokenPayload.token_type || 'not present',
+          exp: tokenPayload.exp || 'not present'
+        });
         
       } catch (parseError) {
         console.error('❌ Failed to parse JWT token:', parseError.message);
@@ -127,6 +113,21 @@ async function functionExecutor(req, res) {
           code: 'INVALID_JWT_FORMAT'
         });
       }
+      
+      // Enhanced validation for user tokens
+      const validationResult = validateUserToken(tokenPayload);
+      if (!validationResult.valid) {
+        console.error('❌ Token validation failed:', validationResult.reason);
+        return res.status(401).json({
+          error: 'Invalid token type',
+          message: validationResult.reason,
+          code: validationResult.code
+        });
+      }
+      
+      console.log(`🎟️ Valid user JWT token confirmed, executing function: ${functionName}`);
+      console.log('User email:', tokenPayload.email);
+      console.log('User ID:', tokenPayload.user_id);
       
       // Build headers for API server
       const headers = {
@@ -215,23 +216,140 @@ async function functionExecutor(req, res) {
 }
 
 /**
- * Parse JWT payload without verification (for validation only)
+ * Enhanced JWT payload parser with proper base64 handling
  */
 function parseJWTPayload(token) {
   try {
+    if (!token || typeof token !== 'string') {
+      throw new Error('Token must be a valid string');
+    }
+    
     const parts = token.split('.');
     if (parts.length !== 3) {
-      throw new Error('Invalid JWT format');
+      throw new Error('Invalid JWT format - must have 3 parts');
     }
     
     const payload = parts[1];
-    // Add padding if needed
+    
+    // Proper base64 padding and decoding
     const paddedPayload = payload + '='.repeat((4 - payload.length % 4) % 4);
-    const decoded = Buffer.from(paddedPayload.replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString();
-    return JSON.parse(decoded);
+    const base64Decoded = paddedPayload.replace(/-/g, '+').replace(/_/g, '/');
+    
+    // Use Buffer for Node.js environment
+    const decoded = Buffer.from(base64Decoded, 'base64').toString('utf8');
+    
+    const parsed = JSON.parse(decoded);
+    
+    // Basic structure validation
+    if (!parsed || typeof parsed !== 'object') {
+      throw new Error('Invalid JWT payload structure');
+    }
+    
+    return parsed;
+    
   } catch (error) {
     throw new Error(`Failed to parse JWT payload: ${error.message}`);
   }
+}
+
+/**
+ * Enhanced user token validation
+ */
+function validateUserToken(payload) {
+  // Check for required user token fields
+  if (!payload.email) {
+    return {
+      valid: false,
+      reason: 'User token must contain email claim',
+      code: 'MISSING_EMAIL_CLAIM'
+    };
+  }
+  
+  if (!payload.user_id) {
+    return {
+      valid: false,
+      reason: 'User token must contain user_id claim',
+      code: 'MISSING_USER_ID_CLAIM'
+    };
+  }
+  
+  // Check for service account indicators in email
+  if (payload.email.includes('@developer.gserviceaccount.com') || 
+      payload.email.includes('@') && payload.email.includes('.gserviceaccount.com')) {
+    return {
+      valid: false,
+      reason: 'Service account tokens are not allowed for user operations',
+      code: 'SERVICE_ACCOUNT_TOKEN_REJECTED'
+    };
+  }
+  
+  // Check for service account indicators in issuer
+  if (payload.iss && (
+    payload.iss.includes('serviceaccount') ||
+    payload.iss.includes('gserviceaccount')
+  )) {
+    return {
+      valid: false,
+      reason: 'Service account issued tokens are not allowed for user operations',
+      code: 'SERVICE_ACCOUNT_ISSUER_REJECTED'
+    };
+  }
+  
+  // Check for explicit service account token type
+  if (payload.token_type === 'service_account') {
+    return {
+      valid: false,
+      reason: 'Explicitly marked service account tokens are not allowed',
+      code: 'EXPLICIT_SERVICE_ACCOUNT_REJECTED'
+    };
+  }
+  
+  // Check for Google service account specific patterns
+  if (payload.aud && payload.aud.includes('gserviceaccount')) {
+    return {
+      valid: false,
+      reason: 'Google service account audience tokens are not allowed',
+      code: 'GOOGLE_SERVICE_ACCOUNT_AUDIENCE_REJECTED'
+    };
+  }
+  
+  // Check token expiration
+  if (payload.exp && typeof payload.exp === 'number') {
+    const now = Math.floor(Date.now() / 1000);
+    if (payload.exp < now) {
+      return {
+        valid: false,
+        reason: 'Token has expired',
+        code: 'TOKEN_EXPIRED'
+      };
+    }
+  }
+  
+  // Additional validation for user email format
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if (!emailRegex.test(payload.email)) {
+    return {
+      valid: false,
+      reason: 'Invalid email format in token',
+      code: 'INVALID_EMAIL_FORMAT'
+    };
+  }
+  
+  // Check for reasonable user_id format (should be UUID or similar)
+  if (typeof payload.user_id !== 'string' || payload.user_id.length < 10) {
+    return {
+      valid: false,
+      reason: 'Invalid user_id format in token',
+      code: 'INVALID_USER_ID_FORMAT'
+    };
+  }
+  
+  // All validations passed
+  return {
+    valid: true,
+    reason: 'Valid user token',
+    code: 'VALID_USER_TOKEN'
+  };
 }
 
 module.exports = functionExecutor;
