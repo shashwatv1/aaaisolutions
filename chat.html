@@ -904,7 +904,27 @@
           
           <!-- Messages will be inserted here -->
         </div>
-        
+        <!-- Chat Input Area -->
+        <div class="chat-input-area">
+          <form class="message-form" id="messageForm">
+            <div class="input-wrapper">
+              <textarea 
+                id="messageInput" 
+                class="message-input" 
+                placeholder="Type your message here..." 
+                rows="1"
+                maxlength="2000"
+              ></textarea>
+              <button 
+                type="submit" 
+                id="sendMessageBtn" 
+                class="send-button"
+                disabled
+              >
+                <ion-icon name="send"></ion-icon>
+              </button>
+            </div>
+          </form>
         <!-- Chat Footer -->
         <div class="chat-footer">
           <textarea class="chat-input" id="messageInput" placeholder="Type your message here..." maxlength="1000" rows="1"></textarea>
@@ -1589,14 +1609,13 @@
   </script>
   <script>
     document.addEventListener('DOMContentLoaded', function() {
-        console.log('🔧 INTEGRATION FIX: Starting proper WebSocket message integration...');
+        console.log('🔧 INTEGRATION FIX: Starting chat integration with existing structure...');
         
-        // Enhanced integration with proper service detection
-        async function initializeWebSocketIntegration() {
+        async function initializeChatIntegration() {
             let attempts = 0;
-            const maxAttempts = 50; // 10 seconds max wait
+            const maxAttempts = 50;
             
-            // Wait for AAAI services to be initialized
+            // Wait for AAAI services
             while (!window.AAAI_APP?.initialized && attempts < maxAttempts) {
                 console.log('⏳ INTEGRATION FIX: Waiting for AAAI services...', attempts);
                 await new Promise(resolve => setTimeout(resolve, 200));
@@ -1604,31 +1623,53 @@
             }
             
             if (!window.AAAI_APP?.initialized) {
-                console.error('❌ INTEGRATION FIX: AAAI services not initialized in time');
+                console.error('❌ INTEGRATION FIX: AAAI services not initialized');
                 return;
             }
             
-            console.log('✅ INTEGRATION FIX: AAAI services ready, setting up message integration');
+            console.log('✅ INTEGRATION FIX: AAAI services ready');
             
-            // Get the actual chat application elements and services
+            // Get elements using your existing structure
             const messageForm = document.getElementById('messageForm');
             const messageInput = document.getElementById('messageInput');
             const chatBody = document.getElementById('chatBody');
             const sendButton = document.getElementById('sendMessageBtn');
+            const connectionStatus = document.getElementById('connectionStatus');
+            const connectionDot = document.getElementById('connectionDot');
+            const connectionText = document.getElementById('connectionText');
+            const chatTitle = document.getElementById('chatTitle');
+            const chatSubtitle = document.getElementById('chatSubtitle');
             
-            if (!messageForm || !messageInput || !chatBody || !sendButton) {
-                console.error('❌ INTEGRATION FIX: Required chat elements not found');
+            // Validate critical elements
+            if (!messageInput || !chatBody) {
+                console.error('❌ INTEGRATION FIX: Critical elements missing:', {
+                    messageInput: !!messageInput,
+                    chatBody: !!chatBody
+                });
                 return;
             }
             
-            console.log('✅ INTEGRATION FIX: Chat elements found, setting up integration');
+            console.log('✅ INTEGRATION FIX: All elements found');
             
-            // Enhanced message sending with proper response handling
+            // Update chat title with project info
+            const urlParams = new URLSearchParams(window.location.search);
+            const projectName = urlParams.get('project_name');
+            if (projectName && chatTitle) {
+                chatTitle.textContent = decodeURIComponent(projectName);
+                if (chatSubtitle) {
+                    chatSubtitle.textContent = 'AI Assistant Chat';
+                }
+            }
+            
+            // Enhanced message sending
             async function sendMessageWithIntegration(messageText) {
                 try {
-                    console.log('📤 INTEGRATION FIX: Sending message with enhanced integration');
+                    console.log('📤 INTEGRATION FIX: Sending message');
                     
-                    // Add user message to UI immediately
+                    // Update connection status
+                    updateConnectionStatus('sending');
+                    
+                    // Add user message to UI
                     addMessageToUI({
                         type: 'user',
                         text: messageText,
@@ -1638,7 +1679,7 @@
                     // Show typing indicator
                     showTypingIndicator();
                     
-                    // Send via HTTP API
+                    // Send via API
                     const authService = window.AAAI_APP?.services?.AuthService || window.AuthService;
                     if (!authService) {
                         throw new Error('AuthService not available');
@@ -1653,73 +1694,93 @@
                         }
                     });
                     
-                    console.log('✅ INTEGRATION FIX: Message sent successfully:', result);
+                    console.log('✅ INTEGRATION FIX: Message sent:', result);
                     
-                    if (result?.status === 'success' && result?.data) {
-                        // Start polling for response
-                        pollForResponse(result.data.message_id);
+                    hideTypingIndicator();
+                    updateConnectionStatus('connected');
+                    
+                    if (result?.status === 'success' && result?.data?.success) {
+                        // Handle immediate response
+                        if (result.data.response && result.data.response.text) {
+                            addMessageToUI({
+                                type: 'bot',
+                                text: result.data.response.text,
+                                timestamp: Date.now(),
+                                id: result.data.response.message_id
+                            });
+                        } else if (result.data.bot_message) {
+                            addMessageToUI({
+                                type: 'bot',
+                                text: result.data.bot_message.content,
+                                timestamp: new Date(result.data.bot_message.timestamp).getTime(),
+                                id: result.data.bot_message.id
+                            });
+                        } else {
+                            // Poll for response
+                            pollForResponse(result.data.message_id);
+                        }
                     } else {
-                        hideTypingIndicator();
                         addMessageToUI({
                             type: 'error',
-                            text: 'Failed to send message',
+                            text: 'Failed to send message: ' + (result?.data?.error || 'Unknown error'),
                             timestamp: Date.now()
                         });
                     }
                     
                 } catch (error) {
-                    console.error('❌ INTEGRATION FIX: Error sending message:', error);
+                    console.error('❌ INTEGRATION FIX: Send error:', error);
                     hideTypingIndicator();
+                    updateConnectionStatus('error');
                     addMessageToUI({
                         type: 'error',
-                        text: 'Error sending message: ' + error.message,
+                        text: 'Error: ' + error.message,
                         timestamp: Date.now()
                     });
                 }
             }
             
-            // Enhanced response polling
+            // Response polling
             async function pollForResponse(messageId) {
-                console.log('🔄 INTEGRATION FIX: Starting response polling for:', messageId);
+                console.log('🔄 INTEGRATION FIX: Polling for response');
                 
-                const maxPollAttempts = 60; // 2 minutes max
-                let pollAttempts = 0;
+                const maxAttempts = 30;
+                let attempts = 0;
                 
                 const poll = async () => {
                     try {
                         const authService = window.AAAI_APP?.services?.AuthService || window.AuthService;
                         const result = await authService.executeFunction('get_chat_messages', {
                             chat_id: getCurrentProjectId(),
-                            limit: 1,
+                            limit: 5,
                             offset: 0
                         });
                         
                         if (result?.status === 'success' && result?.data?.messages?.length > 0) {
-                            const latestMessage = result.data.messages[result.data.messages.length - 1];
+                            const messages = result.data.messages;
                             
-                            // Check if this is a bot response we haven't seen
-                            if (latestMessage.sender === 'bot' && 
-                                !document.querySelector(`[data-message-id="${latestMessage.id}"]`)) {
-                                
-                                console.log('✅ INTEGRATION FIX: Found bot response:', latestMessage);
-                                hideTypingIndicator();
-                                
-                                addMessageToUI({
-                                    type: 'bot',
-                                    text: latestMessage.content,
-                                    timestamp: new Date(latestMessage.timestamp).getTime(),
-                                    id: latestMessage.id
-                                });
-                                
-                                return; // Stop polling
+                            for (const msg of messages) {
+                                if (msg.sender === 'bot' && 
+                                    !document.querySelector(`[data-message-id="${msg.id}"]`)) {
+                                    
+                                    console.log('✅ INTEGRATION FIX: Found response:', msg.id);
+                                    hideTypingIndicator();
+                                    
+                                    addMessageToUI({
+                                        type: 'bot',
+                                        text: msg.content,
+                                        timestamp: new Date(msg.timestamp).getTime(),
+                                        id: msg.id
+                                    });
+                                    
+                                    return;
+                                }
                             }
                         }
                         
-                        pollAttempts++;
-                        if (pollAttempts < maxPollAttempts) {
-                            setTimeout(poll, 2000); // Poll every 2 seconds
+                        attempts++;
+                        if (attempts < maxAttempts) {
+                            setTimeout(poll, 2000);
                         } else {
-                            console.log('⏰ INTEGRATION FIX: Polling timeout for message:', messageId);
                             hideTypingIndicator();
                             addMessageToUI({
                                 type: 'error',
@@ -1729,10 +1790,10 @@
                         }
                         
                     } catch (error) {
-                        console.error('❌ INTEGRATION FIX: Polling error:', error);
-                        pollAttempts++;
-                        if (pollAttempts < maxPollAttempts) {
-                            setTimeout(poll, 3000); // Retry after 3 seconds on error
+                        console.error('❌ INTEGRATION FIX: Poll error:', error);
+                        attempts++;
+                        if (attempts < maxAttempts) {
+                            setTimeout(poll, 3000);
                         } else {
                             hideTypingIndicator();
                         }
@@ -1742,45 +1803,44 @@
                 poll();
             }
             
-            // Enhanced UI helper functions
+            // UI Helper Functions
             function addMessageToUI(message) {
-                const messageElement = document.createElement('div');
-                messageElement.className = `message message-${message.type}`;
+                const messageEl = document.createElement('div');
+                messageEl.className = `message message-${message.type}`;
                 
                 if (message.id) {
-                    messageElement.setAttribute('data-message-id', message.id);
+                    messageEl.setAttribute('data-message-id', message.id);
                 }
                 
-                const contentElement = document.createElement('div');
-                contentElement.className = 'message-content';
-                contentElement.textContent = message.text;
+                const contentEl = document.createElement('div');
+                contentEl.className = 'message-content';
+                contentEl.textContent = message.text;
                 
-                const timestampElement = document.createElement('div');
-                timestampElement.className = 'message-timestamp';
-                timestampElement.textContent = new Date(message.timestamp).toLocaleTimeString();
+                const timestampEl = document.createElement('div');
+                timestampEl.className = 'message-timestamp';
+                timestampEl.textContent = new Date(message.timestamp).toLocaleTimeString();
                 
-                messageElement.appendChild(contentElement);
-                messageElement.appendChild(timestampElement);
+                messageEl.appendChild(contentEl);
+                messageEl.appendChild(timestampEl);
                 
-                // Hide welcome message if it exists
+                // Hide welcome message
                 const welcomeMessage = chatBody.querySelector('.welcome-message');
                 if (welcomeMessage) {
                     welcomeMessage.style.display = 'none';
                 }
                 
-                chatBody.appendChild(messageElement);
+                chatBody.appendChild(messageEl);
                 chatBody.scrollTop = chatBody.scrollHeight;
                 
-                console.log('✅ INTEGRATION FIX: Message added to UI:', message.type);
+                console.log('✅ INTEGRATION FIX: Message added:', message.type);
             }
             
             function showTypingIndicator() {
-                // Remove existing typing indicator
                 hideTypingIndicator();
                 
-                const typingElement = document.createElement('div');
-                typingElement.className = 'typing-indicator';
-                typingElement.innerHTML = `
+                const typingEl = document.createElement('div');
+                typingEl.className = 'typing-indicator';
+                typingEl.innerHTML = `
                     <div class="typing-dots">
                         <span></span>
                         <span></span>
@@ -1789,14 +1849,36 @@
                     <div class="typing-text">AI is thinking...</div>
                 `;
                 
-                chatBody.appendChild(typingElement);
+                chatBody.appendChild(typingEl);
                 chatBody.scrollTop = chatBody.scrollHeight;
             }
             
             function hideTypingIndicator() {
-                const typingIndicator = chatBody.querySelector('.typing-indicator');
-                if (typingIndicator) {
-                    typingIndicator.remove();
+                const indicator = chatBody.querySelector('.typing-indicator');
+                if (indicator) {
+                    indicator.remove();
+                }
+            }
+            
+            function updateConnectionStatus(status) {
+                if (!connectionDot || !connectionText) return;
+                
+                switch (status) {
+                    case 'connected':
+                        connectionDot.style.background = '#4CAF50';
+                        connectionText.textContent = 'Connected';
+                        break;
+                    case 'sending':
+                        connectionDot.style.background = '#FF9800';
+                        connectionText.textContent = 'Sending...';
+                        break;
+                    case 'error':
+                        connectionDot.style.background = '#F44336';
+                        connectionText.textContent = 'Error';
+                        break;
+                    default:
+                        connectionDot.style.background = '#666';
+                        connectionText.textContent = 'Disconnected';
                 }
             }
             
@@ -1805,44 +1887,80 @@
                 return urlParams.get('project') || '';
             }
             
-            // Override the existing sendMessage function
-            if (window.sendMessage) {
-                const originalSendMessage = window.sendMessage;
-                window.sendMessage = async function() {
-                    const messageText = messageInput.value.trim();
-                    if (!messageText) return;
+            // Setup Event Handlers
+            if (messageInput) {
+                // Auto-resize and button state
+                messageInput.addEventListener('input', function() {
+                    this.style.height = 'auto';
+                    this.style.height = Math.min(this.scrollHeight, 120) + 'px';
                     
-                    messageInput.value = '';
-                    sendButton.disabled = true;
-                    
-                    try {
-                        await sendMessageWithIntegration(messageText);
-                    } finally {
-                        sendButton.disabled = false;
+                    if (sendButton) {
+                        sendButton.disabled = !this.value.trim();
                     }
-                };
+                });
                 
-                console.log('✅ INTEGRATION FIX: sendMessage function enhanced');
+                // Enter key handling
+                messageInput.addEventListener('keydown', function(e) {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                        e.preventDefault();
+                        sendMessage();
+                    }
+                });
             }
             
-            // Also handle form submission
-            messageForm.addEventListener('submit', async function(e) {
-                e.preventDefault();
-                if (window.sendMessage) {
-                    await window.sendMessage();
+            // Send message function
+            window.sendMessage = async function() {
+                const messageText = messageInput.value.trim();
+                if (!messageText) return;
+                
+                messageInput.value = '';
+                messageInput.style.height = 'auto';
+                if (sendButton) sendButton.disabled = true;
+                
+                try {
+                    await sendMessageWithIntegration(messageText);
+                } finally {
+                    if (sendButton) sendButton.disabled = false;
                 }
-            });
+            };
             
-            console.log('✅ INTEGRATION FIX: WebSocket integration setup complete');
+            // Form submission
+            if (messageForm) {
+                messageForm.addEventListener('submit', async function(e) {
+                    e.preventDefault();
+                    await sendMessage();
+                });
+            }
+            
+            // Send button click
+            if (sendButton) {
+                sendButton.addEventListener('click', async function(e) {
+                    e.preventDefault();
+                    await sendMessage();
+                });
+            }
+            
+            // Back button handler
+            const backBtn = document.getElementById('backBtn');
+            if (backBtn) {
+                backBtn.addEventListener('click', function() {
+                    window.location.href = 'project.html';
+                });
+            }
+            
+            // Initial connection status
+            updateConnectionStatus('connected');
+            
+            console.log('✅ INTEGRATION FIX: Chat integration setup complete');
         }
         
         // Start initialization
-        initializeWebSocketIntegration().catch(error => {
+        initializeChatIntegration().catch(error => {
             console.error('❌ INTEGRATION FIX: Failed to initialize:', error);
         });
     });
     
-    console.log('🔧 INTEGRATION FIX: Integration script loaded');
+    console.log('🔧 INTEGRATION FIX: Chat integration script loaded');
     </script>
 </body>
 
