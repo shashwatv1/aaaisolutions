@@ -543,6 +543,64 @@ const ProjectService = {
         return null;
     },
 
+    /**
+     * Clean up expired cache entries
+     */
+    _cleanupCache() {
+        const now = Date.now();
+        let cleanedCount = 0;
+        
+        // Clean up project cache
+        for (const [projectId, timestamp] of this.cacheTimestamps.entries()) {
+            if (now - timestamp > this.options.cacheExpiry) {
+                this.projectCache.delete(projectId);
+                this.cacheTimestamps.delete(projectId);
+                cleanedCount++;
+            }
+        }
+        
+        // Clean up context cache if expired
+        if (this.lastCacheUpdate && (now - this.lastCacheUpdate) > this.options.cacheExpiry) {
+            this.contextCache = null;
+            this.lastCacheUpdate = null;
+        }
+        
+        if (cleanedCount > 0) {
+            this._log(`Cleaned up ${cleanedCount} expired cache entries`);
+        }
+    },
+
+    /**
+     * Clean up expired search cache from session storage
+     */
+    _cleanupSearchCache() {
+        try {
+            const cache = JSON.parse(sessionStorage.getItem('aaai_project_cache') || '{}');
+            const now = Date.now();
+            let cleanedCount = 0;
+            
+            Object.keys(cache).forEach(key => {
+                if (cache[key].timestamp && (now - cache[key].timestamp) > this.options.cacheExpiry) {
+                    delete cache[key];
+                    cleanedCount++;
+                }
+            });
+            
+            if (cleanedCount > 0) {
+                sessionStorage.setItem('aaai_project_cache', JSON.stringify(cache));
+                this._log(`Cleaned up ${cleanedCount} expired search cache entries`);
+            }
+        } catch (error) {
+            // Ignore storage errors but clear the cache if corrupted
+            try {
+                sessionStorage.removeItem('aaai_project_cache');
+                this._log('Cleared corrupted search cache');
+            } catch (e) {
+                // Ignore if we can't even clear it
+            }
+        }
+    },
+    
     _clearProjectListCache() {
         try {
             const cache = JSON.parse(sessionStorage.getItem('aaai_project_cache') || '{}');
