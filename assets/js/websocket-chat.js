@@ -89,15 +89,15 @@ const ChatService = {
     },
 
     /**
-     * Build WebSocket URL with JWT token in query parameters for API Gateway authentication
+     * Build WebSocket URL with NGINX proxy routing and JWT token
      */
     _buildWebSocketURL(user, projectContext = {}, accessToken) {
-        const wsProtocol = 'wss:'; // Always use secure WebSocket
+        const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'wss:'; // Always use secure WebSocket
         
-        // Use API Gateway domain (same as API calls)
-        const wsHost = 'aaai-gateway-754x89jf.uc.gateway.dev';
+        // Use main domain for NGINX proxy routing (same as your working HTTP requests)
+        const wsHost = window.location.host || 'aaai.solutions';
         
-        // Build query parameters including JWT token for Gateway authentication
+        // Build query parameters including JWT token
         const params = new URLSearchParams({
             user_id: user.id,
             email: encodeURIComponent(user.email),
@@ -105,18 +105,18 @@ const ChatService = {
             reel_id: projectContext.reel_id || '',
             session_id: user.sessionId || 'jwt_session',
             auth_method: 'jwt_bearer',
-            token: accessToken  // JWT token for Gateway authentication
+            token: accessToken  // JWT token for authentication
         });
         
         const url = `${wsProtocol}//${wsHost}/ws/${user.id}?${params}`;
         
-        this._log('Built JWT WebSocket URL for API Gateway with token parameter');
+        this._log('Built JWT WebSocket URL for NGINX proxy with token parameter');
         
         return url;
     },
 
     /**
-     * ENHANCED: Connect with JWT authentication via API Gateway using token query parameter
+     * ENHANCED: Connect with JWT authentication via NGINX proxy (aligned with your working setup)
      */
     async connect() {
         if (this.isConnected && this.isAuthenticated) {
@@ -129,9 +129,9 @@ const ChatService = {
             return false;
         }
         
-        this._log('Starting JWT WebSocket connection via API Gateway with token parameter...');
+        this._log('Starting JWT WebSocket connection via NGINX proxy...');
         
-        // Require authentication with enhanced validation
+        // Use your existing auth validation
         this._requireAuth();
         
         const user = this.authService.getCurrentUser();
@@ -139,19 +139,26 @@ const ChatService = {
             throw new Error('Complete user information not available');
         }
 
-        // Get fresh JWT token and validate it's a user token
+        // Use your existing token validation method
         let accessToken;
         try {
+            // Use the same method your project-service uses
             accessToken = await this.authService._ensureValidAccessToken();
             if (!accessToken) {
                 throw new Error('No valid access token available');
             }
             
-            // Additional validation that this is a user token
+            // Use your existing token validation
             const validationResult = this.authService._validateUserToken(accessToken);
             if (!validationResult.valid) {
-                throw new Error(`Invalid user access token for WebSocket connection: ${validationResult.reason}`);
+                throw new Error(`Invalid user access token: ${validationResult.reason}`);
             }
+            
+            this._log('JWT token validated for WebSocket connection:', {
+                email: validationResult.payload.email,
+                userId: validationResult.payload.user_id
+            });
+            
         } catch (error) {
             throw new Error(`Token validation failed: ${error.message}`);
         }
@@ -161,7 +168,7 @@ const ChatService = {
             this.connectionStartTime = Date.now();
             this._notifyStatusChange('connecting');
             
-            // Get current project context
+            // Get current project context (same as your project-service)
             let projectContext = {};
             if (this.projectService) {
                 const context = this.projectService.getContext();
@@ -172,9 +179,9 @@ const ChatService = {
                 };
             }
             
-            // Build WebSocket URL with JWT token in query parameters for API Gateway
+            // Build WebSocket URL with NGINX proxy routing
             const wsUrl = this._buildWebSocketURL(user, projectContext, accessToken);
-            this._log('Connecting to JWT WebSocket via API Gateway with token parameter');
+            this._log('Connecting to JWT WebSocket via NGINX proxy:', wsUrl.replace(/token=[^&]+/, 'token=***'));
             
             // Connection timeout
             const timeout = setTimeout(() => {
@@ -188,17 +195,16 @@ const ChatService = {
             }, this.options.connectionTimeout);
             
             try {
-                // Create WebSocket connection with token in URL
-                // API Gateway will validate the token during handshake
+                // Create WebSocket connection via NGINX proxy
                 this.socket = new WebSocket(wsUrl);
                 
                 // Handle open
                 this.socket.onopen = () => {
                     const connectionTime = Date.now() - this.connectionStartTime;
-                    this._log(`JWT WebSocket opened via API Gateway in ${connectionTime}ms`);
+                    this._log(`JWT WebSocket opened via NGINX proxy in ${connectionTime}ms`);
                     this.isConnected = true;
                     
-                    // Send additional authentication message for server-side validation
+                    // Send authentication message using the same format as your API calls
                     this.socket.send(JSON.stringify({
                         type: 'authenticate',
                         user_id: user.id,
@@ -209,16 +215,19 @@ const ChatService = {
                     }));
                 };
                 
-                // Handle messages with JWT authentication context
+                // Handle messages
                 this.socket.onmessage = (event) => {
                     try {
                         const data = JSON.parse(event.data);
-                        const messageTime = Date.now() - this.connectionStartTime;
-                        this._log(`JWT Message received via API Gateway (${data.type}) after ${messageTime}ms`);
+                        this._log(`JWT Message received via NGINX proxy (${data.type})`);
                         
-                        // Handle JWT session establishment
-                        if (data.type === 'session_established' || data.type === 'auth_success' || data.type === 'authenticated') {
-                            this._log('JWT session established with server via API Gateway');
+                        // Handle session establishment (flexible message types)
+                        if (data.type === 'session_established' || 
+                            data.type === 'auth_success' || 
+                            data.type === 'authenticated' ||
+                            data.type === 'connection_established') {
+                            
+                            this._log('JWT session established with server via NGINX proxy');
                             
                             this.isAuthenticated = true;
                             this.isConnecting = false;
@@ -235,18 +244,14 @@ const ChatService = {
                             return;
                         }
                         
-                        // Handle JWT authentication errors
+                        // Handle authentication errors
                         if (data.type === 'error' && this.isConnecting) {
-                            this._log('JWT connection error via API Gateway:', data.message);
+                            this._log('JWT connection error via NGINX proxy:', data.message);
                             clearTimeout(timeout);
                             this.isConnecting = false;
                             this._cleanup();
                             
-                            if (data.message && (data.message.includes('token') || data.message.includes('authentication') || data.message.includes('unauthorized'))) {
-                                reject(new Error(`JWT Authentication failed: ${data.message}`));
-                            } else {
-                                reject(new Error(`Connection failed: ${data.message || 'Unknown error'}`));
-                            }
+                            reject(new Error(`Authentication failed: ${data.message || 'Unknown error'}`));
                             return;
                         }
                         
@@ -254,28 +259,18 @@ const ChatService = {
                         this._handleMessage(data);
                         
                     } catch (e) {
-                        this._error('JWT Message parse error via API Gateway:', e);
-                        this._error('Raw message:', event.data);
+                        this._error('JWT Message parse error via NGINX proxy:', e);
                     }
                 };
                 
-                // Handle close with JWT authentication context
+                // Handle close
                 this.socket.onclose = (event) => {
-                    const connectionTime = Date.now() - this.connectionStartTime;
-                    this._log(`JWT WebSocket closed via API Gateway after ${connectionTime}ms:`, event.code, event.reason);
+                    this._log(`JWT WebSocket closed via NGINX proxy: ${event.code} ${event.reason}`);
                     
                     if (this.isConnecting) {
                         clearTimeout(timeout);
                         this.isConnecting = false;
-                        
-                        // Enhanced error handling for specific close codes
-                        if (event.code === 1006) {
-                            reject(new Error('Connection failed: Possible authentication failure at Gateway level'));
-                        } else if (event.code === 1002) {
-                            reject(new Error('Connection failed: Protocol error - possible token validation failure'));
-                        } else {
-                            reject(new Error(`Connection closed during handshake: ${event.reason || `Code ${event.code}`}`));
-                        }
+                        reject(new Error(`Connection failed: ${event.reason || `Code ${event.code}`}`));
                         return;
                     }
                     
@@ -284,13 +279,13 @@ const ChatService = {
                 
                 // Handle errors
                 this.socket.onerror = (event) => {
-                    this._error('JWT WebSocket error via API Gateway:', event);
+                    this._error('JWT WebSocket error via NGINX proxy:', event);
                     
                     if (this.isConnecting) {
                         clearTimeout(timeout);
                         this.isConnecting = false;
                         this._cleanup();
-                        reject(new Error('JWT WebSocket connection error via API Gateway - possible token authentication failure'));
+                        reject(new Error('WebSocket connection failed via NGINX proxy'));
                     }
                 };
                 
@@ -302,7 +297,7 @@ const ChatService = {
             }
         });
     },
-    
+        
     /**
      * ENHANCED: Send message with JWT authentication validation
      */
