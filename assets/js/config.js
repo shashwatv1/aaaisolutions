@@ -1,25 +1,6 @@
-// Detect environment based on hostname
-const getEnvironment = () => {
-    const hostname = window.location.hostname;
-    
-    if (hostname === 'localhost' || hostname === '127.0.0.1') {
-        return 'development';
-    } else if (hostname.includes('staging') || hostname.includes('dev')) {
-        return 'staging';
-    } else {
-        return 'production';
-    }
-};
-
-// Get consistent API base URL for all environments
-const getAPIBaseURL = () => {
-    // Always use Gateway for consistency
-    return 'https://aaai-gateway-754x89jf.uc.gateway.dev';
-};
-
 // Get WebSocket base URL for all environments
 const getWebSocketBaseURL = () => {
-    // Always use main domain for consistency with nginx proxy
+    // Use main domain for NGINX proxy routing to Cloud Run
     return window.location.host || 'aaai.solutions';
 };
 
@@ -41,6 +22,7 @@ window.AAAI_CONFIG = {
     ENABLE_CACHING: true,
     ENABLE_PERSISTENCE: true,
     ENABLE_GATEWAY_ROUTING: true,
+    ENABLE_NGINX_PROXY: true,  // New flag for NGINX WebSocket proxy
     
     // WebSocket Configuration
     WS_CONFIG: {
@@ -70,7 +52,8 @@ window.AAAI_CONFIG = {
         // JWT Specific Settings
         JWT_BEARER_AUTH: true,          // Use JWT Bearer tokens for WebSocket
         JWT_REFRESH_ON_CONNECT: true,   // Refresh token before WebSocket connection
-        JWT_PROTOCOLS: true             // Use WebSocket subprotocols for JWT
+        JWT_PROTOCOLS: true,            // Use WebSocket subprotocols for JWT
+        NGINX_PROXY_ROUTING: true       // Use NGINX proxy for WebSocket routing
     },
     
     // Authentication Configuration
@@ -80,7 +63,8 @@ window.AAAI_CONFIG = {
         AUTO_REFRESH: true,
         PERSIST_SESSION: true,
         JWT_BEARER_ONLY: true,            // Only use Bearer tokens
-        GATEWAY_AUTH: true                // Route auth through gateway
+        GATEWAY_AUTH: true,               // Route auth through gateway
+        WEBSOCKET_NGINX_PROXY: true       // WebSocket via NGINX proxy
     },
     
     // Development Configuration
@@ -89,58 +73,9 @@ window.AAAI_CONFIG = {
         VERBOSE_LOGGING: false,
         PERFORMANCE_MONITORING: true,
         ERROR_SIMULATION: false,
-        GATEWAY_BYPASS: false             // Never bypass gateway
+        GATEWAY_BYPASS: false,            // Never bypass gateway
+        NGINX_PROXY_DEBUG: getEnvironment() !== 'production'  // Debug NGINX proxy in dev
     }
-};
-
-// Initialize Logger
-window.AAAI_LOGGER = {
-    debug: function(...args) {
-        if (window.AAAI_CONFIG.ENABLE_DEBUG) {
-            console.log('[DEBUG]', new Date().toISOString(), ...args);
-        }
-    },
-    
-    info: function(...args) {
-        console.info('[INFO]', new Date().toISOString(), ...args);
-    },
-    
-    warn: function(...args) {
-        console.warn('[WARN]', new Date().toISOString(), ...args);
-    },
-    
-    error: function(...args) {
-        console.error('[ERROR]', new Date().toISOString(), ...args);
-        
-        // Optional: Send errors to monitoring service
-        if (window.AAAI_CONFIG.ENVIRONMENT === 'production') {
-            // You could send errors to a monitoring service here
-        }
-    }
-};
-
-// Initialize chat service configuration helper
-window.getChatServiceConfig = function() {
-    return {
-        reconnectInterval: window.AAAI_CONFIG.WS_CONFIG.RECONNECT_INTERVAL,
-        maxReconnectAttempts: window.AAAI_CONFIG.WS_CONFIG.MAX_RECONNECT_ATTEMPTS,
-        heartbeatInterval: window.AAAI_CONFIG.WS_CONFIG.HEARTBEAT_INTERVAL,
-        connectionTimeout: window.AAAI_CONFIG.WS_CONFIG.CONNECTION_TIMEOUT,
-        maxConnectionAge: window.AAAI_CONFIG.WS_CONFIG.MAX_CONNECTION_AGE,
-        messageQueueLimit: window.AAAI_CONFIG.WS_CONFIG.MESSAGE_QUEUE_LIMIT,
-        persistentConnection: window.AAAI_CONFIG.ENABLE_PERSISTENCE,
-        debug: window.AAAI_CONFIG.ENABLE_DEBUG,
-        cacheExpiry: window.AAAI_CONFIG.WS_CONFIG.CACHE_EXPIRY,
-        maxCacheSize: window.AAAI_CONFIG.WS_CONFIG.MAX_CACHE_SIZE,
-        enableCompression: window.AAAI_CONFIG.ENABLE_COMPRESSION,
-        enableBatching: window.AAAI_CONFIG.ENABLE_BATCHING,
-        retryOnError: window.AAAI_CONFIG.WS_CONFIG.RETRY_ON_ERROR,
-        gracefulReconnect: window.AAAI_CONFIG.WS_CONFIG.GRACEFUL_RECONNECT,
-        gatewayRouting: window.AAAI_CONFIG.ENABLE_GATEWAY_ROUTING,
-        jwtBearerAuth: window.AAAI_CONFIG.WS_CONFIG.JWT_BEARER_AUTH,
-        jwtRefreshOnConnect: window.AAAI_CONFIG.WS_CONFIG.JWT_REFRESH_ON_CONNECT,
-        jwtProtocols: window.AAAI_CONFIG.WS_CONFIG.JWT_PROTOCOLS
-    };
 };
 
 // Enhanced URL helpers
@@ -168,14 +103,15 @@ window.getWebSocketURL = function(endpoint, params = {}) {
 };
 
 // Log configuration loaded
-window.AAAI_LOGGER.info('AAAI Configuration loaded with Gateway routing', {
+window.AAAI_LOGGER.info('AAAI Configuration loaded with NGINX WebSocket proxy routing', {
     environment: window.AAAI_CONFIG.ENVIRONMENT,
     version: window.AAAI_CONFIG.VERSION,
     apiBaseURL: window.AAAI_CONFIG.API_BASE_URL,
     websocketBaseURL: window.AAAI_CONFIG.WEBSOCKET_BASE_URL,
     websocketsEnabled: window.AAAI_CONFIG.ENABLE_WEBSOCKETS,
     debugEnabled: window.AAAI_CONFIG.ENABLE_DEBUG,
-    gatewayRouting: window.AAAI_CONFIG.ENABLE_GATEWAY_ROUTING
+    gatewayRouting: window.AAAI_CONFIG.ENABLE_GATEWAY_ROUTING,
+    nginxProxyRouting: window.AAAI_CONFIG.WS_CONFIG.NGINX_PROXY_ROUTING
 });
 
 // Freeze configuration
