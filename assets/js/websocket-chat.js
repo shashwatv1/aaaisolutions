@@ -89,20 +89,21 @@ const ChatService = {
     },
 
     /**
-     * Build WebSocket URL with JWT authentication
+     * Build WebSocket URL with JWT authentication - FIXED
      */
     _buildWebSocketURL(user, projectContext = {}) {
         const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        let wsHost;
         
-        // Use Gateway for both development and production
-        if (window.AAAI_CONFIG?.ENVIRONMENT === 'development') {
-            wsHost = 'aaai-gateway-754x89jf.uc.gateway.dev';
-        } else {
-            wsHost = 'aaai-gateway-754x89jf.uc.gateway.dev';
+        // Use the configured WebSocket base URL (main domain for NGINX proxy)
+        const wsHost = window.AAAI_CONFIG?.WEBSOCKET_BASE_URL || window.location.origin || 'aaai.solutions';
+        
+        // Get JWT token for query parameter
+        const accessToken = this.authService.getToken();
+        if (!accessToken) {
+            throw new Error('No access token available for WebSocket connection');
         }
         
-        // Build basic parameters without JWT token (JWT will go in headers)
+        // Build parameters including JWT token
         const params = new URLSearchParams({
             user_id: user.id,
             email: encodeURIComponent(user.email),
@@ -110,6 +111,7 @@ const ChatService = {
             reel_id: projectContext.reel_id || '',
             session_id: user.sessionId || 'jwt_session',
             auth_method: 'jwt_bearer',
+            token: accessToken,
             t: Date.now()
         });
         
@@ -122,11 +124,8 @@ const ChatService = {
     },
 
     /**
-     * ENHANCED: Connect with JWT authentication validation
+     * ENHANCED: Connect with JWT authentication validation - FIXED
      */
-/**
- * ENHANCED: Connect with JWT authentication validation
- */
     async connect() {
         if (this.isConnected && this.isAuthenticated) {
             this._log('Already connected and authenticated');
@@ -157,8 +156,11 @@ const ChatService = {
             }
             
             // Additional validation that this is a user token
-            if (!this.authService._validateUserToken || !this.authService._validateUserToken(accessToken)) {
-                throw new Error('Invalid user access token for WebSocket connection');
+            if (this.authService._validateUserToken) {
+                const validationResult = this.authService._validateUserToken(accessToken);
+                if (!validationResult.valid) {
+                    throw new Error(`Token validation failed: ${validationResult.reason}`);
+                }
             }
         } catch (error) {
             throw new Error(`Token validation failed: ${error.message}`);
@@ -182,7 +184,7 @@ const ChatService = {
             
             // Build WebSocket URL with JWT authentication
             const wsUrl = this._buildWebSocketURL(user, projectContext);
-            this._log('Connecting to JWT WebSocket:', wsUrl);
+            this._log('Connecting to JWT WebSocket:', wsUrl.replace(/token=[^&]+/, 'token=***JWT_TOKEN***'));
             
             // Connection timeout
             const timeout = setTimeout(() => {
@@ -196,14 +198,8 @@ const ChatService = {
             }, this.options.connectionTimeout);
             
             try {
-                // Create WebSocket with proper protocols and headers
-                const protocols = [`authorization.bearer.${accessToken}`];
-                this.socket = new WebSocket(wsUrl, protocols);
-                
-                // Set additional headers if supported by environment
-                if (this.socket.setRequestHeader) {
-                    this.socket.setRequestHeader('Authorization', `Bearer ${accessToken}`);
-                }
+                // Create WebSocket connection - JWT token is in URL, no subprotocols needed
+                this.socket = new WebSocket(wsUrl);
                 
                 // Handle open
                 this.socket.onopen = () => {
