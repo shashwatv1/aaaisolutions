@@ -62,7 +62,6 @@ const AuthService = {
         this._log('No authentication state found');
         return false;
     },
-
     /**
      * Fast cached authentication check
      */
@@ -140,7 +139,6 @@ const AuthService = {
             return await response.json();
             
         } catch (error) {
-            this._error('OTP request failed:', error);
             throw new Error(`OTP request failed: ${error.message}`);
         }
     },
@@ -203,115 +201,74 @@ const AuthService = {
             
         } catch (error) {
             this._clearAuthState();
-            this._error('OTP verification failed:', error);
             throw new Error(`OTP verification failed: ${error.message}`);
         }
     },
 
     /**
-     * Enhanced function execution with comprehensive error handling
+     * Optimized function execution with enhanced logging
      */
     async executeFunction(functionName, inputData) {
         if (!this.isAuthenticated()) {
-            this._error('Authentication required for function:', functionName);
             throw new Error('Authentication required');
         }
         
         // Get token (cached if available)
-        let accessToken = this.getToken();
+        const accessToken = this.getToken();
         if (!accessToken) {
-            this._log('No valid access token, attempting refresh...');
+            // Try refresh once
             const refreshed = await this._quickRefresh();
             if (!refreshed) {
-                this._error('No valid access token available for:', functionName);
                 throw new Error('No valid access token available');
             }
-            accessToken = this.getToken();
         }
         
-        this._log('Executing function:', functionName);
+        this._log('Executing function:', functionName, 'with input:', inputData);
         
-        let attempt = 0;
-        const maxAttempts = this.options.maxRetryAttempts;
-        
-        while (attempt < maxAttempts) {
-            try {
-                const controller = new AbortController();
-                const timeoutId = setTimeout(() => controller.abort(), 30000); // 30s timeout
-                
-                const apiUrl = window.getAPIURL(`/api/function/${functionName}`);
-                this._log('Making request to:', apiUrl);
-                
-                const response = await fetch(apiUrl, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${accessToken}`
-                    },
-                    body: JSON.stringify(inputData),
-                    credentials: 'include',
-                    signal: controller.signal
-                });
-                
-                clearTimeout(timeoutId);
-                
-                this._log('Response status:', response.status, response.statusText);
-                
-                if (!response.ok) {
-                    if (response.status === 401) {
-                        this._log('Authentication failed, attempting token refresh...');
-                        const refreshed = await this._quickRefresh();
-                        if (refreshed) {
-                            accessToken = this.getToken();
-                            attempt++;
-                            continue; // Retry with new token
-                        }
-                        this._clearAuthState();
-                        throw new Error('Session expired');
+        try {
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 30000); // 30s timeout
+            
+            const response = await fetch(`${this.AUTH_BASE_URL}/api/function/${functionName}`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${this.accessToken}`
+                },
+                body: JSON.stringify(inputData),
+                credentials: 'include',
+                signal: controller.signal
+            });
+            
+            clearTimeout(timeoutId);
+            
+            this._log('Response status:', response.status, response.statusText);
+            
+            if (!response.ok) {
+                if (response.status === 401) {
+                    // Try refresh once
+                    const refreshed = await this._quickRefresh();
+                    if (refreshed) {
+                        return this.executeFunction(functionName, inputData);
                     }
-                    
-                    let errorData;
-                    try {
-                        errorData = await response.json();
-                    } catch (parseError) {
-                        this._error('Failed to parse error response:', parseError);
-                        errorData = { error: `HTTP ${response.status}: ${response.statusText}` };
-                    }
-                    
-                    const errorMessage = errorData.error || errorData.detail || `Function execution failed with status ${response.status}`;
-                    this._error('API error response for', functionName, ':', errorData);
-                    throw new Error(errorMessage);
+                    this._clearAuthState();
+                    throw new Error('Session expired');
                 }
                 
-                const result = await response.json();
-                this._log('Function response received for:', functionName);
-                
-                return result;
-                
-            } catch (error) {
-                this._error('Function execution error on attempt', attempt + 1, 'for', functionName, ':', error);
-                
-                // Check if it's a network error that might be retryable
-                if (error.name === 'AbortError') {
-                    throw new Error(`Request timeout for function: ${functionName}`);
-                }
-                
-                if (error.name === 'TypeError' && error.message.includes('fetch')) {
-                    // Network error - might be retryable
-                    attempt++;
-                    if (attempt < maxAttempts) {
-                        this._log(`Network error, retrying ${functionName} in ${attempt * 1000}ms...`);
-                        await new Promise(resolve => setTimeout(resolve, attempt * 1000));
-                        continue;
-                    }
-                }
-                
-                // SSL or other critical errors - don't retry
-                throw error;
+                const errorData = await response.json().catch(() => ({}));
+                this._error('API error response:', errorData);
+                throw new Error(errorData.error || errorData.detail || `Function execution failed with status ${response.status}`);
             }
+            
+            const result = await response.json();
+            this._log('Function response:', functionName, JSON.stringify(result, null, 2));
+            
+            return result;
+            
+        } catch (error) {
+            this._error('Function execution error:', functionName, error);
+            throw error;
         }
-        
-        throw new Error(`Function ${functionName} failed after ${maxAttempts} attempts`);
     },
 
     /**
@@ -328,9 +285,7 @@ const AuthService = {
             const controller = new AbortController();
             const timeoutId = setTimeout(() => controller.abort(), 10000);
             
-            const refreshUrl = window.getAPIURL('/auth/refresh');
-            
-            const response = await fetch(refreshUrl, {
+            const response = await fetch(`${this.AUTH_BASE_URL}/auth/refresh`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 credentials: 'include',
@@ -340,7 +295,6 @@ const AuthService = {
             clearTimeout(timeoutId);
             
             if (!response.ok) {
-                this._error('Token refresh failed with status:', response.status);
                 this._clearAuthState();
                 return false;
             }
@@ -360,15 +314,12 @@ const AuthService = {
                 this._setAccessToken(accessToken, expiresIn);
                 this._updateStoredToken(accessToken, expiresIn);
                 this._scheduleRefresh();
-                this._log('Token refresh successful');
                 return true;
             }
             
-            this._error('No access token in refresh response');
             return false;
             
         } catch (error) {
-            this._error('Token refresh error:', error);
             this._clearAuthState();
             return false;
         } finally {
@@ -398,9 +349,7 @@ const AuthService = {
                 const controller = new AbortController();
                 const timeoutId = setTimeout(() => controller.abort(), 5000);
                 
-                const logoutUrl = window.getAPIURL('/auth/logout');
-                
-                fetch(logoutUrl, {
+                fetch(`${this.AUTH_BASE_URL}/auth/logout`, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -414,7 +363,7 @@ const AuthService = {
             }
             
         } catch (error) {
-            this._error('Logout error:', error);
+            // Ignore logout errors
         } finally {
             this._clearAuthState();
         }
@@ -493,7 +442,7 @@ const AuthService = {
             
             sessionStorage.setItem('aaai_access_token', JSON.stringify(tokenData));
         } catch (error) {
-            this._error('Failed to store access token:', error);
+            console.warn('Failed to store access token:', error);
         }
     },
 
@@ -511,7 +460,6 @@ const AuthService = {
             
             return tokenData;
         } catch (error) {
-            this._error('Failed to get stored token:', error);
             sessionStorage.removeItem('aaai_access_token');
             return null;
         }
@@ -527,7 +475,7 @@ const AuthService = {
                 sessionStorage.setItem('aaai_access_token', JSON.stringify(stored));
             }
         } catch (error) {
-            this._error('Failed to update stored token:', error);
+            console.warn('Failed to update stored token:', error);
         }
     },
 
@@ -550,17 +498,13 @@ const AuthService = {
                                     timeToExpiry < (this.options.refreshBufferTime / 2);
                 
                 if (shouldRefresh) {
-                    this._quickRefresh().catch((error) => {
-                        this._error('Scheduled refresh failed:', error);
-                    });
+                    this._quickRefresh().catch(() => {});
                 } else {
                     // Defer refresh until page becomes visible
                     const handleVisibilityChange = () => {
                         if (document.visibilityState === 'visible') {
                             document.removeEventListener('visibilitychange', handleVisibilityChange);
-                            this._quickRefresh().catch((error) => {
-                                this._error('Deferred refresh failed:', error);
-                            });
+                            this._quickRefresh().catch(() => {});
                         }
                     };
                     document.addEventListener('visibilitychange', handleVisibilityChange);
@@ -600,10 +544,6 @@ const AuthService = {
         if (this.options.debug) {
             console.log('[FastAuth]', ...args);
         }
-    },
-
-    _error(...args) {
-        console.error('[FastAuth]', ...args);
     }
 };
 
