@@ -297,10 +297,13 @@
     
     /**
      * Enhanced chat page initialization with direct API approach
-     */
+    */
     function initializeChatPage() {
         try {
             console.log('💬 FIXED: Enhanced chat page initialization starting...');
+            console.log('💬 Available services:', Object.keys(window.AAAI_APP.services));
+            console.log('💬 ChatService available:', !!window.ChatService);
+            console.log('💬 ChatIntegration available:', !!window.ChatIntegration);
             
             const authService = window.AAAI_APP.services.AuthService;
             const projectService = window.AAAI_APP.services.ProjectService;
@@ -327,21 +330,22 @@
                 projectName: projectName ? decodeURIComponent(projectName) : null
             });
             
-            // FIXED: Initialize ChatService first
+            // FIXED: Initialize ChatService first with debugging
             if (window.ChatService && !window.ChatService.isInitialized) {
                 try {
                     console.log('🔧 Initializing ChatService...');
                     window.ChatService.init(authService, {
-                        debug: window.AAAI_APP.debug,
+                        debug: true, // Force debug for troubleshooting
                         fastMode: true
                     });
                     console.log('✅ ChatService initialized');
+                    console.log('🔍 ChatService status:', window.ChatService.getStatus());
                 } catch (error) {
                     console.error('❌ ChatService initialization failed:', error);
                 }
             }
             
-            // FIXED: Initialize ChatIntegration with WebSocket enabled
+            // FIXED: Initialize ChatIntegration with WebSocket enabled and enhanced debugging
             if (window.ChatIntegration && !window.ChatIntegration.isInitialized) {
                 try {
                     console.log('🔧 Initializing ChatIntegration with WebSocket...');
@@ -350,19 +354,35 @@
                     setTimeout(() => {
                         try {
                             window.ChatIntegration.init('chatContainer', {
-                                debug: window.AAAI_APP.debug,
+                                debug: true, // Force debug for troubleshooting
                                 autoScroll: true,
                                 showTimestamps: true,
                                 enableTypingIndicator: true,
-                                connectWebSocket: true  // FIXED: Enable WebSocket connection
+                                connectWebSocket: true
                             });
                             console.log('✅ ChatIntegration initialized with WebSocket');
+                            console.log('🔍 ChatIntegration state:', {
+                                initialized: window.ChatIntegration.isInitialized,
+                                container: !!window.ChatIntegration.container,
+                                elements: Object.keys(window.ChatIntegration.elements).filter(k => window.ChatIntegration.elements[k]),
+                                webSocketConnected: window.ChatIntegration.webSocketConnected
+                            });
                             
                             // Set project context
                             window.ChatIntegration.setProjectContext(projectId, projectName);
+                            console.log('🎯 Project context set for ChatIntegration');
                             
                             // Mark as ready
                             window.AAAI_APP.chatIntegrationReady = true;
+                            
+                            // Test WebSocket connection after a short delay
+                            setTimeout(() => {
+                                console.log('🔍 Final ChatIntegration state:', {
+                                    webSocketConnected: window.ChatIntegration.webSocketConnected,
+                                    chatServiceConnected: window.ChatService?.isConnected,
+                                    messageListenerBound: window.ChatIntegration.messageListenerBound
+                                });
+                            }, 2000);
                             
                             // Dispatch ready event
                             document.dispatchEvent(new CustomEvent('chatIntegrationReady', {

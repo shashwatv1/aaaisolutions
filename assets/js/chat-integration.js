@@ -156,32 +156,52 @@ const ChatIntegration = {
      */
     _handleWebSocketMessage(message) {
         try {
-            this._log('FIXED: Received WebSocket message:', {
+            this._log('FIXED: ChatIntegration received WebSocket message:', {
                 type: message.type,
                 messageId: message.messageId,
-                hasText: !!message.text
+                hasText: !!message.text,
+                textLength: message.text ? message.text.length : 0,
+                timestamp: message.timestamp,
+                fullMessage: message
             });
+            
+            // Force enable debug for this issue
+            const originalDebug = this.options.debug;
+            this.options.debug = true;
             
             switch (message.type) {
                 case 'chat_response':
+                    this._log('FIXED: Processing chat_response...');
                     this._handleChatResponse(message);
                     break;
                     
                 case 'message_queued':
+                    this._log('FIXED: Processing message_queued...');
                     this._handleMessageQueued(message);
                     break;
                     
                 case 'chat_error':
+                    this._log('FIXED: Processing chat_error...');
                     this._handleChatError(message);
                     break;
                     
                 default:
-                    this._log('Unhandled WebSocket message type:', message.type);
+                    this._log('FIXED: Unhandled WebSocket message type in ChatIntegration:', message.type);
+                    
+                    // Try to handle as chat response if it has text
+                    if (message.text) {
+                        this._log('FIXED: Treating unknown message type as chat response');
+                        this._handleChatResponse(message);
+                    }
                     break;
             }
             
+            // Restore original debug setting
+            this.options.debug = originalDebug;
+            
         } catch (error) {
-            this._error('Error handling WebSocket message:', error);
+            this._error('FIXED: Error handling WebSocket message in ChatIntegration:', error);
+            this._hideTypingIndicator(); // Always hide typing indicator on error
         }
     },
     
@@ -190,33 +210,63 @@ const ChatIntegration = {
      */
     _handleChatResponse(message) {
         try {
-            this._log('FIXED: Processing chat response:', {
+            this._log('FIXED: ChatIntegration processing chat response:', {
                 messageId: message.messageId,
-                textLength: message.text ? message.text.length : 0
+                textLength: message.text ? message.text.length : 0,
+                text: message.text ? message.text.substring(0, 100) + '...' : 'NO TEXT',
+                pendingCount: this.pendingMessages.size
             });
             
             // Remove from pending
-            this.pendingMessages.delete(message.messageId);
+            if (message.messageId) {
+                this.pendingMessages.delete(message.messageId);
+                this._log('FIXED: Removed message from pending:', message.messageId);
+            }
             
-            // Hide typing indicator
+            // Hide typing indicator FIRST
+            this._log('FIXED: Hiding typing indicator...');
             this._hideTypingIndicator();
             
+            // Validate response text
+            let responseText = message.text;
+            if (!responseText || typeof responseText !== 'string') {
+                responseText = 'Response received but no text content';
+                this._log('FIXED: No valid response text, using fallback');
+            }
+            
             // Add bot response to UI
-            this._addMessageToUI({
+            this._log('FIXED: Adding bot message to UI...');
+            const botMessage = {
                 type: 'bot',
-                text: message.text || 'Response received but could not parse content',
+                text: responseText,
                 timestamp: message.timestamp || Date.now(),
                 id: message.messageId,
                 components: message.components || []
-            });
+            };
             
-            this._log('FIXED: Chat response displayed successfully');
+            this._addMessageToUI(botMessage);
+            
+            this._log('FIXED: Chat response processed successfully, text length:', responseText.length);
+            
+            // Double-check typing indicator is hidden
+            setTimeout(() => {
+                this._hideTypingIndicator();
+                this._log('FIXED: Double-checked typing indicator hidden');
+            }, 100);
             
         } catch (error) {
-            this._error('Error handling chat response:', error);
+            this._error('FIXED: Error handling chat response:', error);
             this._hideTypingIndicator();
+            
+            // Show error message to user
+            this._addMessageToUI({
+                type: 'error',
+                text: 'Error displaying response: ' + error.message,
+                timestamp: Date.now()
+            });
         }
     },
+    
     
     /**
      * FIXED: Handle message queued notification
@@ -694,9 +744,25 @@ const ChatIntegration = {
      * Hide typing indicator
      */
     _hideTypingIndicator() {
-        if (this.elements.typingIndicator) {
-            this.elements.typingIndicator.remove();
-            this.elements.typingIndicator = null;
+        try {
+            if (this.elements.typingIndicator) {
+                this._log('FIXED: Removing typing indicator element');
+                this.elements.typingIndicator.remove();
+                this.elements.typingIndicator = null;
+            } else {
+                this._log('FIXED: No typing indicator to remove');
+            }
+            
+            // Also remove any stray typing indicators
+            if (this.elements.chatBody) {
+                const strayIndicators = this.elements.chatBody.querySelectorAll('.typing-indicator');
+                strayIndicators.forEach(indicator => {
+                    indicator.remove();
+                    this._log('FIXED: Removed stray typing indicator');
+                });
+            }
+        } catch (error) {
+            this._error('FIXED: Error hiding typing indicator:', error);
         }
     },
     

@@ -427,7 +427,8 @@ const ChatService = {
             messageId: data.message_id,
             hasResponse: !!data.response,
             hasText: !!data.text,
-            timestamp: data.timestamp
+            timestamp: data.timestamp,
+            fullData: data
         });
         
         try {
@@ -480,7 +481,10 @@ const ChatService = {
                         messageId: data.message_id,
                         hasResponse: !!data.response,
                         responseType: typeof data.response,
-                        hasText: !!data.text
+                        hasText: !!data.text,
+                        responseKeys: data.response ? Object.keys(data.response) : [],
+                        directText: data.text,
+                        fullResponseData: data.response
                     });
                     
                     this.pendingMessages.delete(data.message_id);
@@ -506,12 +510,16 @@ const ChatService = {
                                     responseText = data.response.text;
                                     components = data.response.components || [];
                                     this._log('FIXED: Using response.text');
+                                } else if (data.response.message) {
+                                    responseText = data.response.message;
+                                    this._log('FIXED: Using response.message');
+                                } else if (data.response.content) {
+                                    responseText = data.response.content;
+                                    this._log('FIXED: Using response.content');
                                 } else {
                                     // Try to extract any text-like fields
-                                    responseText = data.response.message || 
-                                                data.response.content || 
-                                                JSON.stringify(data.response);
-                                    this._log('FIXED: Using fallback response parsing');
+                                    responseText = JSON.stringify(data.response);
+                                    this._log('FIXED: Using stringified response object');
                                 }
                             }
                         }
