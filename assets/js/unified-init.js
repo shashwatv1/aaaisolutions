@@ -16,7 +16,7 @@
     };
     
     // Minimal service loading order
-    const CORE_SERVICES = ['AuthService', 'ProjectService', 'NavigationManager'];
+    const CORE_SERVICES = ['AuthService', 'ProjectService', 'NavigationManager', 'ChatService', 'ChatIntegration'];
     
     /**
      * Fast initialization with minimal blocking
@@ -222,6 +222,25 @@
                         window.AAAI_APP.services[serviceName] = service;
                         break;
                         
+                    case 'ChatService':
+                        if (typeof service.init === 'function' && !service.isInitialized) {
+                            try {
+                                service.init(window.AAAI_APP.services.AuthService, {
+                                    debug: window.AAAI_APP.debug
+                                });
+                            } catch (error) {
+                                console.warn(`⚠️ ${serviceName} initialization failed:`, error);
+                                continue;
+                            }
+                        }
+                        window.AAAI_APP.services[serviceName] = service;
+                        break;
+                        
+                    case 'ChatIntegration':
+                        // ChatIntegration is initialized per-page, not globally
+                        window.AAAI_APP.services[serviceName] = service;
+                        break;
+                        
                     default:
                         window.AAAI_APP.services[serviceName] = service;
                         break;
@@ -237,7 +256,7 @@
         
         console.log('✅ Core services initialized');
     }
-    
+        
     /**
      * Page-specific initialization (non-blocking)
      */
@@ -333,6 +352,66 @@
         }
     }
     
+    /**
+     * Fast chat page initialization
+     */
+    function initializeChatPageFast() {
+        try {
+            console.log('💬 Fast chat page init...');
+            
+            const authService = window.AAAI_APP.services.AuthService;
+            const projectService = window.AAAI_APP.services.ProjectService;
+            
+            if (!authService?.isAuthenticated()) {
+                window.location.href = 'login.html';
+                return;
+            }
+            
+            // Get project ID from URL
+            const urlParams = new URLSearchParams(window.location.search);
+            const projectId = urlParams.get('project');
+            
+            if (!projectId) {
+                console.warn('⚠️ No project ID, redirecting to projects');
+                window.location.href = 'project.html';
+                return;
+            }
+            
+            // Initialize ChatIntegration
+            if (window.ChatIntegration && !window.ChatIntegration.isInitialized) {
+                try {
+                    window.ChatIntegration.init('chatContainer', {
+                        debug: window.AAAI_APP.debug
+                    });
+                    console.log('✅ ChatIntegration initialized');
+                } catch (error) {
+                    console.error('❌ ChatIntegration initialization failed:', error);
+                }
+            }
+            
+            // Switch to project context asynchronously
+            if (projectService) {
+                const projectName = urlParams.get('project_name');
+                projectService.switchToProject(
+                    projectId, 
+                    projectName ? decodeURIComponent(projectName) : null
+                ).then(() => {
+                    // Initialize ChatIntegration with project after context switch
+                    if (window.ChatIntegration?.isInitialized) {
+                        return window.ChatIntegration.initializeWithProject(projectId, projectName);
+                    }
+                }).catch(error => {
+                    console.error('❌ Project context switch failed:', error);
+                });
+            }
+            
+            console.log('✅ Chat page initialized');
+            
+        } catch (error) {
+            console.error('❌ Chat page init failed:', error);
+        }
+    }
+
     /**
      * Fast environment initialization
      */
