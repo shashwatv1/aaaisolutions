@@ -349,7 +349,7 @@
                 try {
                     console.log('🔧 FIXED: Initializing ChatIntegration...');
                     
-                    // FIXED: Wait a bit for DOM to be fully ready
+                    // FIXED: Wait for DOM to be fully ready
                     setTimeout(() => {
                         try {
                             window.ChatIntegration.init('chatContainer', {
@@ -361,8 +361,20 @@
                             });
                             console.log('✅ FIXED: ChatIntegration initialized successfully');
                             
-                            // FIXED: Now connect ChatService after integration is set up
-                            initializeChatConnectionFixed(projectId, projectName);
+                            // FIXED: Set project context immediately
+                            window.ChatIntegration.setProjectContext(projectId, projectName);
+                            
+                            // FIXED: Mark chat integration as ready for external scripts
+                            window.AAAI_APP.chatIntegrationReady = true;
+                            
+                            // FIXED: Dispatch event for external integration scripts
+                            document.dispatchEvent(new CustomEvent('chatIntegrationReady', {
+                                detail: {
+                                    projectId,
+                                    projectName,
+                                    integration: window.ChatIntegration
+                                }
+                            }));
                             
                         } catch (error) {
                             console.error('❌ FIXED: ChatIntegration initialization failed:', error);
@@ -376,20 +388,24 @@
                                         connectImmediately: false,
                                         autoScroll: true
                                     });
-                                    initializeChatConnectionFixed(projectId, projectName);
+                                    window.ChatIntegration.setProjectContext(projectId, projectName);
+                                    window.AAAI_APP.chatIntegrationReady = true;
+                                    document.dispatchEvent(new CustomEvent('chatIntegrationReady'));
                                 } catch (fallbackError) {
                                     console.error('❌ FIXED: ChatIntegration fallback failed:', fallbackError);
                                 }
                             }, 1000);
                         }
-                    }, 500); // Wait 500ms for DOM readiness
+                    }, 100); // Reduced wait time
                     
                 } catch (error) {
                     console.error('❌ FIXED: ChatIntegration setup failed:', error);
                 }
             } else if (window.ChatIntegration?.isInitialized) {
                 console.log('ℹ️ FIXED: ChatIntegration already initialized');
-                initializeChatConnectionFixed(projectId, projectName);
+                window.ChatIntegration.setProjectContext(projectId, projectName);
+                window.AAAI_APP.chatIntegrationReady = true;
+                document.dispatchEvent(new CustomEvent('chatIntegrationReady'));
             } else {
                 console.error('❌ FIXED: ChatIntegration not available');
             }

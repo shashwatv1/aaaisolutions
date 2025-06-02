@@ -650,6 +650,18 @@ const ChatIntegration = {
                 });
             }
             
+            // FIXED: Trigger a custom event for external integration
+            if (typeof window !== 'undefined') {
+                window.dispatchEvent(new CustomEvent('chatResponse', {
+                    detail: {
+                        messageId: data.messageId,
+                        text: messageText,
+                        timestamp: data.timestamp || Date.now(),
+                        type: 'bot'
+                    }
+                }));
+            }
+            
         } catch (error) {
             this._error('FIXED: Error handling chat response:', error, data);
             
