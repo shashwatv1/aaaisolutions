@@ -729,7 +729,10 @@ const ChatService = {
         this._log('FIXED: Notifying message listeners:', {
             type: data.type,
             listenerCount: this.messageListeners.size,
-            messageId: data.messageId
+            messageId: data.messageId,
+            hasText: !!data.text,
+            textLength: data.text ? data.text.length : 0,
+            listeners: Array.from(this.messageListeners).map(l => l.name || 'anonymous')
         });
         
         if (this.messageListeners.size === 0) {
@@ -740,13 +743,21 @@ const ChatService = {
         let successCount = 0;
         let errorCount = 0;
         
-        this.messageListeners.forEach(callback => {
+        this.messageListeners.forEach((callback, index) => {
             try {
+                this._log(`FIXED: Calling listener ${index + 1}/${this.messageListeners.size}:`, {
+                    callbackName: callback.name || 'anonymous',
+                    messageType: data.type,
+                    messageId: data.messageId
+                });
+                
                 callback(data);
                 successCount++;
+                
+                this._log(`FIXED: Listener ${index + 1} executed successfully`);
             } catch (error) {
                 errorCount++;
-                this._error('FIXED: Message listener error:', error);
+                this._error(`FIXED: Message listener ${index + 1} error:`, error);
             }
         });
         
