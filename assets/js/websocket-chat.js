@@ -161,10 +161,28 @@ const ChatService = {
                 
                 this.socket.onmessage = (event) => {
                     try {
+                        console.log('🔥 RAW WEBSOCKET MESSAGE RECEIVED:', {
+                            data: event.data,
+                            timestamp: new Date().toISOString(),
+                            type: typeof event.data,
+                            length: event.data.length
+                        });
+                        
                         const data = JSON.parse(event.data);
+                        
+                        console.log('🔥 PARSED WEBSOCKET MESSAGE:', {
+                            type: data.type,
+                            message_id: data.message_id,
+                            messageId: data.messageId,
+                            hasText: !!data.text,
+                            hasResponse: !!data.response,
+                            keys: Object.keys(data),
+                            fullData: data
+                        });
+                        
                         this._handleMessageFixed(data);
                     } catch (e) {
-                        this._error('Message parse error:', e, 'Raw data:', event.data);
+                        this._error('🔥 Message parse error:', e, 'Raw data:', event.data);
                     }
                 };
                 
