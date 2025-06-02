@@ -992,21 +992,18 @@
   </div>
 
   <!-- Project Context Menu -->
-  <div class="project-context-menu" id="projectContextMenu">
-    <div class="context-menu-item" onclick="editProject()">
-      <ion-icon name="create-outline"></ion-icon>
-      <span>Edit Project</span>
-    </div>
-    <div class="context-menu-item" onclick="duplicateProject()">
-      <ion-icon name="copy-outline"></ion-icon>
-      <span>Duplicate</span>
-    </div>
-    <div class="context-menu-divider"></div>
-    <div class="context-menu-item danger" onclick="deleteProject()">
-      <ion-icon name="trash-outline"></ion-icon>
-      <span>Delete Project</span>
-    </div>
+<!-- Project Context Menu -->
+<div class="project-context-menu" id="projectContextMenu">
+  <div class="context-menu-item" onclick="event.stopPropagation(); editProject()">
+    <ion-icon name="create-outline"></ion-icon>
+    <span>Edit Project</span>
   </div>
+  <div class="context-menu-divider"></div>
+  <div class="context-menu-item danger" onclick="event.stopPropagation(); deleteProject()">
+    <ion-icon name="trash-outline"></ion-icon>
+    <span>Delete Project</span>
+  </div>
+</div>
 
   <!-- Footer -->
   <footer class="footer">
@@ -1034,7 +1031,7 @@
   <script type="module" src="https://unpkg.com/ionicons@5.5.2/dist/ionicons/ionicons.esm.js"></script>
   <script nomodule src="https://unpkg.com/ionicons@5.5.2/dist/ionicons/ionicons.js"></script>
   
-  <!-- Unified Projects Application Script -->
+  <!-- Unified Projects Application Script --><!-- Unified Projects Application Script -->
   <script>
     document.addEventListener('DOMContentLoaded', async function() {
       console.log('🚀 Unified Projects Application starting...');
@@ -1510,9 +1507,11 @@
           }
         });
         
-        // Close context menu when clicking outside
+        // Close context menu when clicking outside (but not on menu items)
         document.addEventListener('click', function(e) {
-          if (!elements.projectContextMenu.contains(e.target) && !e.target.classList.contains('project-menu')) {
+          if (!elements.projectContextMenu.contains(e.target) && 
+              !e.target.classList.contains('project-menu') &&
+              !e.target.closest('.context-menu-item')) {
             hideContextMenu();
           }
         });
@@ -1530,10 +1529,11 @@
         
         if (!selectedProject) {
           console.error('Project not found:', projectId);
+          showToast('Project not found', 'error');
           return;
         }
         
-        console.log('Showing context menu for project:', selectedProject.name);
+        console.log('Showing context menu for project:', selectedProject.name, selectedProject);
         
         const rect = event.target.getBoundingClientRect();
         const menu = elements.projectContextMenu;
@@ -1558,15 +1558,17 @@
        */
       function hideContextMenu() {
         elements.projectContextMenu.style.display = 'none';
-        selectedProjectId = null;
-        selectedProject = null;
+        // Don't clear selectedProject here - let the action functions handle it
       }
       
       /**
        * Edit project
        */
       function editProject() {
+        console.log('Edit project called, selectedProject:', selectedProject);
+        
         if (!selectedProject) {
+          console.error('No project selected for editing');
           showToast('No project selected', 'error');
           return;
         }
@@ -1583,49 +1585,13 @@
       }
       
       /**
-       * Duplicate project
-       */
-      async function duplicateProject() {
-        if (!selectedProject) {
-          showToast('No project selected', 'error');
-          return;
-        }
-        
-        hideContextMenu();
-        
-        try {
-          const duplicatedProject = {
-            name: `${selectedProject.name} (Copy)`,
-            description: selectedProject.description || '',
-            tags: selectedProject.tags || []
-          };
-          
-          console.log('Duplicating project:', duplicatedProject);
-          
-          const result = await window.NavigationManager.createProjectAndNavigate(duplicatedProject);
-          
-          if (result.success) {
-            // Update local state
-            projects.unshift(result.project);
-            filteredProjects = [...projects];
-            renderProjects();
-            
-            showToast(`Project duplicated successfully!`, 'success');
-            
-            console.log('✅ Project duplicated successfully');
-          }
-          
-        } catch (error) {
-          console.error('❌ Error duplicating project:', error);
-          showToast(`Failed to duplicate project: ${error.message}`, 'error');
-        }
-      }
-      
-      /**
        * Delete project
        */
       function deleteProject() {
+        console.log('Delete project called, selectedProject:', selectedProject);
+        
         if (!selectedProject) {
+          console.error('No project selected for deletion');
           showToast('No project selected', 'error');
           return;
         }
@@ -1804,7 +1770,7 @@
             // Update local state
             const projectIndex = projects.findIndex(p => p.id === selectedProject.id);
             if (projectIndex !== -1) {
-              projects[projectIndex] = { ...projects[projectIndex], ...result.data.project };
+              projects[projectIndex] = { ...projects[projectIndex], name: name, description: description };
               filteredProjects = [...projects];
               renderProjects();
             }
@@ -1834,11 +1800,13 @@
           return;
         }
         
+        const projectToDelete = { ...selectedProject }; // Create a copy
+        
         try {
           setButtonLoading(elements.confirmDeleteBtn, true);
           
           const deleteData = {
-            project_id: selectedProject.id
+            project_id: projectToDelete.id
           };
           
           console.log('🗑️ Deleting project:', deleteData);
@@ -1847,12 +1815,12 @@
           
           if (result?.status === 'success' && result?.data?.success) {
             // Update local state
-            projects = projects.filter(p => p.id !== selectedProject.id);
+            projects = projects.filter(p => p.id !== projectToDelete.id);
             filteredProjects = [...projects];
             renderProjects();
             
             hideDeleteConfirmModal();
-            showToast(`Project "${selectedProject.name}" deleted successfully!`, 'success');
+            showToast(`Project "${projectToDelete.name}" deleted successfully!`, 'success');
             
             console.log('✅ Project deleted successfully');
           } else {
