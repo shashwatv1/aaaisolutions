@@ -13,13 +13,15 @@ const ProjectService = {
     contextCache: null,
     lastCacheUpdate: null,
     
-    // Configuration - optimized for speed
+    // Configuration - optimized with efficient real-time updates
     options: {
-        cacheExpiry: 600000, // 10 minutes (increased)
+        cacheExpiry: 300000, // 5 minutes 
         maxCacheSize: 100, // Reduced
-        quickCacheExpiry: 60000, // 1 minute for frequent operations
-        enableRealTimeUpdates: false, // Disabled for performance
-        autoSync: false, // Disabled for performance
+        quickCacheExpiry: 30000, // 30 seconds for frequent operations
+        enableRealTimeUpdates: true, // Efficient real-time updates
+        autoSync: true, // Smart auto-sync enabled
+        syncInterval: 60000, // 1 minute (increased from 30s)
+        smartSync: true, // Only sync when page is visible
         debug: false
     },
     
@@ -62,6 +64,8 @@ const ProjectService = {
         }
         
         this._loadQuickContext();
+        this._setupEfficientAutoSync(); // Smart auto-sync
+        this._setupCacheCleanup();
         this.isInitialized = true;
         
         this._log('ProjectService initialized quickly');
@@ -513,6 +517,107 @@ const ProjectService = {
                 }
             });
         }, 0);
+    },
+
+    /**
+     * Efficient auto-sync that respects page visibility and network conditions
+     */
+    _setupEfficientAutoSync() {
+        if (!this.options.autoSync) return;
+        
+        let syncInterval = null;
+        let lastSyncTime = 0;
+        
+        const performSmartSync = async () => {
+            // Only sync if page is visible and user is authenticated
+            if (document.visibilityState !== 'visible' || 
+                !this._isAuthenticationComplete()) {
+                return;
+            }
+            
+            // Throttle sync requests
+            const now = Date.now();
+            if (now - lastSyncTime < this.options.syncInterval) {
+                return;
+            }
+            
+            try {
+                lastSyncTime = now;
+                
+                // Smart sync: only fetch if we have existing projects
+                if (this.projectCache.size > 0) {
+                    await this.getProjects({ 
+                        limit: 20, 
+                        offset: 0, 
+                        forceRefresh: true 
+                    });
+                    this._log('Smart background sync completed');
+                }
+                
+                // Check for context updates
+                if (this.currentContext.current_project) {
+                    await this.getCurrentContext();
+                    this._log('Context sync completed');
+                }
+                
+            } catch (error) {
+                this._log('Background sync error (non-critical):', error);
+            }
+        };
+        
+        // Start efficient sync interval
+        const startSync = () => {
+            if (syncInterval) return;
+            
+            syncInterval = setInterval(performSmartSync, this.options.syncInterval);
+            this._log('Efficient auto-sync started');
+        };
+        
+        const stopSync = () => {
+            if (syncInterval) {
+                clearInterval(syncInterval);
+                syncInterval = null;
+                this._log('Auto-sync paused');
+            }
+        };
+        
+        // Listen for page visibility changes
+        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'visible') {
+                startSync();
+                // Immediate sync when page becomes visible
+                setTimeout(performSmartSync, 1000);
+            } else {
+                stopSync();
+            }
+        });
+        
+        // Listen for online/offline events
+        window.addEventListener('online', () => {
+            this._log('Network restored, resuming sync');
+            startSync();
+            setTimeout(performSmartSync, 2000);
+        });
+        
+        window.addEventListener('offline', () => {
+            this._log('Network lost, pausing sync');
+            stopSync();
+        });
+        
+        // Start initial sync if page is visible
+        if (document.visibilityState === 'visible') {
+            startSync();
+        }
+    },
+
+    /**
+     * Setup efficient cache cleanup
+     */
+    _setupCacheCleanup() {
+        setInterval(() => {
+            this._cleanupCache();
+            this._cleanupSearchCache();
+        }, 300000); // Every 5 minutes
     },
 
     _log(...args) {

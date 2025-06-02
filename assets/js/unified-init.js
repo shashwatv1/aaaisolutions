@@ -203,8 +203,9 @@
                         if (typeof service.init === 'function' && !service.isInitialized) {
                             service.init(window.AAAI_APP.services.AuthService, {
                                 debug: window.AAAI_APP.debug,
-                                autoSync: false, // Disabled for performance
-                                enableRealTimeUpdates: false // Disabled for performance
+                                autoSync: true, // Efficient auto-sync enabled
+                                enableRealTimeUpdates: true, // Efficient real-time updates
+                                syncInterval: 60000 // 1 minute intervals
                             });
                         }
                         window.AAAI_APP.services[serviceName] = service;

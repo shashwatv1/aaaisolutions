@@ -1,8 +1,12 @@
 const cors = require('cors')({origin: true});
 const {getSecret} = require('../utils/secret-manager');
 
+// Cached Supabase client for performance
+let supabaseClient = null;
+
 /**
- * Logout user and revoke refresh token
+ * High-Performance Logout
+ * Optimized for fast logout with minimal blocking operations
  */
 async function logout(req, res) {
   return cors(req, res, async () => {
@@ -11,68 +15,103 @@ async function logout(req, res) {
       return;
     }
     
+    const startTime = Date.now();
+    
     try {
-      console.log('🚪 JWT logout starting...');
+      console.log('🚪 Fast logout starting...');
       
-      // Get refresh token from HTTP-only cookie
       const refreshToken = req.cookies?.refresh_token;
       
+      // Clear cookies immediately (most important part)
+      clearAuthCookiesFast(res);
+      
+      // Revoke refresh token asynchronously (non-blocking)
       if (refreshToken) {
-        // Revoke refresh token in database
-        await revokeRefreshToken(refreshToken);
+        revokeRefreshTokenAsync(refreshToken).catch(error => {
+          console.warn('Warning: Failed to revoke refresh token:', error);
+        });
       }
       
-      // Clear cookies
-      res.clearCookie('refresh_token', {
-        httpOnly: true,
-        secure: true,
-        sameSite: 'lax',
-        path: '/'
-      });
-      
-      res.clearCookie('authenticated', {
-        secure: true,
-        sameSite: 'lax',
-        path: '/'
-      });
-      
-      console.log('✅ Logout completed successfully');
+      const responseTime = Date.now() - startTime;
+      console.log(`✅ Fast logout completed in ${responseTime}ms`);
       
       res.status(200).json({
         message: 'Logout successful',
-        code: 'LOGOUT_SUCCESS'
+        code: 'LOGOUT_SUCCESS',
+        performance: {
+          response_time_ms: responseTime
+        }
       });
       
     } catch (error) {
-      console.error('💥 Logout error:', error);
+      console.error('💥 Fast logout error:', error);
       
-      // Still clear cookies even if database operation fails
-      res.clearCookie('refresh_token');
-      res.clearCookie('authenticated');
+      // Still clear cookies even if other operations fail
+      clearAuthCookiesFast(res);
+      
+      const responseTime = Date.now() - startTime;
       
       res.status(200).json({
         message: 'Logout completed with warnings',
-        code: 'LOGOUT_PARTIAL'
+        code: 'LOGOUT_PARTIAL',
+        performance: {
+          response_time_ms: responseTime
+        }
       });
     }
   });
 }
 
 /**
- * Revoke refresh token in database
+ * Clear authentication cookies efficiently
  */
-async function revokeRefreshToken(refreshToken) {
+function clearAuthCookiesFast(res) {
+  const cookieOptions = {
+    httpOnly: true,
+    secure: true,
+    sameSite: 'lax',
+    path: '/'
+  };
+  
+  // Clear all auth-related cookies
+  const cookiesToClear = [
+    'refresh_token',
+    'authenticated', 
+    'access_token',
+    'user_info',
+    'session_id'
+  ];
+  
+  cookiesToClear.forEach(cookieName => {
+    res.clearCookie(cookieName, cookieOptions);
+  });
+  
+  console.log('✅ Fast auth cookies cleared');
+}
+
+/**
+ * Revoke refresh token asynchronously (non-blocking)
+ */
+async function revokeRefreshTokenAsync(refreshToken) {
   try {
-    // Get Supabase credentials
-    const supabaseUrl = await getSecret('SUPABASE_URL');
-    const supabaseKey = await getSecret('SUPABASE_KEY');
+    // Initialize Supabase client once and reuse
+    if (!supabaseClient) {
+      const [supabaseUrl, supabaseKey] = await Promise.all([
+        getSecret('SUPABASE_URL'),
+        getSecret('SUPABASE_KEY')
+      ]);
+      
+      if (!supabaseUrl || !supabaseKey) {
+        throw new Error('Supabase credentials not available');
+      }
+      
+      const { createClient } = require('@supabase/supabase-js');
+      supabaseClient = createClient(supabaseUrl, supabaseKey);
+      console.log('✅ Supabase client initialized for fast logout');
+    }
     
-    // Initialize Supabase client
-    const { createClient } = require('@supabase/supabase-js');
-    const supabase = createClient(supabaseUrl, supabaseKey);
-    
-    // Mark refresh token as inactive
-    const { error } = await supabase
+    // Fast database update
+    const { error } = await supabaseClient
       .from('user_refresh_token')
       .update({
         is_active: false,
@@ -81,13 +120,14 @@ async function revokeRefreshToken(refreshToken) {
       .eq('refresh_token', refreshToken);
     
     if (error) {
-      console.warn('⚠️ Failed to revoke refresh token:', error);
+      console.warn('⚠️ Fast refresh token revocation failed:', error);
     } else {
       console.log('✅ Refresh token revoked successfully');
     }
     
   } catch (error) {
-    console.warn('⚠️ Error revoking refresh token:', error);
+    console.warn('⚠️ Async refresh token revocation error:', error);
+    // Don't throw - this is non-blocking
   }
 }
 

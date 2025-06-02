@@ -28,10 +28,10 @@ const ChatService = {
     
     // Configuration - performance optimized
     options: {
-        reconnectInterval: 5000, // Increased
-        maxReconnectAttempts: 3, // Reduced
-        heartbeatInterval: 90000, // Increased to 90s
-        connectionTimeout: 10000, // Reduced to 10s
+        reconnectInterval: 5000,
+        maxReconnectAttempts: 3,
+        heartbeatInterval: 90000,
+        connectionTimeout: 10000,
         debug: false,
         fastMode: true
     },
@@ -62,7 +62,7 @@ const ChatService = {
     },
 
     /**
-     * Fast connection with minimal validation
+     * Fast connection with Bearer token authentication
      */
     async connect() {
         if (this.isConnected && this.isAuthenticated) {
@@ -77,24 +77,18 @@ const ChatService = {
         
         // Quick auth check
         if (!this.authService?.isAuthenticated()) {
-            const error = new Error('Authentication required');
-            this._notifyErrorListeners({ type: 'auth_required', message: error.message, requiresLogin: true });
-            throw error;
+            throw new Error('Authentication required');
         }
         
         const user = this.authService.getCurrentUser();
         if (!user?.id || !user?.email) {
-            const error = new Error('User information not available');
-            this._notifyErrorListeners({ type: 'user_info_missing', message: error.message, requiresLogin: true });
-            throw error;
+            throw new Error('User information not available');
         }
 
         // Get token quickly
         const accessToken = this.authService.getToken();
         if (!accessToken) {
-            const error = new Error('No access token available');
-            this._notifyErrorListeners({ type: 'no_access_token', message: error.message, requiresLogin: true });
-            throw error;
+            throw new Error('No access token available');
         }
         
         return new Promise((resolve, reject) => {
@@ -102,7 +96,7 @@ const ChatService = {
             this._notifyStatusChange('connecting');
             
             // Build WebSocket URL quickly
-            const wsUrl = this._buildFastWebSocketURL(user, accessToken);
+            const wsUrl = this._buildGatewayWebSocketURL(user);
             
             // Short connection timeout
             const timeout = setTimeout(() => {
@@ -110,21 +104,26 @@ const ChatService = {
                     this._cleanup();
                     this.isConnecting = false;
                     this._notifyStatusChange('disconnected');
-                    const error = new Error('Connection timeout');
-                    this._notifyErrorListeners({ type: 'connection_timeout', message: error.message });
-                    reject(error);
+                    reject(new Error('Connection timeout'));
                 }
             }, this.options.connectionTimeout);
             
             try {
-                this.socket = new WebSocket(wsUrl);
+                // Create WebSocket with Bearer token authentication
+                this.socket = new WebSocket(wsUrl, [], {
+                    headers: {
+                        'Authorization': `Bearer ${accessToken}`
+                    }
+                });
                 
+                // For browsers that don't support headers in WebSocket constructor,
+                // we'll handle authentication in the onopen event
                 this.socket.onopen = () => {
                     this._log('WebSocket opened quickly');
                     this.isConnected = true;
                     
-                    // Send quick auth message
-                    this._sendQuickAuth(user);
+                    // Send authentication message with Bearer token
+                    this._sendGatewayAuth(user, accessToken);
                 };
                 
                 this.socket.onmessage = (event) => {
@@ -153,9 +152,7 @@ const ChatService = {
                             clearTimeout(timeout);
                             this.isConnecting = false;
                             this._cleanup();
-                            const error = new Error(data.message || 'Connection error');
-                            this._notifyErrorListeners({ type: 'connection_error', message: error.message });
-                            reject(error);
+                            reject(new Error(data.message || 'Connection error'));
                             return;
                         }
                         
@@ -163,7 +160,6 @@ const ChatService = {
                         
                     } catch (e) {
                         this._error('Message parse error:', e);
-                        this._notifyErrorListeners({ type: 'message_parse_error', message: e.message });
                     }
                 };
                 
@@ -171,9 +167,7 @@ const ChatService = {
                     if (this.isConnecting) {
                         clearTimeout(timeout);
                         this.isConnecting = false;
-                        const error = new Error('Connection closed during handshake');
-                        this._notifyErrorListeners({ type: 'connection_closed', message: error.message });
-                        reject(error);
+                        reject(new Error('Connection closed during handshake'));
                         return;
                     }
                     
@@ -181,15 +175,18 @@ const ChatService = {
                 };
                 
                 this.socket.onerror = (event) => {
+                    this._error('WebSocket error:', event);
+                    this._notifyErrorListeners({
+                        type: 'websocket_error',
+                        message: 'WebSocket connection error',
+                        event: event
+                    });
+                    
                     if (this.isConnecting) {
                         clearTimeout(timeout);
                         this.isConnecting = false;
                         this._cleanup();
-                        const error = new Error('WebSocket connection error');
-                        this._notifyErrorListeners({ type: 'websocket_error', message: error.message });
-                        reject(error);
-                    } else {
-                        this._notifyErrorListeners({ type: 'websocket_error', message: 'WebSocket error occurred' });
+                        reject(new Error('WebSocket connection error'));
                     }
                 };
                 
@@ -197,10 +194,42 @@ const ChatService = {
                 clearTimeout(timeout);
                 this.isConnecting = false;
                 this._cleanup();
-                this._notifyErrorListeners({ type: 'websocket_creation_error', message: error.message });
                 reject(error);
             }
         });
+    },
+    
+    /**
+     * Build Gateway WebSocket URL with Bearer authentication
+     */
+    _buildGatewayWebSocketURL(user) {
+        const wsHost = window.AAAI_CONFIG.WEBSOCKET_BASE_URL || 'aaai.solutions';
+        
+        const params = new URLSearchParams({
+            user_id: user.id,
+            email: encodeURIComponent(user.email),
+            chat_id: this._getCurrentChatId() || '',
+            session_id: user.sessionId || 'gateway_session'
+        });
+        
+        return `wss://${wsHost}/ws/${user.id}?${params}`;
+    },
+    
+    /**
+     * Send Gateway authentication with Bearer token
+     */
+    _sendGatewayAuth(user, accessToken) {
+        if (this.socket?.readyState === WebSocket.OPEN) {
+            this.socket.send(JSON.stringify({
+                type: 'authenticate',
+                user_id: user.id,
+                email: user.email,
+                session_id: user.sessionId,
+                auth_method: 'jwt_bearer',
+                access_token: accessToken,
+                timestamp: new Date().toISOString()
+            }));
+        }
     },
     
     /**
@@ -208,9 +237,7 @@ const ChatService = {
      */
     async sendMessage(text) {
         if (!text?.trim()) {
-            const error = new Error('Message cannot be empty');
-            this._notifyErrorListeners({ type: 'empty_message', message: error.message });
-            throw error;
+            throw new Error('Message cannot be empty');
         }
         
         const messageId = this._generateQuickId();
@@ -246,7 +273,6 @@ const ChatService = {
                 // Try to connect asynchronously
                 this.connect().catch(e => {
                     this._error('Connection failed:', e);
-                    this._notifyErrorListeners({ type: 'auto_connect_failed', message: e.message });
                 });
             }
             
@@ -271,31 +297,14 @@ const ChatService = {
             const result = await this.authService.executeFunction('get_chat_messages', {
                 user_id: this.authService.getCurrentUser().id,
                 chat_id: chatId,
-                limit: 30 // Reduced for performance
+                limit: 30
             });
             
             return result?.data?.messages || [];
             
         } catch (error) {
             this._error('Failed to load chat history:', error);
-            this._notifyErrorListeners({ type: 'history_load_failed', message: error.message });
             return [];
-        }
-    },
-    
-    /**
-     * Force reconnection
-     */
-    async forceReconnect() {
-        this._log('Force reconnecting...');
-        this.disconnect();
-        this.reconnectAttempts = 0;
-        
-        try {
-            return await this.connect();
-        } catch (error) {
-            this._notifyErrorListeners({ type: 'force_reconnect_failed', message: error.message });
-            throw error;
         }
     },
     
@@ -318,6 +327,16 @@ const ChatService = {
         this.sessionId = null;
         
         this._notifyStatusChange('disconnected');
+    },
+    
+    /**
+     * Force reconnect
+     */
+    async forceReconnect() {
+        this._log('Force reconnecting...');
+        this.disconnect();
+        this.reconnectAttempts = 0;
+        return this.connect();
     },
     
     /**
@@ -354,23 +373,6 @@ const ChatService = {
         }
     },
     
-    removeListener(type, callback) {
-        switch (type) {
-            case 'message':
-                const msgIndex = this.messageListeners.indexOf(callback);
-                if (msgIndex > -1) this.messageListeners.splice(msgIndex, 1);
-                break;
-            case 'status':
-                const statusIndex = this.statusListeners.indexOf(callback);
-                if (statusIndex > -1) this.statusListeners.splice(statusIndex, 1);
-                break;
-            case 'error':
-                const errorIndex = this.errorListeners.indexOf(callback);
-                if (errorIndex > -1) this.errorListeners.splice(errorIndex, 1);
-                break;
-        }
-    },
-    
     setProjectContext(chatId, projectName) {
         this._log('Project context updated:', { chatId, projectName });
         
@@ -389,32 +391,6 @@ const ChatService = {
     },
     
     // Private methods - optimized for speed
-    
-    _buildFastWebSocketURL(user, accessToken) {
-        const wsHost = 'aaai-gateway-754x89jf.uc.gateway.dev';
-        
-        const params = new URLSearchParams({
-            user_id: user.id,
-            email: encodeURIComponent(user.email),
-            chat_id: this._getCurrentChatId() || '',
-            session_id: user.sessionId || 'fast_session',
-            token: accessToken
-        });
-        
-        return `wss://${wsHost}/ws/${user.id}?${params}`;
-    },
-    
-    _sendQuickAuth(user) {
-        if (this.socket?.readyState === WebSocket.OPEN) {
-            this.socket.send(JSON.stringify({
-                type: 'authenticate',
-                user_id: user.id,
-                email: user.email,
-                session_id: user.sessionId,
-                timestamp: new Date().toISOString()
-            }));
-        }
-    },
     
     _handleMessageFast(data) {
         switch (data.type) {
@@ -460,14 +436,6 @@ const ChatService = {
                 });
                 break;
                 
-            case 'error':
-                this._notifyErrorListeners({
-                    type: 'server_error',
-                    message: data.message || 'Server error',
-                    details: data.details
-                });
-                break;
-                
             default:
                 this._notifyMessageListeners(data);
                 break;
@@ -488,8 +456,7 @@ const ChatService = {
         } else if (this.reconnectAttempts >= this.options.maxReconnectAttempts) {
             this._notifyErrorListeners({
                 type: 'max_reconnect_attempts',
-                message: 'Maximum reconnection attempts reached',
-                reconnectAttempts: this.reconnectAttempts
+                message: 'Maximum reconnection attempts reached'
             });
         }
     },
@@ -505,21 +472,14 @@ const ChatService = {
             if (this.authService?.isAuthenticated()) {
                 this.connect().catch(e => {
                     this._error('Reconnect failed:', e);
-                    this._notifyErrorListeners({
-                        type: 'reconnect_failed',
-                        message: e.message,
-                        attempt: this.reconnectAttempts
-                    });
-                    
                     if (this.reconnectAttempts < this.options.maxReconnectAttempts) {
                         this._scheduleReconnectFast();
+                    } else {
+                        this._notifyErrorListeners({
+                            type: 'max_reconnect_attempts',
+                            message: 'Maximum reconnection attempts reached'
+                        });
                     }
-                });
-            } else {
-                this._notifyErrorListeners({
-                    type: 'auth_failed',
-                    message: 'Authentication lost during reconnection',
-                    requiresLogin: true
                 });
             }
         }, delay);

@@ -19,8 +19,14 @@ const getAPIBaseURL = () => {
 
 // Get WebSocket base URL for all environments
 const getWebSocketBaseURL = () => {
-    // Use API Gateway for WebSocket (same as API calls)
-    return 'aaai-gateway-754x89jf.uc.gateway.dev';
+    // Use the same domain as the main site for WebSocket (routes through NGINX to Gateway)
+    const hostname = window.location.hostname;
+    
+    if (hostname === 'localhost' || hostname === '127.0.0.1') {
+        return 'localhost:3000'; // Adjust for local development if needed
+    } else {
+        return hostname; // Use the same domain (aaai.solutions)
+    }
 };
 
 // Initialize AAAI Configuration
@@ -154,7 +160,7 @@ window.getAPIURL = function(endpoint) {
 };
 
 window.getWebSocketURL = function(endpoint, params = {}) {
-    const wsProtocol = 'wss:'; // Always use secure WebSocket
+    const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const baseURL = window.AAAI_CONFIG.WEBSOCKET_BASE_URL;
     const cleanEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
     

@@ -836,11 +836,13 @@
     document.addEventListener('DOMContentLoaded', async function() {
       console.log('🚀 Fast Projects Application starting...');
       
-      // Application state - minimal
+      // Application state - minimal with real-time support
       let projects = [];
       let filteredProjects = [];
       let currentView = 'grid';
       let searchCache = new Map();
+      let lastUpdateTime = 0;
+      let updateListeners = [];
       
       // DOM elements - cached
       const elements = {
@@ -890,6 +892,9 @@
           
           // Load projects asynchronously
           loadProjectsAsync();
+          
+          // Setup efficient real-time updates
+          setupRealTimeUpdates();
           
           // Setup event listeners
           setupEventListeners();
@@ -953,14 +958,15 @@
         console.log('🔧 Fast service initialization...');
         
         try {
-          // Initialize ProjectService
+          // Initialize ProjectService with efficient real-time updates
           if (window.ProjectService && !window.ProjectService.isInitialized) {
             window.ProjectService.init(window.AuthService, {
               debug: window.AAAI_CONFIG?.ENABLE_DEBUG || false,
-              autoSync: false, // Disabled for performance
-              enableRealTimeUpdates: false // Disabled for performance
+              autoSync: true, // Efficient auto-sync enabled
+              enableRealTimeUpdates: true, // Efficient real-time updates
+              syncInterval: 60000 // 1 minute sync interval
             });
-            console.log('✅ ProjectService initialized');
+            console.log('✅ ProjectService initialized with real-time updates');
           }
           
           // Initialize NavigationManager
@@ -1198,6 +1204,109 @@
         }
         
         renderProjectsFast();
+      }
+      
+      /**
+      * Setup efficient real-time updates
+      */
+      function setupRealTimeUpdates() {
+        console.log('📡 Setting up efficient real-time updates...');
+        
+        // Listen for project updates from ProjectService
+        if (window.ProjectService) {
+          window.ProjectService.onUpdate((eventType, data) => {
+            handleProjectUpdate(eventType, data);
+          });
+        }
+        
+        // Listen for page visibility changes to optimize updates
+        document.addEventListener('visibilitychange', () => {
+          if (document.visibilityState === 'visible') {
+            // Refresh projects when page becomes visible
+            refreshProjectsIfStale();
+          }
+        });
+        
+        // Listen for online/offline events
+        window.addEventListener('online', () => {
+          console.log('📡 Network restored, refreshing projects...');
+          setTimeout(() => refreshProjectsIfStale(), 2000);
+        });
+        
+        console.log('✅ Real-time updates configured');
+      }
+      
+      /**
+      * Handle real-time project updates efficiently
+      */
+      function handleProjectUpdate(eventType, data) {
+        console.log('📡 Real-time project update:', eventType, data);
+        
+        switch (eventType) {
+          case 'project_created':
+            if (data.project && !projects.find(p => p.id === data.project.id)) {
+              projects.unshift(data.project);
+              filteredProjects = [...projects];
+              invalidateSearchCache();
+              renderProjectsFast();
+              showToast(`New project "${data.project.name}" created`, 'success');
+            }
+            break;
+            
+          case 'project_updated':
+            const updateIndex = projects.findIndex(p => p.id === data.id);
+            if (updateIndex !== -1) {
+              projects[updateIndex] = { ...projects[updateIndex], ...data };
+              filteredProjects = [...projects];
+              invalidateSearchCache();
+              renderProjectsFast();
+              showToast(`Project updated`, 'success');
+            }
+            break;
+            
+          case 'project_deleted':
+            projects = projects.filter(p => p.id !== data.id);
+            filteredProjects = [...projects];
+            invalidateSearchCache();
+            renderProjectsFast();
+            showToast(`Project deleted`, 'success');
+            break;
+            
+          case 'projects_refreshed':
+            if (data.projects) {
+              projects = data.projects;
+              filteredProjects = [...projects];
+              invalidateSearchCache();
+              renderProjectsFast();
+              console.log('📡 Projects refreshed from real-time update');
+            }
+            break;
+        }
+        
+        lastUpdateTime = Date.now();
+      }
+      
+      /**
+      * Refresh projects if data is stale
+      */
+      async function refreshProjectsIfStale() {
+        const staleThreshold = 2 * 60 * 1000; // 2 minutes
+        
+        if (Date.now() - lastUpdateTime > staleThreshold) {
+          try {
+            console.log('📡 Refreshing stale project data...');
+            await loadProjectsAsync();
+          } catch (error) {
+            console.error('Failed to refresh projects:', error);
+          }
+        }
+      }
+      
+      /**
+      * Invalidate search cache when projects change
+      */
+      function invalidateSearchCache() {
+        searchCache.clear();
       }
       
       /**

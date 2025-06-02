@@ -484,7 +484,23 @@ const AuthService = {
         
         if (refreshTime > 0) {
             this.refreshTimer = setTimeout(() => {
-                this._quickRefresh().catch(() => {});
+                // Smart refresh: only refresh if page is visible or about to expire
+                const timeToExpiry = this.tokenExpiry - Date.now();
+                const shouldRefresh = document.visibilityState === 'visible' || 
+                                    timeToExpiry < (this.options.refreshBufferTime / 2);
+                
+                if (shouldRefresh) {
+                    this._quickRefresh().catch(() => {});
+                } else {
+                    // Defer refresh until page becomes visible
+                    const handleVisibilityChange = () => {
+                        if (document.visibilityState === 'visible') {
+                            document.removeEventListener('visibilitychange', handleVisibilityChange);
+                            this._quickRefresh().catch(() => {});
+                        }
+                    };
+                    document.addEventListener('visibilitychange', handleVisibilityChange);
+                }
             }, refreshTime);
         }
     },
