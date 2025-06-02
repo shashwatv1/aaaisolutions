@@ -62,7 +62,6 @@ const AuthService = {
         this._log('No authentication state found');
         return false;
     },
-
     /**
      * Fast cached authentication check
      */

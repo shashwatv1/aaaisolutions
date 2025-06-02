@@ -37,23 +37,17 @@ async function functionExecutor(req, res) {
       // Fast API key retrieval
       const apiKey = await getFastAPIKey();
       
-      // Quick auth header check
+      // Quick auth header check with proper token extraction
       let accessToken = null;
+      let tokenSource = 'none';
       
       if (req.headers['x-forwarded-authorization']?.startsWith('Bearer ')) {
         accessToken = req.headers['x-forwarded-authorization'].substring(7);
+        tokenSource = 'x-forwarded-authorization';
         console.log('✅ Using user token from x-forwarded-authorization');
       } else if (req.headers.authorization?.startsWith('Bearer ')) {
-        // Check if this might be a service account token
-        const token = req.headers.authorization.substring(7);
-        if (token.length > 500) { // Service account tokens are typically much longer
-          console.log('❌ Rejecting potential service account token');
-          return res.status(401).json({
-            error: 'Service account token not allowed',
-            code: 'SERVICE_ACCOUNT_TOKEN_REJECTED'
-          });
-        }
-        accessToken = token;
+        accessToken = req.headers.authorization.substring(7);
+        tokenSource = 'authorization';
         console.log('✅ Using token from authorization header');
       } else {
         return res.status(401).json({ 
@@ -62,40 +56,50 @@ async function functionExecutor(req, res) {
         });
       }
       
-      // Fast token validation (basic format check)
-      if (!accessToken || accessToken.length < 100) {
+      // Improved JWT validation
+      if (!accessToken || accessToken.length < 50) {
         return res.status(401).json({
           error: 'Invalid token format',
           code: 'INVALID_TOKEN_FORMAT'
         });
       }
       
-      // Quick JWT payload extraction for email validation
+      // Enhanced JWT payload validation
       try {
-        const payloadPart = accessToken.split('.')[1];
-        if (!payloadPart) throw new Error('Invalid JWT format');
+        const tokenParts = accessToken.split('.');
+        if (tokenParts.length !== 3) {
+          throw new Error('Invalid JWT structure');
+        }
         
+        const payloadPart = tokenParts[1];
         const paddedPayload = payloadPart + '='.repeat((4 - payloadPart.length % 4) % 4);
         const decoded = Buffer.from(paddedPayload.replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8');
         const payload = JSON.parse(decoded);
         
-        // Quick validation for user token
+        // Validate required user claims
         if (!payload.email || !payload.user_id) {
-          throw new Error('Missing user claims');
+          throw new Error('Missing required user claims (email, user_id)');
         }
         
-        // Check for service account patterns
+        // Check for service account patterns (more specific)
         if (payload.email.includes('gserviceaccount.com') || 
-            payload.email.includes('compute@developer')) {
+            payload.email.includes('compute@developer') ||
+            payload.email.includes('cloudbuild') ||
+            payload.iss?.includes('google') && !payload.email.includes('@')) {
           throw new Error('Service account email detected');
         }
         
-        console.log('✅ Fast token validation passed for:', payload.email);
+        // Additional validation for user tokens
+        if (!payload.exp || payload.exp < Date.now() / 1000) {
+          throw new Error('Token expired');
+        }
+        
+        console.log('✅ JWT validation passed for:', payload.email, 'from:', tokenSource);
         
       } catch (error) {
-        console.error('❌ Fast token validation failed:', error.message);
+        console.error('❌ JWT validation failed:', error.message);
         return res.status(401).json({
-          error: 'Invalid user token',
+          error: 'Invalid user token: ' + error.message,
           code: 'TOKEN_VALIDATION_FAILED'
         });
       }
@@ -103,6 +107,11 @@ async function functionExecutor(req, res) {
       // Prepare request body quickly
       const requestBody = { ...req.body };
       delete requestBody.function_name;
+      
+      // Add debug logging for project creation
+      if (functionName === 'create_project_with_context') {
+        console.log('📝 Creating project with data:', JSON.stringify(requestBody, null, 2));
+      }
       
       // Fast API execution with timeout
       const controller = new AbortController();
@@ -124,20 +133,39 @@ async function functionExecutor(req, res) {
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
         
+        console.error('❌ API server error:', {
+          status: response.status,
+          statusText: response.statusText,
+          error: errorData,
+          function: functionName
+        });
+        
         if (response.status === 401) {
           return res.status(401).json({
             error: 'Authentication failed on API server',
-            code: 'API_AUTHENTICATION_FAILED'
+            code: 'API_AUTHENTICATION_FAILED',
+            details: errorData
           });
         }
         
         return res.status(response.status).json({
-          error: errorData.detail || 'Function execution failed',
-          code: 'API_ERROR'
+          error: errorData.detail || errorData.error || 'Function execution failed',
+          code: 'API_ERROR',
+          function: functionName,
+          details: errorData
         });
       }
       
       const result = await response.json();
+      
+      // Log successful project creation
+      if (functionName === 'create_project_with_context' && result.status === 'success') {
+        console.log('✅ Project created successfully:', {
+          projectId: result.data?.project?.id,
+          chatId: result.data?.chat_id,
+          projectName: result.data?.project?.name
+        });
+      }
       
       const responseTime = Date.now() - startTime;
       console.log(`✅ Fast function ${functionName} completed in ${responseTime}ms`);
@@ -147,27 +175,35 @@ async function functionExecutor(req, res) {
         ...result,
         performance: {
           response_time_ms: responseTime,
-          function_name: functionName
+          function_name: functionName,
+          token_source: tokenSource
         }
       });
       
     } catch (error) {
-      console.error('💥 Fast function execution error:', error);
+      console.error('💥 Fast function execution error:', {
+        function: functionName,
+        error: error.message,
+        stack: error.stack
+      });
       
       if (error.name === 'AbortError') {
         res.status(504).json({
           error: 'Function execution timeout',
-          code: 'EXECUTION_TIMEOUT'
+          code: 'EXECUTION_TIMEOUT',
+          function: functionName
         });
       } else if (error.code === 'ECONNABORTED') {
         res.status(504).json({
           error: 'Function execution timeout',
-          code: 'EXECUTION_TIMEOUT'
+          code: 'EXECUTION_TIMEOUT',
+          function: functionName
         });
       } else {
         res.status(500).json({
-          error: 'Internal server error',
-          code: 'INTERNAL_ERROR'
+          error: 'Internal server error: ' + error.message,
+          code: 'INTERNAL_ERROR',
+          function: functionName
         });
       }
     }

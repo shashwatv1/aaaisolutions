@@ -73,7 +73,7 @@ const ProjectService = {
     },
 
     /**
-     * Fast project creation with minimal validation
+     * Fast project creation with enhanced error handling
      */
     async createProject(projectData) {
         try {
@@ -84,45 +84,79 @@ const ProjectService = {
                 throw new Error('User information not available');
             }
             
-            this._log('Creating project quickly:', projectData.name);
+            this._log('Creating project:', projectData.name);
             
-            const result = await this._executeFunction('create_project_with_context', {
+            const functionInput = {
                 name: projectData.name,
                 description: projectData.description || null,
                 tags: projectData.tags || [],
                 email: user.email
-            });
-
-            if (result?.status === 'success' && result?.data?.success) {
-                const project = result.data.project;
-                const chat_id = result.data.chat_id;
-                
-                // Quick cache update
-                this._quickCacheProject(project);
-                this._clearProjectListCache();
-                
-                // Update context immediately
-                this._updateContextQuick({
-                    current_project: project,
-                    chat_id: chat_id,
-                    project_name: project.name
-                });
-                
-                this._notifyQuick('project_created', { project, chat_id });
-                
-                this._log('Project created successfully:', project.id);
-                
-                return {
-                    success: true,
-                    project: project,
-                    chat_id: chat_id
-                };
+            };
+            
+            this._log('Function input:', functionInput);
+            
+            const result = await this._executeFunction('create_project_with_context', functionInput);
+            
+            this._log('API response:', result);
+            
+            // Enhanced response validation with detailed error reporting
+            if (!result) {
+                throw new Error('No response from API');
             }
             
-            throw new Error(result?.data?.message || 'Failed to create project');
+            if (result.status !== 'success') {
+                const errorMsg = result.error || result.detail || 'API request failed';
+                throw new Error(`API error: ${errorMsg}`);
+            }
+            
+            if (!result.data) {
+                throw new Error('No data in API response');
+            }
+            
+            if (!result.data.success) {
+                const errorMsg = result.data.error || result.data.message || 'Project creation failed';
+                throw new Error(`Project creation failed: ${errorMsg}`);
+            }
+            
+            const project = result.data.project;
+            const chat_id = result.data.chat_id;
+            
+            if (!project || !project.id) {
+                throw new Error('Invalid project data in response');
+            }
+            
+            if (!chat_id) {
+                throw new Error('No chat_id in response');
+            }
+            
+            // Quick cache update
+            this._quickCacheProject(project);
+            this._clearProjectListCache();
+            
+            // Update context immediately
+            this._updateContextQuick({
+                current_project: project,
+                chat_id: chat_id,
+                project_name: project.name
+            });
+            
+            this._notifyQuick('project_created', { project, chat_id });
+            
+            this._log('Project created successfully:', project.id);
+            
+            return {
+                success: true,
+                project: project,
+                chat_id: chat_id
+            };
             
         } catch (error) {
             this._error('Error creating project:', error);
+            this._error('Error details:', {
+                message: error.message,
+                stack: error.stack,
+                projectData: projectData
+            });
             throw new Error(`Failed to create project: ${error.message}`);
         }
     },
@@ -397,7 +431,17 @@ const ProjectService = {
 
     async _executeFunction(functionName, inputData) {
         this._requireAuth();
-        return this.authService.executeFunction(functionName, inputData);
+        
+        this._log('Executing function:', functionName, 'with input:', inputData);
+        
+        try {
+            const result = await this.authService.executeFunction(functionName, inputData);
+            this._log('Function result:', functionName, result);
+            return result;
+        } catch (error) {
+            this._error('Function execution failed:', functionName, error);
+            throw error;
+        }
     },
 
     _quickCacheProject(project) {
