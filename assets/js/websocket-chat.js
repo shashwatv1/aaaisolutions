@@ -341,15 +341,21 @@ const ChatService = {
         
         // Update server if connected
         if (this.isConnected && this.socket?.readyState === WebSocket.OPEN && this.isAuthenticated) {
-            this.socket.send(JSON.stringify({
-                type: 'context_update',
-                context: {
-                    chat_id: chatId,
-                    project_name: projectName,
-                    user_id: this.authService.getCurrentUser()?.id
-                },
-                timestamp: new Date().toISOString()
-            }));
+            try {
+                this.socket.send(JSON.stringify({
+                    type: 'context_update',
+                    context: {
+                        chat_id: chatId,
+                        project_name: projectName,
+                        user_id: this.authService.getCurrentUser()?.id
+                    },
+                    timestamp: new Date().toISOString()
+                }));
+                
+                this._log('Context update sent to server');
+            } catch (error) {
+                this._error('Failed to send context update:', error);
+            }
         }
     },
     
@@ -370,6 +376,19 @@ const ChatService = {
                 break;
                 
             case 'pong':
+                break;
+                
+            case 'context_updated':
+                this._log('Context updated successfully:', data.context);
+                break;
+                
+            case 'context_update_error':
+                this._error('Context update failed:', data.error);
+                this._notifyErrorListeners({
+                    type: 'context_update_error',
+                    message: data.error || 'Failed to update context',
+                    details: data.details
+                });
                 break;
                 
             case 'message_queued':
