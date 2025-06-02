@@ -1,6 +1,6 @@
 /**
  * High-Performance WebSocket Chat Service for AAAI Solutions
- * Optimized for fast loading and minimal overhead
+ * FIXED: Enhanced message handling and event listener management
  */
 const ChatService = {
     // Core WebSocket state
@@ -19,11 +19,11 @@ const ChatService = {
     heartbeatTimer: null,
     sessionId: null,
     
-    // Message handling - optimized
+    // FIXED: Enhanced message handling with proper event management
     messageQueue: [],
-    messageListeners: [],
-    statusListeners: [],
-    errorListeners: [],
+    messageListeners: new Set(), // Use Set for better listener management
+    statusListeners: new Set(),
+    errorListeners: new Set(),
     pendingMessages: new Map(),
     
     // Configuration - performance optimized
@@ -162,9 +162,9 @@ const ChatService = {
                 this.socket.onmessage = (event) => {
                     try {
                         const data = JSON.parse(event.data);
-                        this._handleMessageFast(data);
+                        this._handleMessageFixed(data);
                     } catch (e) {
-                        this._error('Message parse error:', e);
+                        this._error('Message parse error:', e, 'Raw data:', event.data);
                     }
                 };
                 
@@ -342,27 +342,57 @@ const ChatService = {
             reconnectAttempts: this.reconnectAttempts,
             sessionId: this.sessionId,
             pendingMessages: this.pendingMessages.size,
-            fastMode: this.options.fastMode
+            fastMode: this.options.fastMode,
+            listeners: {
+                message: this.messageListeners.size,
+                status: this.statusListeners.size,
+                error: this.errorListeners.size
+            }
         };
     },
     
-    // Event listeners
+    // FIXED: Enhanced event listeners with proper management
     onMessage(callback) {
         if (typeof callback === 'function') {
-            this.messageListeners.push(callback);
+            this.messageListeners.add(callback);
+            this._log('Message listener added, total:', this.messageListeners.size);
+        } else {
+            this._error('Invalid message listener callback');
         }
     },
     
     onStatusChange(callback) {
         if (typeof callback === 'function') {
-            this.statusListeners.push(callback);
+            this.statusListeners.add(callback);
+            this._log('Status listener added, total:', this.statusListeners.size);
+        } else {
+            this._error('Invalid status listener callback');
         }
     },
     
     onError(callback) {
         if (typeof callback === 'function') {
-            this.errorListeners.push(callback);
+            this.errorListeners.add(callback);
+            this._log('Error listener added, total:', this.errorListeners.size);
+        } else {
+            this._error('Invalid error listener callback');
         }
+    },
+    
+    // FIXED: Add methods to remove listeners
+    removeMessageListener(callback) {
+        this.messageListeners.delete(callback);
+        this._log('Message listener removed, remaining:', this.messageListeners.size);
+    },
+    
+    removeStatusListener(callback) {
+        this.statusListeners.delete(callback);
+        this._log('Status listener removed, remaining:', this.statusListeners.size);
+    },
+    
+    removeErrorListener(callback) {
+        this.errorListeners.delete(callback);
+        this._log('Error listener removed, remaining:', this.errorListeners.size);
     },
     
     setProjectContext(chatId, projectName) {
@@ -389,110 +419,184 @@ const ChatService = {
     },
     
     /**
-     * Handle ChatService messages with enhanced logging
+     * FIXED: Enhanced message handling with comprehensive logging and error handling
      */
-    _handleMessageFast(data) {
-        this._log('Received WebSocket message:', data);
+    _handleMessageFixed(data) {
+        this._log('FIXED: Received WebSocket message:', {
+            type: data.type,
+            messageId: data.message_id,
+            hasResponse: !!data.response,
+            hasText: !!data.text,
+            timestamp: data.timestamp
+        });
         
-        switch (data.type) {
-            case 'session_established':
-            case 'auth_success':
-            case 'authenticated':
-                this._log('Session established:', data);
-                this.sessionId = data.session_id || this.sessionId;
-                break;
-                
-            case 'heartbeat':
-            case 'ping':
-                this._sendPong();
-                break;
-                
-            case 'pong':
-                break;
-                
-            case 'context_updated':
-                this._log('Context updated successfully:', data.context);
-                break;
-                
-            case 'context_update_error':
-                this._error('Context update failed:', data.error);
-                this._notifyErrorListeners({
-                    type: 'context_update_error',
-                    message: data.error || 'Failed to update context',
-                    details: data.details
-                });
-                break;
-                
-            case 'message_queued':
-            case 'message_queued_jwt':
-                this.pendingMessages.set(data.message_id, {
-                    queuedAt: Date.now(),
-                    status: 'pending'
-                });
-                this._notifyMessageListeners({
-                    type: 'message_queued',
-                    messageId: data.message_id,
-                    text: 'Processing your message...',
-                    timestamp: Date.now()
-                });
-                break;
-                
-            case 'chat_response':
-                this._log('Chat response received:', data);
-                this.pendingMessages.delete(data.message_id);
-                
-                // Parse response data properly
-                let responseText = 'No response';
-                let components = [];
-                
-                if (data.response) {
-                    if (typeof data.response === 'string') {
-                        responseText = data.response;
-                    } else if (data.response.text) {
-                        responseText = data.response.text;
-                        components = data.response.components || [];
-                    } else {
-                        responseText = JSON.stringify(data.response);
+        try {
+            switch (data.type) {
+                case 'session_established':
+                case 'auth_success':
+                case 'authenticated':
+                    this._log('FIXED: Session established:', data);
+                    this.sessionId = data.session_id || this.sessionId;
+                    break;
+                    
+                case 'heartbeat':
+                case 'ping':
+                    this._sendPong();
+                    break;
+                    
+                case 'pong':
+                    break;
+                    
+                case 'context_updated':
+                    this._log('FIXED: Context updated successfully:', data.context);
+                    break;
+                    
+                case 'context_update_error':
+                    this._error('FIXED: Context update failed:', data.error);
+                    this._notifyErrorListeners({
+                        type: 'context_update_error',
+                        message: data.error || 'Failed to update context',
+                        details: data.details
+                    });
+                    break;
+                    
+                case 'message_queued':
+                case 'message_queued_jwt':
+                    this._log('FIXED: Message queued:', data.message_id);
+                    this.pendingMessages.set(data.message_id, {
+                        queuedAt: Date.now(),
+                        status: 'pending'
+                    });
+                    this._notifyMessageListeners({
+                        type: 'message_queued',
+                        messageId: data.message_id,
+                        text: 'Processing your message...',
+                        timestamp: Date.now()
+                    });
+                    break;
+                    
+                case 'chat_response':
+                    this._log('FIXED: Chat response received:', {
+                        messageId: data.message_id,
+                        hasResponse: !!data.response,
+                        responseType: typeof data.response,
+                        hasText: !!data.text
+                    });
+                    
+                    this.pendingMessages.delete(data.message_id);
+                    
+                    // FIXED: Enhanced response parsing with comprehensive fallbacks
+                    let responseText = '';
+                    let components = [];
+                    
+                    try {
+                        // Priority 1: Direct text field
+                        if (data.text && typeof data.text === 'string') {
+                            responseText = data.text;
+                            components = data.components || [];
+                            this._log('FIXED: Using direct text field');
+                        }
+                        // Priority 2: Response object with text
+                        else if (data.response) {
+                            if (typeof data.response === 'string') {
+                                responseText = data.response;
+                                this._log('FIXED: Using response as string');
+                            } else if (data.response && typeof data.response === 'object') {
+                                if (data.response.text) {
+                                    responseText = data.response.text;
+                                    components = data.response.components || [];
+                                    this._log('FIXED: Using response.text');
+                                } else {
+                                    // Try to extract any text-like fields
+                                    responseText = data.response.message || 
+                                                data.response.content || 
+                                                JSON.stringify(data.response);
+                                    this._log('FIXED: Using fallback response parsing');
+                                }
+                            }
+                        }
+                        // Priority 3: Message field
+                        else if (data.message) {
+                            responseText = data.message;
+                            this._log('FIXED: Using message field');
+                        }
+                        // Priority 4: Fallback
+                        else {
+                            responseText = 'Response received but could not parse content';
+                            this._error('FIXED: Could not parse response:', data);
+                        }
+                        
+                        // Ensure we have some text
+                        if (!responseText || responseText.trim() === '') {
+                            responseText = 'Empty response received';
+                            this._log('FIXED: Response was empty, using fallback');
+                        }
+                        
+                    } catch (parseError) {
+                        this._error('FIXED: Error parsing response:', parseError, data);
+                        responseText = 'Error parsing response: ' + parseError.message;
                     }
-                } else if (data.text) {
-                    responseText = data.text;
-                    components = data.components || [];
-                }
-                
-                this._notifyMessageListeners({
-                    type: 'chat_response',
-                    messageId: data.message_id,
-                    text: responseText,
-                    components: components,
-                    timestamp: data.timestamp || Date.now()
-                });
-                break;
-                
-            case 'chat_error':
-                this._log('Chat error received:', data);
-                this.pendingMessages.delete(data.message_id);
-                this._notifyMessageListeners({
-                    type: 'chat_error',
-                    messageId: data.message_id,
-                    error: data.error || 'Unknown error',
-                    timestamp: data.timestamp || Date.now()
-                });
-                break;
-                
-            case 'error':
-                this._error('Server error received:', data);
-                this._notifyErrorListeners({
-                    type: 'server_error',
-                    message: data.message || 'Server error',
-                    details: data.error_details
-                });
-                break;
-                
-            default:
-                this._log('Unhandled message type:', data.type, data);
-                // Still notify listeners for unknown message types
-                this._notifyMessageListeners(data);
-                break;
+                    
+                    // FIXED: Create comprehensive message object
+                    const messageData = {
+                        type: 'chat_response',
+                        messageId: data.message_id,
+                        text: responseText,
+                        components: components,
+                        timestamp: data.timestamp || Date.now(),
+                        deliveredAt: Date.now(),
+                        metadata: {
+                            originalData: data,
+                            parseMethod: 'enhanced_parsing',
+                            hasComponents: components.length > 0
+                        }
+                    };
+                    
+                    this._log('FIXED: Notifying message listeners with:', {
+                        type: messageData.type,
+                        messageId: messageData.messageId,
+                        textLength: messageData.text.length,
+                        componentCount: messageData.components.length,
+                        listenerCount: this.messageListeners.size
+                    });
+                    
+                    this._notifyMessageListeners(messageData);
+                    break;
+                    
+                case 'chat_error':
+                    this._log('FIXED: Chat error received:', data);
+                    this.pendingMessages.delete(data.message_id);
+                    this._notifyMessageListeners({
+                        type: 'chat_error',
+                        messageId: data.message_id,
+                        error: data.error || 'Unknown error',
+                        timestamp: data.timestamp || Date.now()
+                    });
+                    break;
+                    
+                case 'error':
+                    this._error('FIXED: Server error received:', data);
+                    this._notifyErrorListeners({
+                        type: 'server_error',
+                        message: data.message || 'Server error',
+                        details: data.error_details
+                    });
+                    break;
+                    
+                default:
+                    this._log('FIXED: Unhandled message type:', data.type, data);
+                    // Still notify listeners for unknown message types
+                    this._notifyMessageListeners(data);
+                    break;
+            }
+        } catch (error) {
+            this._error('FIXED: Error in message handling:', error, data);
+            this._notifyErrorListeners({
+                type: 'message_handling_error',
+                message: 'Error processing WebSocket message',
+                details: error.message,
+                originalData: data
+            });
         }
     },
     
@@ -612,34 +716,71 @@ const ChatService = {
         return `msg_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
     },
     
+    // FIXED: Enhanced notification methods with error handling
     _notifyMessageListeners(data) {
+        this._log('FIXED: Notifying message listeners:', {
+            type: data.type,
+            listenerCount: this.messageListeners.size,
+            messageId: data.messageId
+        });
+        
+        if (this.messageListeners.size === 0) {
+            this._error('FIXED: No message listeners registered!');
+            return;
+        }
+        
+        let successCount = 0;
+        let errorCount = 0;
+        
         this.messageListeners.forEach(callback => {
             try {
                 callback(data);
-            } catch (e) {
-                // Ignore errors
+                successCount++;
+            } catch (error) {
+                errorCount++;
+                this._error('FIXED: Message listener error:', error);
             }
         });
+        
+        this._log(`FIXED: Message notification complete: ${successCount} success, ${errorCount} errors`);
     },
     
     _notifyStatusChange(status) {
+        this._log('FIXED: Notifying status change:', status, 'to', this.statusListeners.size, 'listeners');
+        
+        let successCount = 0;
+        let errorCount = 0;
+        
         this.statusListeners.forEach(callback => {
             try {
                 callback(status, this.getStatus());
-            } catch (e) {
-                // Ignore errors
+                successCount++;
+            } catch (error) {
+                errorCount++;
+                this._error('FIXED: Status listener error:', error);
             }
         });
+        
+        this._log(`FIXED: Status notification complete: ${successCount} success, ${errorCount} errors`);
     },
     
     _notifyErrorListeners(error) {
+        this._log('FIXED: Notifying error listeners:', error.type, 'to', this.errorListeners.size, 'listeners');
+        
+        let successCount = 0;
+        let errorCount = 0;
+        
         this.errorListeners.forEach(callback => {
             try {
                 callback(error);
-            } catch (e) {
-                // Ignore errors
+                successCount++;
+            } catch (callbackError) {
+                errorCount++;
+                this._error('FIXED: Error listener error:', callbackError);
             }
         });
+        
+        this._log(`FIXED: Error notification complete: ${successCount} success, ${errorCount} errors`);
     },
     
     _log(...args) {
