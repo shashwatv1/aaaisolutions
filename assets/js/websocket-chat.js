@@ -23,6 +23,7 @@ const ChatService = {
     messageQueue: [],
     messageListeners: [],
     statusListeners: [],
+    errorListeners: [],
     pendingMessages: new Map(),
     
     // Configuration - performance optimized
@@ -76,18 +77,24 @@ const ChatService = {
         
         // Quick auth check
         if (!this.authService?.isAuthenticated()) {
-            throw new Error('Authentication required');
+            const error = new Error('Authentication required');
+            this._notifyErrorListeners({ type: 'auth_required', message: error.message, requiresLogin: true });
+            throw error;
         }
         
         const user = this.authService.getCurrentUser();
         if (!user?.id || !user?.email) {
-            throw new Error('User information not available');
+            const error = new Error('User information not available');
+            this._notifyErrorListeners({ type: 'user_info_missing', message: error.message, requiresLogin: true });
+            throw error;
         }
 
         // Get token quickly
         const accessToken = this.authService.getToken();
         if (!accessToken) {
-            throw new Error('No access token available');
+            const error = new Error('No access token available');
+            this._notifyErrorListeners({ type: 'no_access_token', message: error.message, requiresLogin: true });
+            throw error;
         }
         
         return new Promise((resolve, reject) => {
@@ -103,7 +110,9 @@ const ChatService = {
                     this._cleanup();
                     this.isConnecting = false;
                     this._notifyStatusChange('disconnected');
-                    reject(new Error('Connection timeout'));
+                    const error = new Error('Connection timeout');
+                    this._notifyErrorListeners({ type: 'connection_timeout', message: error.message });
+                    reject(error);
                 }
             }, this.options.connectionTimeout);
             
@@ -144,7 +153,9 @@ const ChatService = {
                             clearTimeout(timeout);
                             this.isConnecting = false;
                             this._cleanup();
-                            reject(new Error(data.message || 'Connection error'));
+                            const error = new Error(data.message || 'Connection error');
+                            this._notifyErrorListeners({ type: 'connection_error', message: error.message });
+                            reject(error);
                             return;
                         }
                         
@@ -152,6 +163,7 @@ const ChatService = {
                         
                     } catch (e) {
                         this._error('Message parse error:', e);
+                        this._notifyErrorListeners({ type: 'message_parse_error', message: e.message });
                     }
                 };
                 
@@ -159,7 +171,9 @@ const ChatService = {
                     if (this.isConnecting) {
                         clearTimeout(timeout);
                         this.isConnecting = false;
-                        reject(new Error('Connection closed during handshake'));
+                        const error = new Error('Connection closed during handshake');
+                        this._notifyErrorListeners({ type: 'connection_closed', message: error.message });
+                        reject(error);
                         return;
                     }
                     
@@ -171,7 +185,11 @@ const ChatService = {
                         clearTimeout(timeout);
                         this.isConnecting = false;
                         this._cleanup();
-                        reject(new Error('WebSocket connection error'));
+                        const error = new Error('WebSocket connection error');
+                        this._notifyErrorListeners({ type: 'websocket_error', message: error.message });
+                        reject(error);
+                    } else {
+                        this._notifyErrorListeners({ type: 'websocket_error', message: 'WebSocket error occurred' });
                     }
                 };
                 
@@ -179,6 +197,7 @@ const ChatService = {
                 clearTimeout(timeout);
                 this.isConnecting = false;
                 this._cleanup();
+                this._notifyErrorListeners({ type: 'websocket_creation_error', message: error.message });
                 reject(error);
             }
         });
@@ -189,7 +208,9 @@ const ChatService = {
      */
     async sendMessage(text) {
         if (!text?.trim()) {
-            throw new Error('Message cannot be empty');
+            const error = new Error('Message cannot be empty');
+            this._notifyErrorListeners({ type: 'empty_message', message: error.message });
+            throw error;
         }
         
         const messageId = this._generateQuickId();
@@ -225,6 +246,7 @@ const ChatService = {
                 // Try to connect asynchronously
                 this.connect().catch(e => {
                     this._error('Connection failed:', e);
+                    this._notifyErrorListeners({ type: 'auto_connect_failed', message: e.message });
                 });
             }
             
@@ -256,7 +278,24 @@ const ChatService = {
             
         } catch (error) {
             this._error('Failed to load chat history:', error);
+            this._notifyErrorListeners({ type: 'history_load_failed', message: error.message });
             return [];
+        }
+    },
+    
+    /**
+     * Force reconnection
+     */
+    async forceReconnect() {
+        this._log('Force reconnecting...');
+        this.disconnect();
+        this.reconnectAttempts = 0;
+        
+        try {
+            return await this.connect();
+        } catch (error) {
+            this._notifyErrorListeners({ type: 'force_reconnect_failed', message: error.message });
+            throw error;
         }
     },
     
@@ -306,6 +345,29 @@ const ChatService = {
     onStatusChange(callback) {
         if (typeof callback === 'function') {
             this.statusListeners.push(callback);
+        }
+    },
+    
+    onError(callback) {
+        if (typeof callback === 'function') {
+            this.errorListeners.push(callback);
+        }
+    },
+    
+    removeListener(type, callback) {
+        switch (type) {
+            case 'message':
+                const msgIndex = this.messageListeners.indexOf(callback);
+                if (msgIndex > -1) this.messageListeners.splice(msgIndex, 1);
+                break;
+            case 'status':
+                const statusIndex = this.statusListeners.indexOf(callback);
+                if (statusIndex > -1) this.statusListeners.splice(statusIndex, 1);
+                break;
+            case 'error':
+                const errorIndex = this.errorListeners.indexOf(callback);
+                if (errorIndex > -1) this.errorListeners.splice(errorIndex, 1);
+                break;
         }
     },
     
@@ -398,6 +460,14 @@ const ChatService = {
                 });
                 break;
                 
+            case 'error':
+                this._notifyErrorListeners({
+                    type: 'server_error',
+                    message: data.message || 'Server error',
+                    details: data.details
+                });
+                break;
+                
             default:
                 this._notifyMessageListeners(data);
                 break;
@@ -415,6 +485,12 @@ const ChatService = {
         
         if (shouldReconnect) {
             this._scheduleReconnectFast();
+        } else if (this.reconnectAttempts >= this.options.maxReconnectAttempts) {
+            this._notifyErrorListeners({
+                type: 'max_reconnect_attempts',
+                message: 'Maximum reconnection attempts reached',
+                reconnectAttempts: this.reconnectAttempts
+            });
         }
     },
     
@@ -429,9 +505,21 @@ const ChatService = {
             if (this.authService?.isAuthenticated()) {
                 this.connect().catch(e => {
                     this._error('Reconnect failed:', e);
+                    this._notifyErrorListeners({
+                        type: 'reconnect_failed',
+                        message: e.message,
+                        attempt: this.reconnectAttempts
+                    });
+                    
                     if (this.reconnectAttempts < this.options.maxReconnectAttempts) {
                         this._scheduleReconnectFast();
                     }
+                });
+            } else {
+                this._notifyErrorListeners({
+                    type: 'auth_failed',
+                    message: 'Authentication lost during reconnection',
+                    requiresLogin: true
                 });
             }
         }, delay);
@@ -523,6 +611,16 @@ const ChatService = {
         this.statusListeners.forEach(callback => {
             try {
                 callback(status, this.getStatus());
+            } catch (e) {
+                // Ignore errors
+            }
+        });
+    },
+    
+    _notifyErrorListeners(error) {
+        this.errorListeners.forEach(callback => {
+            try {
+                callback(error);
             } catch (e) {
                 // Ignore errors
             }

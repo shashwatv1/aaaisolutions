@@ -1,277 +1,366 @@
 /**
- * UI Component Renderer for AAAI Solutions Chat
- * Renders rich UI components in the chat interface
-*/
+ * High-Performance UI Component Renderer for AAAI Solutions Chat
+ * Optimized for fast rendering with minimal DOM operations
+ */
 const UIComponentRenderer = {
-  /**
-   * Initialize the component renderer
-   * @param {Object} options - Renderer options
-   */
-  init(options = {}) {
-      this.options = Object.assign({
-          linkHandler: null,
-          actionHandler: null
-      }, options);
-      
-      return this;
-  },
-  
-  /**
-   * Render a component in the chat
-   * @param {Object} component - Component data
-   * @param {Element} container - Container element
-   */
-  renderComponent(component, container) {
-      if (!component || !component.type || !container) {
-          console.error('Invalid component or container');
-          return null;
-      }
-      
-      let componentElement = null;
-      
-      switch (component.type) {
-          case 'button':
-              componentElement = this._renderButton(component);
-              break;
-              
-          case 'card':
-              componentElement = this._renderCard(component);
-              break;
-              
-          case 'quick_replies':
-              componentElement = this._renderQuickReplies(component);
-              break;
-              
-          case 'contact_list':
-              componentElement = this._renderContactList(component);
-              break;
-              
-          default:
-              console.warn('Unknown component type:', component.type);
-              return null;
-      }
-      
-      if (componentElement) {
-          container.appendChild(componentElement);
-          return componentElement;
-      }
-      
-      return null;
-  },
-  
-  /**
-   * Render a button component
-   * @private
-   */
-  _renderButton(component) {
-      const button = document.createElement('button');
-      button.className = 'chat-component-button';
-      button.textContent = component.label || 'Button';
-      
-      // Add style class
-      if (component.style) {
-          button.classList.add(`chat-button-${component.style}`);
-      }
-      
-      // Add action handler
-      button.addEventListener('click', (event) => {
-          event.preventDefault();
-          
-          if (component.action === 'link' && component.value) {
-              // Handle link action
-              if (this.options.linkHandler) {
-                  this.options.linkHandler(component.value);
-              } else {
-                  window.location.href = component.value;
-              }
-          } else if (this.options.actionHandler) {
-              // Handle other actions
-              this.options.actionHandler(component.action, component.value);
-          }
-      });
-      
-      return button;
-  },
-  
-  /**
-   * Render a card component
-   * @private
-   */
-  _renderCard(component) {
-      const card = document.createElement('div');
-      card.className = 'chat-component-card';
-      
-      // Add image if present
-      if (component.image_url) {
-          const imageContainer = document.createElement('div');
-          imageContainer.className = 'chat-card-image';
-          
-          const image = document.createElement('img');
-          image.src = component.image_url;
-          image.alt = component.title || 'Card image';
-          
-          imageContainer.appendChild(image);
-          card.appendChild(imageContainer);
-      }
-      
-      // Add content container
-      const content = document.createElement('div');
-      content.className = 'chat-card-content';
-      
-      // Add title
-      const title = document.createElement('h3');
-      title.className = 'chat-card-title';
-      title.textContent = component.title || '';
-      content.appendChild(title);
-      
-      // Add subtitle if present
-      if (component.subtitle) {
-          const subtitle = document.createElement('p');
-          subtitle.className = 'chat-card-subtitle';
-          subtitle.textContent = component.subtitle;
-          content.appendChild(subtitle);
-      }
-      
-      // Add buttons if present
-      if (component.buttons && Array.isArray(component.buttons)) {
-          const buttonContainer = document.createElement('div');
-          buttonContainer.className = 'chat-card-buttons';
-          
-          component.buttons.forEach(buttonData => {
-              const button = this._renderButton(buttonData);
-              buttonContainer.appendChild(button);
-          });
-          
-          content.appendChild(buttonContainer);
-      }
-      
-      card.appendChild(content);
-      return card;
-  },
-  
-  /**
-   * Render quick replies
-   * @private
-   */
-  _renderQuickReplies(component) {
-      const container = document.createElement('div');
-      container.className = 'chat-component-quick-replies';
-      
-      // Add title if present
-      if (component.title) {
-          const title = document.createElement('div');
-          title.className = 'chat-quick-replies-title';
-          title.textContent = component.title;
-          container.appendChild(title);
-      }
-      
-      // Add options
-      if (component.options && Array.isArray(component.options)) {
-          const optionsContainer = document.createElement('div');
-          optionsContainer.className = 'chat-quick-replies-options';
-          
-          component.options.forEach(option => {
-              const button = document.createElement('button');
-              button.className = 'chat-quick-reply-button';
-              button.textContent = option.label || 'Option';
-              
-              // Add action handler
-              button.addEventListener('click', (event) => {
-                  event.preventDefault();
-                  
-                  if (option.action === 'link' && option.url) {
-                      // Handle link action
-                      if (this.options.linkHandler) {
-                          this.options.linkHandler(option.url);
-                      } else {
-                          window.location.href = option.url;
-                      }
-                  } else if (option.action === 'reply') {
-                      // Handle reply action - simulate a user message
-                      if (this.options.actionHandler) {
-                          this.options.actionHandler('reply', option.label);
-                      }
-                  } else if (this.options.actionHandler) {
-                      // Handle other actions
-                      this.options.actionHandler(option.action, option.value);
-                  }
-                  
-                  // Remove quick replies after selection
-                  container.remove();
-              });
-              
-              optionsContainer.appendChild(button);
-          });
-          
-          container.appendChild(optionsContainer);
-      }
-      
-      return container;
-  },
-  
-  /**
-   * Render contact list
-   * @private
-   */
-  _renderContactList(component) {
-      const container = document.createElement('div');
-      container.className = 'chat-component-contact-list';
-      
-      // Add items
-      if (component.items && Array.isArray(component.items)) {
-          component.items.forEach(item => {
-              const contactItem = document.createElement('div');
-              contactItem.className = 'chat-contact-item';
-              
-              // Add icon
-              const icon = document.createElement('div');
-              icon.className = `chat-contact-icon chat-icon-${item.icon || 'default'}`;
-              contactItem.appendChild(icon);
-              
-              // Add content
-              const content = document.createElement('div');
-              content.className = 'chat-contact-content';
-              
-              // Add title
-              const title = document.createElement('div');
-              title.className = 'chat-contact-title';
-              title.textContent = item.title || '';
-              content.appendChild(title);
-              
-              // Add value
-              const value = document.createElement('div');
-              value.className = 'chat-contact-value';
-              value.textContent = item.value || '';
-              content.appendChild(value);
-              
-              contactItem.appendChild(content);
-              
-              // Add action button
-              if (item.action === 'copy') {
-                  const copyButton = document.createElement('button');
-                  copyButton.className = 'chat-contact-copy';
-                  copyButton.innerHTML = '<ion-icon name="copy-outline"></ion-icon>';
-                  copyButton.title = 'Copy to clipboard';
-                  
-                  copyButton.addEventListener('click', () => {
-                      navigator.clipboard.writeText(item.value)
-                          .then(() => {
-                              // Show copied tooltip
-                              copyButton.classList.add('copied');
-                              setTimeout(() => {
-                                  copyButton.classList.remove('copied');
-                              }, 2000);
-                          })
-                          .catch(err => console.error('Failed to copy:', err));
-                  });
-                  
-                  contactItem.appendChild(copyButton);
-              }
-              
-              container.appendChild(contactItem);
-          });
-      }
-      
-      return container;
-  }
+    // Component cache for reuse
+    componentCache: new Map(),
+    
+    // Performance options
+    options: {
+        enableCache: true,
+        batchRender: true,
+        lazyLoad: true
+    },
+    
+    /**
+     * Fast initialization
+     */
+    init(options = {}) {
+        this.options = Object.assign({
+            linkHandler: null,
+            actionHandler: null,
+            enableCache: true,
+            batchRender: true
+        }, options);
+        
+        console.log('🎨 Fast UI Component Renderer initialized');
+        return this;
+    },
+    
+    /**
+     * Fast component rendering with caching
+     */
+    renderComponent(component, container) {
+        if (!component?.type || !container) {
+            console.error('Invalid component or container');
+            return null;
+        }
+        
+        const startTime = performance.now();
+        
+        // Check cache first
+        const cacheKey = this._generateCacheKey(component);
+        if (this.options.enableCache && this.componentCache.has(cacheKey)) {
+            const cachedElement = this.componentCache.get(cacheKey).cloneNode(true);
+            this._attachEventListeners(cachedElement, component);
+            container.appendChild(cachedElement);
+            
+            console.log(`🎨 Fast component rendered from cache: ${component.type}`);
+            return cachedElement;
+        }
+        
+        let componentElement = null;
+        
+        // Fast component creation
+        switch (component.type) {
+            case 'button':
+                componentElement = this._renderButtonFast(component);
+                break;
+                
+            case 'card':
+                componentElement = this._renderCardFast(component);
+                break;
+                
+            case 'quick_replies':
+                componentElement = this._renderQuickRepliesFast(component);
+                break;
+                
+            case 'contact_list':
+                componentElement = this._renderContactListFast(component);
+                break;
+                
+            default:
+                console.warn('Unknown component type:', component.type);
+                return null;
+        }
+        
+        if (componentElement) {
+            // Cache the component for reuse
+            if (this.options.enableCache) {
+                this.componentCache.set(cacheKey, componentElement.cloneNode(true));
+            }
+            
+            container.appendChild(componentElement);
+            
+            const renderTime = performance.now() - startTime;
+            console.log(`🎨 Fast component rendered: ${component.type} in ${renderTime.toFixed(2)}ms`);
+            
+            return componentElement;
+        }
+        
+        return null;
+    },
+    
+    /**
+     * Batch render multiple components for performance
+     */
+    renderComponents(components, container) {
+        if (!Array.isArray(components) || !container) {
+            return [];
+        }
+        
+        const fragment = document.createDocumentFragment();
+        const renderedElements = [];
+        
+        components.forEach(component => {
+            const element = this.renderComponent(component, fragment);
+            if (element) {
+                renderedElements.push(element);
+            }
+        });
+        
+        // Single DOM append for all components
+        container.appendChild(fragment);
+        
+        console.log(`🎨 Fast batch rendered ${renderedElements.length} components`);
+        return renderedElements;
+    },
+    
+    /**
+     * Fast button component rendering
+     */
+    _renderButtonFast(component) {
+        const button = document.createElement('button');
+        button.className = 'chat-component-button';
+        button.textContent = component.label || 'Button';
+        
+        if (component.style) {
+            button.classList.add(`chat-button-${component.style}`);
+        }
+        
+        this._attachButtonHandler(button, component);
+        
+        return button;
+    },
+    
+    /**
+     * Fast card component rendering
+     */
+    _renderCardFast(component) {
+        const card = document.createElement('div');
+        card.className = 'chat-component-card';
+        
+        // Build HTML string for faster rendering
+        let cardHTML = '';
+        
+        // Add image if present
+        if (component.image_url) {
+            cardHTML += `
+                <div class="chat-card-image">
+                    <img src="${this._escapeHtml(component.image_url)}" 
+                         alt="${this._escapeHtml(component.title || 'Card image')}" 
+                         loading="lazy">
+                </div>`;
+        }
+        
+        // Add content container
+        cardHTML += `<div class="chat-card-content">`;
+        cardHTML += `<h3 class="chat-card-title">${this._escapeHtml(component.title || '')}</h3>`;
+        
+        if (component.subtitle) {
+            cardHTML += `<p class="chat-card-subtitle">${this._escapeHtml(component.subtitle)}</p>`;
+        }
+        
+        cardHTML += `</div>`;
+        
+        card.innerHTML = cardHTML;
+        
+        // Add buttons if present
+        if (component.buttons?.length) {
+            const buttonContainer = document.createElement('div');
+            buttonContainer.className = 'chat-card-buttons';
+            
+            component.buttons.forEach(buttonData => {
+                const button = this._renderButtonFast(buttonData);
+                buttonContainer.appendChild(button);
+            });
+            
+            card.querySelector('.chat-card-content').appendChild(buttonContainer);
+        }
+        
+        return card;
+    },
+    
+    /**
+     * Fast quick replies rendering
+     */
+    _renderQuickRepliesFast(component) {
+        const container = document.createElement('div');
+        container.className = 'chat-component-quick-replies';
+        
+        let containerHTML = '';
+        
+        if (component.title) {
+            containerHTML += `<div class="chat-quick-replies-title">${this._escapeHtml(component.title)}</div>`;
+        }
+        
+        if (component.options?.length) {
+            containerHTML += `<div class="chat-quick-replies-options">`;
+            
+            component.options.forEach((option, index) => {
+                containerHTML += `
+                    <button class="chat-quick-reply-button" data-option-index="${index}">
+                        ${this._escapeHtml(option.label || 'Option')}
+                    </button>`;
+            });
+            
+            containerHTML += `</div>`;
+        }
+        
+        container.innerHTML = containerHTML;
+        
+        // Attach event listeners
+        if (component.options?.length) {
+            const buttons = container.querySelectorAll('.chat-quick-reply-button');
+            buttons.forEach((button, index) => {
+                const option = component.options[index];
+                this._attachQuickReplyHandler(button, option, container);
+            });
+        }
+        
+        return container;
+    },
+    
+    /**
+     * Fast contact list rendering
+     */
+    _renderContactListFast(component) {
+        const container = document.createElement('div');
+        container.className = 'chat-component-contact-list';
+        
+        if (!component.items?.length) {
+            return container;
+        }
+        
+        let listHTML = '';
+        
+        component.items.forEach((item, index) => {
+            listHTML += `
+                <div class="chat-contact-item">
+                    <div class="chat-contact-icon chat-icon-${item.icon || 'default'}"></div>
+                    <div class="chat-contact-content">
+                        <div class="chat-contact-title">${this._escapeHtml(item.title || '')}</div>
+                        <div class="chat-contact-value">${this._escapeHtml(item.value || '')}</div>
+                    </div>`;
+            
+            if (item.action === 'copy') {
+                listHTML += `
+                    <button class="chat-contact-copy" data-copy-value="${this._escapeHtml(item.value)}" title="Copy to clipboard">
+                        <ion-icon name="copy-outline"></ion-icon>
+                    </button>`;
+            }
+            
+            listHTML += `</div>`;
+        });
+        
+        container.innerHTML = listHTML;
+        
+        // Attach copy handlers
+        const copyButtons = container.querySelectorAll('.chat-contact-copy');
+        copyButtons.forEach(button => {
+            this._attachCopyHandler(button);
+        });
+        
+        return container;
+    },
+    
+    /**
+     * Clear component cache
+     */
+    clearCache() {
+        this.componentCache.clear();
+        console.log('🎨 Component cache cleared');
+    },
+    
+    // Private helper methods
+    
+    _generateCacheKey(component) {
+        return `${component.type}_${JSON.stringify(component).length}_${component.title || ''}`;
+    },
+    
+    _escapeHtml(text) {
+        if (!text) return '';
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    },
+    
+    _attachEventListeners(element, component) {
+        // Re-attach event listeners for cached elements
+        const buttons = element.querySelectorAll('.chat-component-button');
+        buttons.forEach(button => {
+            this._attachButtonHandler(button, component);
+        });
+    },
+    
+    _attachButtonHandler(button, component) {
+        button.addEventListener('click', (event) => {
+            event.preventDefault();
+            
+            if (component.action === 'link' && component.value) {
+                if (this.options.linkHandler) {
+                    this.options.linkHandler(component.value);
+                } else {
+                    window.open(component.value, '_blank');
+                }
+            } else if (this.options.actionHandler) {
+                this.options.actionHandler(component.action, component.value);
+            }
+        });
+    },
+    
+    _attachQuickReplyHandler(button, option, container) {
+        button.addEventListener('click', (event) => {
+            event.preventDefault();
+            
+            if (option.action === 'link' && option.url) {
+                if (this.options.linkHandler) {
+                    this.options.linkHandler(option.url);
+                } else {
+                    window.open(option.url, '_blank');
+                }
+            } else if (option.action === 'reply') {
+                if (this.options.actionHandler) {
+                    this.options.actionHandler('reply', option.label);
+                }
+            } else if (this.options.actionHandler) {
+                this.options.actionHandler(option.action, option.value);
+            }
+            
+            // Remove quick replies after selection
+            container.remove();
+        });
+    },
+    
+    _attachCopyHandler(button) {
+        const value = button.getAttribute('data-copy-value');
+        
+        button.addEventListener('click', async () => {
+            try {
+                await navigator.clipboard.writeText(value);
+                
+                button.classList.add('copied');
+                setTimeout(() => {
+                    button.classList.remove('copied');
+                }, 2000);
+                
+            } catch (err) {
+                console.error('Failed to copy:', err);
+                
+                // Fallback for older browsers
+                const textArea = document.createElement('textarea');
+                textArea.value = value;
+                document.body.appendChild(textArea);
+                textArea.select();
+                document.execCommand('copy');
+                document.body.removeChild(textArea);
+                
+                button.classList.add('copied');
+                setTimeout(() => {
+                    button.classList.remove('copied');
+                }, 2000);
+            }
+        });
+    }
 };
