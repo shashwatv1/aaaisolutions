@@ -1587,6 +1587,274 @@
       }
     });
   </script>
+  <!-- INTEGRATION FIX: Connect existing chat app to fixed WebSocket handling -->
+<script>
+  (function() {
+      'use strict';
+      
+      console.log('🔧 INTEGRATION FIX: Setting up WebSocket message integration...');
+      
+      let integrationSetup = false;
+      let messageListener = null;
+      let statusListener = null;
+      let errorListener = null;
+      
+      // Wait for both ChatService and your chat application to be ready
+      function setupIntegration() {
+          if (integrationSetup) return;
+          
+          if (!window.ChatService?.isInitialized) {
+              console.log('⏳ INTEGRATION FIX: Waiting for ChatService...');
+              setTimeout(setupIntegration, 500);
+              return;
+          }
+          
+          if (!window.addMessageToChat) {
+              console.log('⏳ INTEGRATION FIX: Waiting for chat application...');
+              setTimeout(setupIntegration, 500);
+              return;
+          }
+          
+          console.log('🔧 INTEGRATION FIX: Setting up message listeners...');
+          
+          // Clean up existing listeners first
+          if (messageListener) {
+              try {
+                  window.ChatService.removeMessageListener(messageListener);
+              } catch (e) {}
+          }
+          
+          if (statusListener) {
+              try {
+                  window.ChatService.removeStatusListener(statusListener);
+              } catch (e) {}
+          }
+          
+          if (errorListener) {
+              try {
+                  window.ChatService.removeErrorListener(errorListener);
+              } catch (e) {}
+          }
+          
+          // FIXED: Create message listener that works with your existing chat app
+          messageListener = function(data) {
+              console.log('🔧 INTEGRATION FIX: Message received:', {
+                  type: data.type,
+                  messageId: data.messageId,
+                  hasText: !!data.text,
+                  hasResponse: !!data.response
+              });
+              
+              try {
+                  switch (data.type) {
+                      case 'message_queued':
+                          console.log('🔧 INTEGRATION FIX: Message queued:', data.messageId);
+                          // Your app already handles this with typing indicator
+                          break;
+                          
+                      case 'chat_response':
+                          console.log('🔧 INTEGRATION FIX: Processing chat response...');
+                          handleChatResponseFixed(data);
+                          break;
+                          
+                      case 'chat_error':
+                          console.log('🔧 INTEGRATION FIX: Processing chat error...');
+                          handleChatErrorFixed(data);
+                          break;
+                          
+                      default:
+                          console.log('🔧 INTEGRATION FIX: Unhandled message type:', data.type);
+                          break;
+                  }
+              } catch (error) {
+                  console.error('❌ INTEGRATION FIX: Error handling message:', error);
+              }
+          };
+          
+          // FIXED: Create status listener
+          statusListener = function(status, details) {
+              console.log('🔧 INTEGRATION FIX: Status changed:', status, details);
+              
+              // Update your connection status indicator if it exists
+              if (window.updateConnectionStatus) {
+                  window.updateConnectionStatus(status);
+              }
+          };
+          
+          // FIXED: Create error listener  
+          errorListener = function(error) {
+              console.error('🔧 INTEGRATION FIX: ChatService error:', error);
+              
+              // Hide typing indicator on error
+              if (window.hideTypingIndicator) {
+                  window.hideTypingIndicator();
+              }
+              
+              // Add error message to chat
+              if (window.addMessageToChat) {
+                  window.addMessageToChat({
+                      type: 'error',
+                      text: 'Connection error: ' + (error.message || 'Unknown error'),
+                      timestamp: Date.now()
+                  });
+              }
+          };
+          
+          // FIXED: Add listeners to ChatService
+          try {
+              window.ChatService.onMessage(messageListener);
+              window.ChatService.onStatusChange(statusListener);
+              window.ChatService.onError(errorListener);
+              
+              integrationSetup = true;
+              console.log('✅ INTEGRATION FIX: Message listeners setup complete');
+              
+              // Verify listeners are registered
+              setTimeout(() => {
+                  const status = window.ChatService.getStatus();
+                  console.log('🔍 INTEGRATION FIX: Listener verification:', status.listeners);
+                  
+                  if (status.listeners?.message === 0) {
+                      console.error('❌ INTEGRATION FIX: CRITICAL - No message listeners registered!');
+                      // Try again
+                      integrationSetup = false;
+                      setTimeout(setupIntegration, 1000);
+                  }
+              }, 1000);
+              
+          } catch (error) {
+              console.error('❌ INTEGRATION FIX: Failed to setup listeners:', error);
+          }
+      }
+      
+      // FIXED: Handle chat response and add to your existing chat UI
+      function handleChatResponseFixed(data) {
+          console.log('🔧 INTEGRATION FIX: Handling chat response:', data);
+          
+          // Hide typing indicator
+          if (window.hideTypingIndicator) {
+              window.hideTypingIndicator();
+          }
+          
+          // FIXED: Extract response text with comprehensive fallbacks
+          let responseText = '';
+          
+          try {
+              // Method 1: Direct text field
+              if (data.text && typeof data.text === 'string' && data.text.trim()) {
+                  responseText = data.text;
+                  console.log('🔧 INTEGRATION FIX: Using data.text');
+              }
+              // Method 2: Response object
+              else if (data.response) {
+                  if (typeof data.response === 'string' && data.response.trim()) {
+                      responseText = data.response;
+                      console.log('🔧 INTEGRATION FIX: Using data.response as string');
+                  } else if (data.response && typeof data.response === 'object') {
+                      responseText = data.response.text || 
+                                   data.response.message || 
+                                   data.response.content ||
+                                   JSON.stringify(data.response);
+                      console.log('🔧 INTEGRATION FIX: Using data.response.text');
+                  }
+              }
+              // Method 3: Message field
+              else if (data.message) {
+                  responseText = data.message;
+                  console.log('🔧 INTEGRATION FIX: Using data.message');
+              }
+              
+              // Final validation
+              if (!responseText || responseText.trim() === '' || responseText === '{}') {
+                  responseText = 'Response received but content could not be extracted';
+                  console.warn('🔧 INTEGRATION FIX: Using fallback text');
+              }
+              
+              console.log('🔧 INTEGRATION FIX: Final response text:', {
+                  length: responseText.length,
+                  preview: responseText.substring(0, 50) + '...'
+              });
+              
+              // Add bot message to your existing chat using your function
+              if (window.addMessageToChat) {
+                  window.addMessageToChat({
+                      type: 'bot',
+                      text: responseText,
+                      timestamp: data.timestamp || Date.now(),
+                      messageId: data.messageId
+                  });
+                  console.log('✅ INTEGRATION FIX: Bot message added to chat UI');
+              } else {
+                  console.error('❌ INTEGRATION FIX: addMessageToChat function not found');
+              }
+              
+              // Handle components if present
+              if (data.components && Array.isArray(data.components) && data.components.length > 0) {
+                  console.log('🔧 INTEGRATION FIX: Processing components:', data.components.length);
+                  // Add components handling if your app supports it
+                  if (window.addComponentsToChat) {
+                      window.addComponentsToChat(data.components);
+                  }
+              }
+              
+          } catch (error) {
+              console.error('❌ INTEGRATION FIX: Error processing response:', error);
+              
+              // Add error message to chat
+              if (window.addMessageToChat) {
+                  window.addMessageToChat({
+                      type: 'error',
+                      text: 'Error displaying response: ' + error.message,
+                      timestamp: Date.now()
+                  });
+              }
+          }
+      }
+      
+      // FIXED: Handle chat error
+      function handleChatErrorFixed(data) {
+          console.log('🔧 INTEGRATION FIX: Handling chat error:', data);
+          
+          // Hide typing indicator
+          if (window.hideTypingIndicator) {
+              window.hideTypingIndicator();
+          }
+          
+          // Add error message to chat
+          if (window.addMessageToChat) {
+              window.addMessageToChat({
+                  type: 'error',
+                  text: 'Error: ' + (data.error || 'Unknown error occurred'),
+                  timestamp: data.timestamp || Date.now(),
+                  messageId: data.messageId
+              });
+          }
+      }
+      
+      // Start setup process
+      if (document.readyState === 'loading') {
+          document.addEventListener('DOMContentLoaded', setupIntegration);
+      } else {
+          setupIntegration();
+      }
+      
+      // Also try setup after a delay to catch late-loading scripts
+      setTimeout(setupIntegration, 2000);
+      setTimeout(setupIntegration, 5000);
+      
+      // Expose integration functions for debugging
+      window.INTEGRATION_FIX = {
+          setupIntegration,
+          isSetup: () => integrationSetup,
+          messageListener,
+          statusListener,
+          errorListener
+      };
+      
+      console.log('🔧 INTEGRATION FIX: Integration script loaded');
+      
+  })();
+  </script>
 </body>
 
 </html>
