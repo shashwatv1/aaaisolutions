@@ -1,6 +1,6 @@
 /**
  * High-Performance Unified Application Initialization for AAAI Solutions
- * FIXED: Enhanced timing and integration setup
+ * Enhanced timing and integration setup with direct API approach
  */
 
 (function() {
@@ -15,22 +15,22 @@
         fastMode: true
     };
     
-    // Minimal service loading order
-    const CORE_SERVICES = ['AuthService', 'ProjectService', 'NavigationManager', 'ChatService', 'ChatIntegration'];
+    // Minimal service loading order (using direct API approach for chat)
+    const CORE_SERVICES = ['AuthService', 'ProjectService', 'NavigationManager', 'ChatIntegration'];
     
     /**
      * Fast initialization with minimal blocking
      */
     async function initializeApplication() {
         try {
-            console.log('🚀 FIXED: Fast AAAI Solutions initialization starting...');
+            console.log('🚀 Fast AAAI Solutions initialization starting...');
             
             // Quick environment setup
             initializeEnvironmentFast();
             
             // Get current page type quickly
             const currentPage = getCurrentPageTypeFast();
-            console.log('📄 FIXED: Page type:', currentPage);
+            console.log('📄 Page type:', currentPage);
             
             // Fast page authentication
             const authResult = await handlePageAuthenticationFast(currentPage);
@@ -41,17 +41,17 @@
                 throw new Error(authResult.reason || 'Authentication failed');
             }
             
-            console.log('✅ FIXED: Authentication ready, continuing...');
+            console.log('✅ Authentication ready, continuing...');
             
             // Initialize core services only
-            await initializeCoreServicesFixed();
+            await initializeCoreServices();
             
             // Page-specific initialization (non-blocking)
             initializePageSpecificFast(currentPage);
             
             window.AAAI_APP.initialized = true;
             
-            console.log('✅ FIXED: Fast AAAI initialization completed');
+            console.log('✅ Fast AAAI initialization completed');
             
             // Notify page scripts
             document.dispatchEvent(new CustomEvent('aaai:initialized', {
@@ -63,7 +63,7 @@
             }));
             
         } catch (error) {
-            console.error('❌ FIXED: Fast initialization failed:', error);
+            console.error('❌ Fast initialization failed:', error);
             showFastErrorMessage(error);
         }
     }
@@ -72,7 +72,7 @@
      * Fast page authentication with minimal checks
      */
     async function handlePageAuthenticationFast(pageType) {
-        console.log('🔐 FIXED: Fast authentication check for:', pageType);
+        console.log('🔐 Fast authentication check for:', pageType);
         
         try {
             // Initialize AuthService quickly
@@ -81,7 +81,7 @@
             }
             
             const authInitResult = window.AuthService.init();
-            console.log('🔐 FIXED: AuthService init result:', authInitResult);
+            console.log('🔐 AuthService init result:', authInitResult);
             
             // Handle based on page type with fast logic
             switch (pageType) {
@@ -100,71 +100,71 @@
             }
             
         } catch (error) {
-            console.error('🔐 FIXED: Fast authentication error:', error);
+            console.error('🔐 Fast authentication error:', error);
             return { success: false, reason: error.message };
         }
     }
 
     async function handleProtectedPageAuthFast() {
-        console.log('🔐 FIXED: Fast protected page auth check');
+        console.log('🔐 Fast protected page auth check');
         
         // Quick authentication check
         if (window.AuthService.isAuthenticated()) {
-            console.log('🔐 FIXED: Already authenticated');
+            console.log('🔐 Already authenticated');
             return { success: true, authenticated: true };
         }
         
         // Quick session check
         if (!window.AuthService.hasPersistentSession()) {
-            console.log('🔐 FIXED: No session, redirecting to login');
+            console.log('🔐 No session, redirecting to login');
             window.location.href = 'login.html';
             return { success: false, redirect: true };
         }
         
         // Try quick refresh
-        console.log('🔐 FIXED: Attempting quick session restore');
+        console.log('🔐 Attempting quick session restore');
         try {
             const refreshed = await window.AuthService.refreshTokenIfNeeded();
             
             if (refreshed && window.AuthService.isAuthenticated()) {
-                console.log('🔐 FIXED: Session restored quickly');
+                console.log('🔐 Session restored quickly');
                 return { success: true, authenticated: true };
             } else {
-                console.log('🔐 FIXED: Session restore failed, redirecting');
+                console.log('🔐 Session restore failed, redirecting');
                 window.location.href = 'login.html';
                 return { success: false, redirect: true };
             }
             
         } catch (error) {
-            console.error('🔐 FIXED: Session restore error:', error);
+            console.error('🔐 Session restore error:', error);
             window.location.href = 'login.html';
             return { success: false, redirect: true };
         }
     }
 
     async function handleLoginPageAuthFast() {
-        console.log('🔐 FIXED: Fast login page auth check');
+        console.log('🔐 Fast login page auth check');
         
         // Quick check if already authenticated
         if (window.AuthService.isAuthenticated()) {
-            console.log('🔐 FIXED: Already authenticated, redirecting');
+            console.log('🔐 Already authenticated, redirecting');
             window.location.href = 'project.html';
             return { success: false, redirect: true };
         }
         
         // Quick session restore attempt
         if (window.AuthService.hasPersistentSession()) {
-            console.log('🔐 FIXED: Quick session restore attempt');
+            console.log('🔐 Quick session restore attempt');
             
             try {
                 const refreshed = await window.AuthService.refreshTokenIfNeeded();
                 if (refreshed && window.AuthService.isAuthenticated()) {
-                    console.log('🔐 FIXED: Session restored, redirecting');
+                    console.log('🔐 Session restored, redirecting');
                     window.location.href = 'project.html';
                     return { success: false, redirect: true };
                 }
             } catch (error) {
-                console.warn('🔐 FIXED: Session restore failed:', error);
+                console.warn('🔐 Session restore failed:', error);
             }
         }
         
@@ -172,24 +172,24 @@
     }
 
     /**
-     * FIXED: Enhanced core services initialization with proper timing and error handling
+     * Enhanced core services initialization with direct API approach
      */
-    async function initializeCoreServicesFixed() {
-        console.log('🔧 FIXED: Fast core services initialization...');
+    async function initializeCoreServices() {
+        console.log('🔧 Fast core services initialization...');
         
         for (const serviceName of CORE_SERVICES) {
             try {
                 if (!window[serviceName]) {
-                    console.warn(`⚠️ FIXED: ${serviceName} not found, skipping`);
+                    console.warn(`⚠️ ${serviceName} not found, skipping`);
                     continue;
                 }
                 
                 if (window.AAAI_APP.services[serviceName]) {
-                    console.log(`ℹ️ FIXED: ${serviceName} already initialized`);
+                    console.log(`ℹ️ ${serviceName} already initialized`);
                     continue;
                 }
                 
-                console.log(`🔧 FIXED: Quick init ${serviceName}...`);
+                console.log(`🔧 Quick init ${serviceName}...`);
                 
                 let service = window[serviceName];
                 
@@ -203,9 +203,9 @@
                         if (typeof service.init === 'function' && !service.isInitialized) {
                             service.init(window.AAAI_APP.services.AuthService, {
                                 debug: window.AAAI_APP.debug,
-                                autoSync: true, // Efficient auto-sync enabled
-                                enableRealTimeUpdates: true, // Efficient real-time updates
-                                syncInterval: 60000 // 1 minute intervals
+                                autoSync: true,
+                                enableRealTimeUpdates: true,
+                                syncInterval: 60000
                             });
                         }
                         window.AAAI_APP.services[serviceName] = service;
@@ -222,23 +222,8 @@
                         window.AAAI_APP.services[serviceName] = service;
                         break;
                         
-                    case 'ChatService':
-                        if (typeof service.init === 'function' && !service.isInitialized) {
-                            try {
-                                service.init(window.AAAI_APP.services.AuthService, {
-                                    debug: window.AAAI_APP.debug
-                                });
-                                console.log('✅ FIXED: ChatService initialized successfully');
-                            } catch (error) {
-                                console.warn(`⚠️ FIXED: ${serviceName} initialization failed:`, error);
-                                continue;
-                            }
-                        }
-                        window.AAAI_APP.services[serviceName] = service;
-                        break;
-                        
                     case 'ChatIntegration':
-                        // ChatIntegration is initialized per-page, not globally
+                        // ChatIntegration is initialized per-page with direct API approach
                         window.AAAI_APP.services[serviceName] = service;
                         break;
                         
@@ -247,22 +232,22 @@
                         break;
                 }
                 
-                console.log(`✅ FIXED: ${serviceName} initialized quickly`);
+                console.log(`✅ ${serviceName} initialized quickly`);
                 
             } catch (error) {
-                console.error(`❌ FIXED: Failed to initialize ${serviceName}:`, error);
+                console.error(`❌ Failed to initialize ${serviceName}:`, error);
                 // Continue with other services
             }
         }
         
-        console.log('✅ FIXED: Core services initialized');
+        console.log('✅ Core services initialized');
     }
         
     /**
      * Page-specific initialization (non-blocking)
      */
     function initializePageSpecificFast(pageType) {
-        console.log(`🎯 FIXED: Fast page-specific init for: ${pageType}`);
+        console.log(`🎯 Fast page-specific init for: ${pageType}`);
         
         // Use setTimeout to make it non-blocking
         setTimeout(() => {
@@ -272,11 +257,11 @@
                     break;
                     
                 case 'chat':
-                    initializeChatPageFixed();
+                    initializeChatPage();
                     break;
                     
                 default:
-                    console.log('ℹ️ FIXED: No specific initialization needed');
+                    console.log('ℹ️ No specific initialization needed');
                     break;
             }
         }, 0);
@@ -287,7 +272,7 @@
      */
     function initializeProjectPageFast() {
         try {
-            console.log('📂 FIXED: Fast project page init...');
+            console.log('📂 Fast project page init...');
             
             const authService = window.AAAI_APP.services.AuthService;
             const projectService = window.AAAI_APP.services.ProjectService;
@@ -299,30 +284,29 @@
             // Load context asynchronously (non-blocking)
             if (projectService) {
                 projectService.getCurrentContext().catch(error => {
-                    console.warn('⚠️ FIXED: Context load failed:', error);
+                    console.warn('⚠️ Context load failed:', error);
                 });
             }
             
-            console.log('✅ FIXED: Project page initialized');
+            console.log('✅ Project page initialized');
             
         } catch (error) {
-            console.error('❌ FIXED: Project page init failed:', error);
+            console.error('❌ Project page init failed:', error);
         }
     }
     
     /**
-     * FIXED: Enhanced chat page initialization with proper sequencing and error handling
+     * Enhanced chat page initialization with direct API approach
      */
-    function initializeChatPageFixed() {
+    function initializeChatPage() {
         try {
-            console.log('💬 FIXED: Enhanced chat page initialization starting...');
+            console.log('💬 Enhanced chat page initialization starting...');
             
             const authService = window.AAAI_APP.services.AuthService;
             const projectService = window.AAAI_APP.services.ProjectService;
-            const chatService = window.AAAI_APP.services.ChatService;
             
             if (!authService?.isAuthenticated()) {
-                console.error('🔐 FIXED: Authentication required for chat page');
+                console.error('🔐 Authentication required for chat page');
                 window.location.href = 'login.html';
                 return;
             }
@@ -333,41 +317,39 @@
             const projectName = urlParams.get('project_name');
             
             if (!projectId) {
-                console.warn('⚠️ FIXED: No project ID, redirecting to projects');
+                console.warn('⚠️ No project ID, redirecting to projects');
                 window.location.href = 'project.html';
                 return;
             }
             
-            console.log('📝 FIXED: Chat page context:', {
+            console.log('📝 Chat page context:', {
                 projectId,
-                projectName: projectName ? decodeURIComponent(projectName) : null,
-                chatServiceReady: !!chatService?.isInitialized
+                projectName: projectName ? decodeURIComponent(projectName) : null
             });
             
-            // FIXED: Initialize ChatIntegration with proper error handling and validation
+            // Initialize ChatIntegration with direct API approach
             if (window.ChatIntegration && !window.ChatIntegration.isInitialized) {
                 try {
-                    console.log('🔧 FIXED: Initializing ChatIntegration...');
+                    console.log('🔧 Initializing ChatIntegration...');
                     
-                    // FIXED: Wait for DOM to be fully ready
+                    // Wait for DOM to be ready
                     setTimeout(() => {
                         try {
                             window.ChatIntegration.init('chatContainer', {
                                 debug: window.AAAI_APP.debug,
-                                connectImmediately: false, // FIXED: Don't connect immediately, do it after setup
                                 autoScroll: true,
                                 showTimestamps: true,
                                 enableTypingIndicator: true
                             });
-                            console.log('✅ FIXED: ChatIntegration initialized successfully');
+                            console.log('✅ ChatIntegration initialized successfully');
                             
-                            // FIXED: Set project context immediately
+                            // Set project context
                             window.ChatIntegration.setProjectContext(projectId, projectName);
                             
-                            // FIXED: Mark chat integration as ready for external scripts
+                            // Mark as ready
                             window.AAAI_APP.chatIntegrationReady = true;
                             
-                            // FIXED: Dispatch event for external integration scripts
+                            // Dispatch ready event
                             document.dispatchEvent(new CustomEvent('chatIntegrationReady', {
                                 detail: {
                                     projectId,
@@ -377,136 +359,41 @@
                             }));
                             
                         } catch (error) {
-                            console.error('❌ FIXED: ChatIntegration initialization failed:', error);
-                            
-                            // FIXED: Try fallback initialization
-                            setTimeout(() => {
-                                try {
-                                    console.log('🔄 FIXED: Trying ChatIntegration fallback initialization...');
-                                    window.ChatIntegration.init('chatContainer', {
-                                        debug: true, // Enable debug for troubleshooting
-                                        connectImmediately: false,
-                                        autoScroll: true
-                                    });
-                                    window.ChatIntegration.setProjectContext(projectId, projectName);
-                                    window.AAAI_APP.chatIntegrationReady = true;
-                                    document.dispatchEvent(new CustomEvent('chatIntegrationReady'));
-                                } catch (fallbackError) {
-                                    console.error('❌ FIXED: ChatIntegration fallback failed:', fallbackError);
-                                }
-                            }, 1000);
+                            console.error('❌ ChatIntegration initialization failed:', error);
                         }
-                    }, 100); // Reduced wait time
+                    }, 100);
                     
                 } catch (error) {
-                    console.error('❌ FIXED: ChatIntegration setup failed:', error);
+                    console.error('❌ ChatIntegration setup failed:', error);
                 }
             } else if (window.ChatIntegration?.isInitialized) {
-                console.log('ℹ️ FIXED: ChatIntegration already initialized');
+                console.log('ℹ️ ChatIntegration already initialized');
                 window.ChatIntegration.setProjectContext(projectId, projectName);
                 window.AAAI_APP.chatIntegrationReady = true;
                 document.dispatchEvent(new CustomEvent('chatIntegrationReady'));
             } else {
-                console.error('❌ FIXED: ChatIntegration not available');
+                console.error('❌ ChatIntegration not available');
             }
             
-            // FIXED: Switch project context in parallel (don't wait for ChatService)
+            // Switch project context
             if (projectService) {
                 projectService.switchToProject(
                     projectId, 
                     projectName ? decodeURIComponent(projectName) : null
                 ).then(() => {
-                    console.log('✅ FIXED: Project context switched');
+                    console.log('✅ Project context switched');
                 }).catch(error => {
-                    console.error('❌ FIXED: Project context switch failed:', error);
+                    console.error('❌ Project context switch failed:', error);
                 });
             }
             
-            console.log('✅ FIXED: Chat page initialization started');
+            console.log('✅ Chat page initialization completed');
             
         } catch (error) {
-            console.error('❌ FIXED: Chat page init failed:', error);
+            console.error('❌ Chat page init failed:', error);
         }
     }
     
-    /**
-     * FIXED: Separate chat connection initialization with proper sequencing
-     */
-    function initializeChatConnectionFixed(projectId, projectName) {
-        console.log('🔌 FIXED: Initializing chat connection...', { projectId, projectName });
-        
-        const chatService = window.AAAI_APP.services.ChatService;
-        
-        if (!chatService?.isInitialized) {
-            console.error('❌ FIXED: ChatService not available for connection');
-            return;
-        }
-        
-        // FIXED: Set project context first
-        if (projectId) {
-            try {
-                if (window.ChatIntegration?.isInitialized) {
-                    window.ChatIntegration.setProjectContext(
-                        projectId, 
-                        projectName ? decodeURIComponent(projectName) : null
-                    );
-                    console.log('✅ FIXED: ChatIntegration project context set');
-                }
-                
-                // FIXED: Connect ChatService
-                console.log('🔌 FIXED: Starting ChatService connection...');
-                chatService.connect().then(() => {
-                    console.log('✅ FIXED: ChatService connected successfully');
-                    
-                    // FIXED: Set project context on ChatService after connection
-                    chatService.setProjectContext(
-                        projectId, 
-                        projectName ? decodeURIComponent(projectName) : null
-                    );
-                    
-                    // FIXED: Validate the integration is working
-                    setTimeout(() => {
-                        const status = chatService.getStatus();
-                        console.log('🔍 FIXED: ChatService status after connection:', status);
-                        
-                        if (status.listeners.message === 0) {
-                            console.error('❌ FIXED: CRITICAL - No message listeners registered!');
-                            
-                            // FIXED: Try to re-setup integration
-                            if (window.ChatIntegration?.isInitialized) {
-                                try {
-                                    console.log('🔄 FIXED: Re-setting up ChatIntegration...');
-                                    window.ChatIntegration._setupChatServiceIntegrationFixed();
-                                } catch (error) {
-                                    console.error('❌ FIXED: Integration re-setup failed:', error);
-                                }
-                            }
-                        }
-                    }, 1000);
-                    
-                }).catch(error => {
-                    console.error('❌ FIXED: ChatService connection failed:', error);
-                    
-                    // FIXED: Show user-friendly error
-                    if (window.ChatIntegration?.isInitialized) {
-                        try {
-                            window.ChatIntegration._addMessageToUIFixed({
-                                type: 'error',
-                                text: 'Unable to connect to chat service. Please refresh the page.',
-                                timestamp: Date.now()
-                            });
-                        } catch (uiError) {
-                            console.error('❌ FIXED: Could not show error in UI:', uiError);
-                        }
-                    }
-                });
-                
-            } catch (error) {
-                console.error('❌ FIXED: Error in chat connection setup:', error);
-            }
-        }
-    }
-
     /**
      * Fast environment initialization
      */
@@ -534,7 +421,7 @@
             };
         }
         
-        console.log('🌍 FIXED: Fast environment initialized');
+        console.log('🌍 Fast environment initialized');
     }
     
     /**
@@ -569,7 +456,7 @@
         `;
         
         errorDiv.innerHTML = `
-            <strong>FIXED: Initialization Error</strong><br>
+            <strong>Initialization Error</strong><br>
             ${error.message || 'Unknown error'}
             <br><br>
             <button onclick="window.location.reload()" style="
@@ -617,6 +504,6 @@
         setTimeout(initializeApplication, 0);
     }
     
-    console.log('🎬 FIXED: Fast AAAI initialization script loaded');
+    console.log('🎬 Fast AAAI initialization script loaded');
     
 })();

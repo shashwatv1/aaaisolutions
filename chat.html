@@ -944,34 +944,23 @@
   <script type="module" src="https://unpkg.com/ionicons@5.5.2/dist/ionicons/ionicons.esm.js"></script>
   <script nomodule src="https://unpkg.com/ionicons@5.5.2/dist/ionicons/ionicons.js"></script>
   
-  <!-- Unified Chat Application Script -->
+  <!-- Simplified Chat Application Script -->
   <script>
     document.addEventListener('DOMContentLoaded', async function() {
-      console.log('🚀 Unified Chat Application starting...');
+      console.log('💬 Chat Application starting...');
       
       // Application state
       let currentProject = null;
-      let currentChat = null;
-      let chats = [];
       let sidebarCollapsed = false;
       
       // DOM elements
       const elements = {
-        // Environment
         envIndicator: document.getElementById('envIndicator'),
         envText: document.getElementById('envText'),
-        
-        // Sidebar elements
         chatSidebar: document.getElementById('chatSidebar'),
         sidebarProjectName: document.getElementById('sidebarProjectName'),
         sidebarCollapseBtn: document.getElementById('sidebarCollapseBtn'),
         collapseIcon: document.getElementById('collapseIcon'),
-        newChatBtn: document.getElementById('newChatBtn'),
-        chatList: document.getElementById('chatList'),
-        loadingChats: document.getElementById('loadingChats'),
-        
-        // Chat elements
-        chatContainer: document.getElementById('chatContainer'),
         chatTitle: document.getElementById('chatTitle'),
         chatSubtitle: document.getElementById('chatSubtitle'),
         userEmail: document.getElementById('userEmail'),
@@ -983,49 +972,24 @@
         sendMessageBtn: document.getElementById('sendMessageBtn'),
         welcomeMessage: document.getElementById('welcomeMessage'),
         backBtn: document.getElementById('backBtn'),
-        connectionError: document.getElementById('connectionError'),
-        reconnectBtn: document.getElementById('reconnectBtn'),
-        
-        // Status indicators
         connectedStatus: document.querySelector('.status-connected'),
         disconnectedStatus: document.querySelector('.status-disconnected'),
         reconnectingStatus: document.querySelector('.status-reconnecting')
       };
       
       /**
-       * Initialize the unified chat application
+       * Initialize the application
        */
       async function initializeApp() {
         try {
-          console.log('🚀 Starting unified chat application...');
+          console.log('🚀 Initializing chat application...');
           
           // Initialize environment
           initializeEnvironment();
           
           // Check authentication
-          if (!window.AuthService || !window.AuthService.init()) {
-            redirectToLogin('Authentication service not available');
+          if (!await ensureAuthentication()) {
             return;
-          }        
-          
-          if (!window.AuthService.isAuthenticated()) {
-            // Try to restore session if refresh token exists
-            if (window.AuthService.hasPersistentSession()) {
-                try {
-                    const refreshed = await window.AuthService.refreshTokenIfNeeded();
-                    if (!refreshed || !window.AuthService.isAuthenticated()) {
-                        redirectToLogin('Session restoration failed');
-                        return;
-                    }
-                } catch (error) {
-                    console.error('Session restoration failed:', error);
-                    redirectToLogin('Authentication error');
-                    return;
-                }
-            } else {
-                redirectToLogin('Not authenticated');
-                return;
-            }
           }
           
           // Get project ID from URL
@@ -1050,12 +1014,43 @@
           // Setup event listeners
           setupEventListeners();
           
-          console.log('✅ Unified chat application initialized successfully');
+          console.log('✅ Chat application initialized successfully');
           
         } catch (error) {
           console.error('❌ Failed to initialize chat application:', error);
           showError('Failed to initialize chat. Please refresh the page.');
         }
+      }
+      
+      /**
+       * Ensure authentication
+       */
+      async function ensureAuthentication() {
+        if (!window.AuthService || !window.AuthService.init()) {
+          redirectToLogin('Authentication service not available');
+          return false;
+        }
+        
+        if (!window.AuthService.isAuthenticated()) {
+          if (window.AuthService.hasPersistentSession()) {
+            try {
+              const refreshed = await window.AuthService.refreshTokenIfNeeded();
+              if (!refreshed || !window.AuthService.isAuthenticated()) {
+                redirectToLogin('Session restoration failed');
+                return false;
+              }
+            } catch (error) {
+              console.error('Session restoration failed:', error);
+              redirectToLogin('Authentication error');
+              return false;
+            }
+          } else {
+            redirectToLogin('Not authenticated');
+            return false;
+          }
+        }
+        
+        return true;
       }
       
       /**
@@ -1072,59 +1067,43 @@
       }
       
       /**
-       * Initialize services with proper integration
+       * Initialize services
        */
       async function initializeServices() {
-        // Initialize ProjectService
-        if (window.ProjectService && !window.ProjectService.isInitialized) {
-          window.ProjectService.init(window.AuthService, {
-            debug: window.AAAI_CONFIG?.ENABLE_DEBUG || false
-          });
+        // Wait for unified init to complete
+        if (window.AAAI_APP && !window.AAAI_APP.initialized) {
+          console.log('⏳ Waiting for unified initialization...');
+          const timeout = Date.now() + 10000;
+          while (!window.AAAI_APP.initialized && Date.now() < timeout) {
+            await new Promise(resolve => setTimeout(resolve, 100));
+          }
         }
         
-        // Initialize NavigationManager
-        if (window.NavigationManager && !window.NavigationManager.isInitialized) {
-          window.NavigationManager.init(window.AuthService, window.ProjectService, {
-            debug: window.AAAI_CONFIG?.ENABLE_DEBUG || false
-          });
-        }
-        
-        // Initialize ChatService
-        if (window.ChatService && !window.ChatService.isInitialized) {
-          window.ChatService.init(window.AuthService, {
-            debug: window.AAAI_CONFIG?.ENABLE_DEBUG || false
-          });
-        }
-        
-        // Initialize ChatIntegration
+        // Ensure ChatIntegration is initialized
         if (window.ChatIntegration && !window.ChatIntegration.isInitialized) {
-          window.ChatIntegration.init('chatContainer');
+          window.ChatIntegration.init('chatContainer', {
+            debug: window.AAAI_CONFIG?.ENABLE_DEBUG || false,
+            connectImmediately: false,
+            autoScroll: true,
+            showTimestamps: true,
+            enableTypingIndicator: true
+          });
         }
         
-        console.log('✅ All services initialized successfully');
+        console.log('✅ Services ready');
       }
       
       /**
-       * Initialize UI components
+       * Initialize UI
        */
       async function initializeUI() {
-        // Display user info
         const user = window.AuthService.getCurrentUser();
         if (user && elements.userEmail) {
           elements.userEmail.textContent = user.email;
         }
         
-        // Load credits
-        try {
-          // const credits = await window.AuthService.getUserCredits();
-          if (elements.creditsDisplay) {
-            elements.creditsDisplay.textContent = `Credits: 0`;
-          }
-        } catch (error) {
-          console.warn('Failed to load credits:', error);
-          if (elements.creditsDisplay) {
-            elements.creditsDisplay.textContent = 'Credits: --';
-          }
+        if (elements.creditsDisplay) {
+          elements.creditsDisplay.textContent = `Credits: 0`;
         }
       }
       
@@ -1135,30 +1114,28 @@
         try {
           const projectName = getProjectNameFromURL();
           
-          // Switch to project context
-          const result = await window.ProjectService.switchToProject(projectId, projectName);
-          
-          if (result.success) {
-            currentProject = result.project;
+          if (window.ProjectService) {
+            const result = await window.ProjectService.switchToProject(projectId, projectName);
             
-            // Update UI
-            if (elements.sidebarProjectName) {
-              elements.sidebarProjectName.textContent = result.project.name;
+            if (result.success) {
+              currentProject = result.project;
+              
+              if (elements.sidebarProjectName) {
+                elements.sidebarProjectName.textContent = result.project.name;
+              }
+              
+              if (elements.chatTitle) {
+                elements.chatTitle.textContent = result.project.name;
+              }
+              
+              if (elements.chatSubtitle) {
+                elements.chatSubtitle.textContent = 'AI Assistant Chat';
+              }
+              
+              document.title = `${result.project.name} - AAAI Solutions`;
+              
+              console.log('✅ Project context loaded:', result.project.name);
             }
-            
-            if (elements.chatTitle) {
-              elements.chatTitle.textContent = result.project.name;
-            }
-            
-            if (elements.chatSubtitle) {
-              elements.chatSubtitle.textContent = 'AI Assistant Chat';
-            }
-            
-            document.title = `${result.project.name} - AAAI Solutions`;
-            
-            console.log('✅ Project context loaded:', result.project.name);
-          } else {
-            throw new Error('Failed to load project context');
           }
           
         } catch (error) {
@@ -1168,21 +1145,16 @@
       }
       
       /**
-       * Initialize chat with project context
+       * Initialize chat with project
        */
       async function initializeChatWithProject(projectId) {
         try {
           const projectName = currentProject?.name || getProjectNameFromURL();
           
-          // Initialize ChatIntegration with project
           if (window.ChatIntegration) {
-            const success = await window.ChatIntegration.initializeWithProject(projectId, projectName);
-            if (!success) {
-              throw new Error('Failed to initialize chat integration');
-            }
+            window.ChatIntegration.setProjectContext(projectId, projectName);
+            console.log('✅ Chat initialized with project context');
           }
-          
-          console.log('✅ Chat initialized with project context');
           
         } catch (error) {
           console.error('❌ Error initializing chat with project:', error);
@@ -1194,19 +1166,13 @@
        * Setup event listeners
        */
       function setupEventListeners() {
-        // Back to projects button
+        // Back button
         elements.backBtn?.addEventListener('click', () => {
-          window.NavigationManager.goToProject();
+          window.location.href = 'project.html';
         });
         
-        // Sidebar collapse/expand
+        // Sidebar collapse
         elements.sidebarCollapseBtn?.addEventListener('click', toggleSidebar);
-        
-        // New chat button (placeholder)
-        elements.newChatBtn?.addEventListener('click', () => {
-          console.log('New chat functionality - TODO');
-          showWelcomeMessage();
-        });
         
         // Send message button
         elements.sendMessageBtn?.addEventListener('click', sendMessage);
@@ -1224,123 +1190,10 @@
           this.style.height = 'auto';
           this.style.height = Math.min(this.scrollHeight, 120) + 'px';
         });
-        
-        // Reconnect button
-        elements.reconnectBtn?.addEventListener('click', async () => {
-          console.log('🔄 Manual reconnect requested');
-          elements.connectionError.style.display = 'none';
-          
-          if (window.ChatService) {
-            try {
-              showStatusIndicator('reconnecting', '🔄 Reconnecting...');
-              await window.ChatService.forceReconnect();
-              console.log('✅ Manual reconnect successful');
-            } catch (error) {
-              console.error('❌ Manual reconnect failed:', error);
-              showError('Reconnection failed. Please refresh.');
-            }
-          }
-        });
-        
-        // ChatService event handlers
-        if (window.ChatService) {
-          window.ChatService.onStatusChange(handleConnectionStatusChange);
-          window.ChatService.onError(handleChatError);
-        }
-        
-        // Page visibility handling
-        document.addEventListener('visibilitychange', () => {
-          if (document.visibilityState === 'visible' && 
-              window.AuthService.isAuthenticated() && 
-              window.ChatService) {
-            
-            const status = window.ChatService.getStatus();
-            if (!status.connected && !status.connecting) {
-              console.log('🔄 Attempting reconnect on page focus');
-              setTimeout(() => {
-                window.ChatService.connect().catch(console.error);
-              }, 1000);
-            }
-          }
-        });
-        
-        // Cleanup on page unload
-        window.addEventListener('beforeunload', () => {
-          if (window.ChatService) {
-            window.ChatService.disconnect();
-          }
-        });
       }
       
       /**
-       * Handle connection status changes
-       */
-      function handleConnectionStatusChange(status, fullStatus) {
-        console.log('📊 Connection status changed:', status);
-        updateConnectionStatus(status);
-        
-        switch (status) {
-          case 'connected':
-            showStatusIndicator('connected', '✅ Connected');
-            elements.connectionError.style.display = 'none';
-            break;
-            
-          case 'connecting':
-            showStatusIndicator('connecting', '⚡ Connecting...');
-            break;
-            
-          case 'reconnecting':
-            showStatusIndicator('reconnecting', `🔄 Reconnecting... (${fullStatus.reconnectAttempts})`);
-            break;
-            
-          case 'disconnected':
-            showStatusIndicator('disconnected', '❌ Disconnected');
-            
-            if (fullStatus.reconnectAttempts > 0) {
-              elements.connectionError.style.display = 'block';
-            }
-            break;
-        }
-      }
-      
-      /**
-       * Handle chat errors
-       */
-      function handleChatError(error) {
-        console.error('❌ Chat error:', error);
-        
-        switch (error.type) {
-          case 'auth_failed':
-            showError('Authentication failed. Please login again.');
-            setTimeout(() => {
-              if (confirm('Session expired. Refresh page to login again?')) {
-                window.location.reload();
-              }
-            }, 3000);
-            break;
-            
-          case 'max_reconnect_attempts':
-            showError('Unable to reconnect to chat server. Please refresh the page.');
-            elements.connectionError.style.display = 'block';
-            break;
-            
-          default:
-            if (error.requiresLogin || (error.message && error.message.includes('expired'))) {
-              showError('Session expired. Please refresh.');
-              setTimeout(() => {
-                if (confirm('Session expired. Refresh page?')) {
-                  window.location.reload();
-                }
-              }, 3000);
-            } else {
-              showError(`Chat error: ${error.message || 'Unknown error'}`);
-            }
-            break;
-        }
-      }
-      
-      /**
-       * Send a message
+       * Send message
        */
       async function sendMessage() {
         const text = elements.messageInput.value.trim();
@@ -1348,32 +1201,24 @@
           return;
         }
         
-        console.log('📤 Sending message');
+        console.log('📤 Sending message via ChatIntegration');
         
-        // Clear input and disable send button temporarily
-        elements.messageInput.value = '';
-        elements.messageInput.style.height = 'auto';
+        // Disable send button temporarily
         elements.sendMessageBtn.disabled = true;
         
         // Hide welcome message
         hideWelcomeMessage();
         
         try {
-          // Send via ChatIntegration (which uses ChatService)
           if (window.ChatIntegration) {
-            // Set the input value back temporarily for ChatIntegration to read
-            elements.messageInput.value = text;
             await window.ChatIntegration.sendMessage();
-            elements.messageInput.value = ''; // Clear again
           } else {
             throw new Error('ChatIntegration not available');
           }
           
         } catch (error) {
           console.error('❌ Failed to send message:', error);
-          
-          // Restore input on error
-          elements.messageInput.value = text;
+          elements.messageInput.value = text; // Restore input on error
           showError(`Failed to send message: ${error.message}`);
         } finally {
           elements.sendMessageBtn.disabled = false;
@@ -1388,99 +1233,19 @@
         
         if (sidebarCollapsed) {
           elements.chatSidebar.classList.add('collapsed');
-          elements.chatContainer.classList.add('sidebar-collapsed');
           elements.collapseIcon.name = 'chevron-forward-outline';
         } else {
           elements.chatSidebar.classList.remove('collapsed');
-          elements.chatContainer.classList.remove('sidebar-collapsed');
           elements.collapseIcon.name = 'chevron-back-outline';
         }
       }
       
-      /**
-       * Show/hide welcome message
-       */
-      function showWelcomeMessage() {
-        elements.welcomeMessage.style.display = 'block';
-        // Clear other messages
-        clearChatMessages();
-      }
-      
       function hideWelcomeMessage() {
-        elements.welcomeMessage.style.display = 'none';
-      }
-      
-      /**
-       * Clear chat messages
-       */
-      function clearChatMessages() {
-        const messages = elements.chatBody.querySelectorAll('.message');
-        messages.forEach(msg => msg.remove());
-      }
-      
-      /**
-       * Update connection status display
-       */
-      function updateConnectionStatus(status) {
-        if (!elements.connectionDot || !elements.connectionText) return;
-        
-        elements.connectionDot.className = 'connection-dot';
-        
-        switch (status) {
-          case 'connected':
-            elements.connectionDot.classList.add('connected');
-            elements.connectionText.textContent = 'Connected';
-            break;
-          case 'connecting':
-          case 'reconnecting':
-            elements.connectionDot.classList.add('connecting');
-            elements.connectionText.textContent = 
-              status === 'connecting' ? 'Connecting...' : 'Reconnecting...';
-            break;
-          default:
-            elements.connectionText.textContent = 'Disconnected';
-            break;
+        if (elements.welcomeMessage) {
+          elements.welcomeMessage.style.display = 'none';
         }
       }
       
-      /**
-       * Show status indicator
-       */
-      function showStatusIndicator(status, message) {
-        [elements.connectedStatus, elements.disconnectedStatus, elements.reconnectingStatus]
-          .forEach(el => {
-            if (el) el.classList.remove('visible');
-          });
-        
-        let indicator = null;
-        switch (status) {
-          case 'connected':
-            indicator = elements.connectedStatus;
-            break;
-          case 'disconnected':
-            indicator = elements.disconnectedStatus;
-            break;
-          case 'connecting':
-          case 'reconnecting':
-            indicator = elements.reconnectingStatus;
-            break;
-        }
-        
-        if (indicator) {
-          indicator.textContent = message;
-          indicator.classList.add('visible');
-          
-          if (status === 'connected') {
-            setTimeout(() => {
-              indicator.classList.remove('visible');
-            }, 3000);
-          }
-        }
-      }
-      
-      /**
-       * Show error message
-       */
       function showError(message, duration = 5000) {
         console.error('🚨 Error:', message);
         
@@ -1507,7 +1272,6 @@
       }
       
       // Utility functions
-      
       function getProjectId() {
         const params = new URLSearchParams(window.location.search);
         return params.get('project');
@@ -1529,7 +1293,7 @@
         window.location.href = 'project.html';
       }
       
-      // Global functions for onclick handlers
+      // Global functions
       window.sendSuggestion = function(text) {
         if (elements.messageInput) {
           elements.messageInput.value = text;
@@ -1537,410 +1301,10 @@
         }
       };
       
-      // Debug interface
-      window.ChatDebug = {
-        getStatus: () => window.ChatService ? window.ChatService.getStatus() : null,
-        getProject: () => currentProject,
-        getServices: () => ({
-          authService: !!window.AuthService,
-          projectService: !!window.ProjectService,
-          navigationManager: !!window.NavigationManager,
-          chatService: !!window.ChatService,
-          chatIntegration: !!window.ChatIntegration
-        }),
-        reinitialize: initializeApp,
-        sendTestMessage: () => {
-          elements.messageInput.value = 'Test message from debug interface';
-          sendMessage();
-        }
-      };
-      
-      console.log('🔍 Debug interface available at window.ChatDebug');
-      
       // Initialize the application
       await initializeApp();
     });
-    document.addEventListener('aaai:initialized', function(event) {
-      console.log('🚀 AAAI initialized, starting immediate chat connection...');
-      
-      // Get project info from URL
-      const urlParams = new URLSearchParams(window.location.search);
-      const projectId = urlParams.get('project');
-      const projectName = urlParams.get('project_name');
-      
-      if (projectId && window.ChatIntegration?.isInitialized) {
-          // Set project context immediately
-          window.ChatIntegration.setProjectContext(
-              projectId, 
-              projectName ? decodeURIComponent(projectName) : null
-          );
-          
-          // Force connection if not already connected
-          if (window.ChatService && !window.ChatService.isConnected) {
-              window.ChatService.connect().then(() => {
-                  console.log('✅ Chat connection established after AAAI init');
-              }).catch(error => {
-                  console.error('❌ Chat connection failed after AAAI init:', error);
-              });
-          }
-      }
-    });
   </script>
-  <script>
-    document.addEventListener('DOMContentLoaded', function() {
-        console.log('🔧 INTEGRATION FIX: Starting chat integration with existing structure...');
-        
-        async function initializeChatIntegration() {
-            let attempts = 0;
-            const maxAttempts = 50;
-            
-            // Wait for AAAI services
-            while (!window.AAAI_APP?.initialized && attempts < maxAttempts) {
-                console.log('⏳ INTEGRATION FIX: Waiting for AAAI services...', attempts);
-                await new Promise(resolve => setTimeout(resolve, 200));
-                attempts++;
-            }
-            
-            if (!window.AAAI_APP?.initialized) {
-                console.error('❌ INTEGRATION FIX: AAAI services not initialized');
-                return;
-            }
-            
-            console.log('✅ INTEGRATION FIX: AAAI services ready');
-            
-            // Get elements using your existing structure
-            const messageForm = document.getElementById('messageForm');
-            const messageInput = document.getElementById('messageInput');
-            const chatBody = document.getElementById('chatBody');
-            const sendButton = document.getElementById('sendMessageBtn');
-            const connectionStatus = document.getElementById('connectionStatus');
-            const connectionDot = document.getElementById('connectionDot');
-            const connectionText = document.getElementById('connectionText');
-            const chatTitle = document.getElementById('chatTitle');
-            const chatSubtitle = document.getElementById('chatSubtitle');
-            
-            // Validate critical elements
-            if (!messageInput || !chatBody) {
-                console.error('❌ INTEGRATION FIX: Critical elements missing:', {
-                    messageInput: !!messageInput,
-                    chatBody: !!chatBody
-                });
-                return;
-            }
-            
-            console.log('✅ INTEGRATION FIX: All elements found');
-            
-            // Update chat title with project info
-            const urlParams = new URLSearchParams(window.location.search);
-            const projectName = urlParams.get('project_name');
-            if (projectName && chatTitle) {
-                chatTitle.textContent = decodeURIComponent(projectName);
-                if (chatSubtitle) {
-                    chatSubtitle.textContent = 'AI Assistant Chat';
-                }
-            }
-            
-            // Enhanced message sending
-            async function sendMessageWithIntegration(messageText) {
-                try {
-                    console.log('📤 INTEGRATION FIX: Sending message');
-                    
-                    // Update connection status
-                    updateConnectionStatus('sending');
-                    
-                    // Add user message to UI
-                    addMessageToUI({
-                        type: 'user',
-                        text: messageText,
-                        timestamp: Date.now()
-                    });
-                    
-                    // Show typing indicator
-                    showTypingIndicator();
-                    
-                    // Send via API
-                    const authService = window.AAAI_APP?.services?.AuthService || window.AuthService;
-                    if (!authService) {
-                        throw new Error('AuthService not available');
-                    }
-                    
-                    const result = await authService.executeFunction('send_chat_message', {
-                        content: messageText,
-                        chat_id: getCurrentProjectId(),
-                        context_data: {
-                            source: 'chat_integration',
-                            timestamp: new Date().toISOString()
-                        }
-                    });
-                    
-                    console.log('✅ INTEGRATION FIX: Message sent:', result);
-                    
-                    hideTypingIndicator();
-                    updateConnectionStatus('connected');
-                    
-                    if (result?.status === 'success' && result?.data?.success) {
-                        // Handle immediate response
-                        if (result.data.response && result.data.response.text) {
-                            addMessageToUI({
-                                type: 'bot',
-                                text: result.data.response.text,
-                                timestamp: Date.now(),
-                                id: result.data.response.message_id
-                            });
-                        } else if (result.data.bot_message) {
-                            addMessageToUI({
-                                type: 'bot',
-                                text: result.data.bot_message.content,
-                                timestamp: new Date(result.data.bot_message.timestamp).getTime(),
-                                id: result.data.bot_message.id
-                            });
-                        } else {
-                            // Poll for response
-                            pollForResponse(result.data.message_id);
-                        }
-                    } else {
-                        addMessageToUI({
-                            type: 'error',
-                            text: 'Failed to send message: ' + (result?.data?.error || 'Unknown error'),
-                            timestamp: Date.now()
-                        });
-                    }
-                    
-                } catch (error) {
-                    console.error('❌ INTEGRATION FIX: Send error:', error);
-                    hideTypingIndicator();
-                    updateConnectionStatus('error');
-                    addMessageToUI({
-                        type: 'error',
-                        text: 'Error: ' + error.message,
-                        timestamp: Date.now()
-                    });
-                }
-            }
-            
-            // Response polling
-            async function pollForResponse(messageId) {
-                console.log('🔄 INTEGRATION FIX: Polling for response');
-                
-                const maxAttempts = 30;
-                let attempts = 0;
-                
-                const poll = async () => {
-                    try {
-                        const authService = window.AAAI_APP?.services?.AuthService || window.AuthService;
-                        const result = await authService.executeFunction('get_chat_messages', {
-                            chat_id: getCurrentProjectId(),
-                            limit: 5,
-                            offset: 0
-                        });
-                        
-                        if (result?.status === 'success' && result?.data?.messages?.length > 0) {
-                            const messages = result.data.messages;
-                            
-                            for (const msg of messages) {
-                                if (msg.sender === 'bot' && 
-                                    !document.querySelector(`[data-message-id="${msg.id}"]`)) {
-                                    
-                                    console.log('✅ INTEGRATION FIX: Found response:', msg.id);
-                                    hideTypingIndicator();
-                                    
-                                    addMessageToUI({
-                                        type: 'bot',
-                                        text: msg.content,
-                                        timestamp: new Date(msg.timestamp).getTime(),
-                                        id: msg.id
-                                    });
-                                    
-                                    return;
-                                }
-                            }
-                        }
-                        
-                        attempts++;
-                        if (attempts < maxAttempts) {
-                            setTimeout(poll, 2000);
-                        } else {
-                            hideTypingIndicator();
-                            addMessageToUI({
-                                type: 'error',
-                                text: 'Response timeout - please try again',
-                                timestamp: Date.now()
-                            });
-                        }
-                        
-                    } catch (error) {
-                        console.error('❌ INTEGRATION FIX: Poll error:', error);
-                        attempts++;
-                        if (attempts < maxAttempts) {
-                            setTimeout(poll, 3000);
-                        } else {
-                            hideTypingIndicator();
-                        }
-                    }
-                };
-                
-                poll();
-            }
-            
-            // UI Helper Functions
-            function addMessageToUI(message) {
-                const messageEl = document.createElement('div');
-                messageEl.className = `message message-${message.type}`;
-                
-                if (message.id) {
-                    messageEl.setAttribute('data-message-id', message.id);
-                }
-                
-                const contentEl = document.createElement('div');
-                contentEl.className = 'message-content';
-                contentEl.textContent = message.text;
-                
-                const timestampEl = document.createElement('div');
-                timestampEl.className = 'message-timestamp';
-                timestampEl.textContent = new Date(message.timestamp).toLocaleTimeString();
-                
-                messageEl.appendChild(contentEl);
-                messageEl.appendChild(timestampEl);
-                
-                // Hide welcome message
-                const welcomeMessage = chatBody.querySelector('.welcome-message');
-                if (welcomeMessage) {
-                    welcomeMessage.style.display = 'none';
-                }
-                
-                chatBody.appendChild(messageEl);
-                chatBody.scrollTop = chatBody.scrollHeight;
-                
-                console.log('✅ INTEGRATION FIX: Message added:', message.type);
-            }
-            
-            function showTypingIndicator() {
-                hideTypingIndicator();
-                
-                const typingEl = document.createElement('div');
-                typingEl.className = 'typing-indicator';
-                typingEl.innerHTML = `
-                    <div class="typing-dots">
-                        <span></span>
-                        <span></span>
-                        <span></span>
-                    </div>
-                    <div class="typing-text">AI is thinking...</div>
-                `;
-                
-                chatBody.appendChild(typingEl);
-                chatBody.scrollTop = chatBody.scrollHeight;
-            }
-            
-            function hideTypingIndicator() {
-                const indicator = chatBody.querySelector('.typing-indicator');
-                if (indicator) {
-                    indicator.remove();
-                }
-            }
-            
-            function updateConnectionStatus(status) {
-                if (!connectionDot || !connectionText) return;
-                
-                switch (status) {
-                    case 'connected':
-                        connectionDot.style.background = '#4CAF50';
-                        connectionText.textContent = 'Connected';
-                        break;
-                    case 'sending':
-                        connectionDot.style.background = '#FF9800';
-                        connectionText.textContent = 'Sending...';
-                        break;
-                    case 'error':
-                        connectionDot.style.background = '#F44336';
-                        connectionText.textContent = 'Error';
-                        break;
-                    default:
-                        connectionDot.style.background = '#666';
-                        connectionText.textContent = 'Disconnected';
-                }
-            }
-            
-            function getCurrentProjectId() {
-                const urlParams = new URLSearchParams(window.location.search);
-                return urlParams.get('project') || '';
-            }
-            
-            // Setup Event Handlers
-            if (messageInput) {
-                // Auto-resize and button state
-                messageInput.addEventListener('input', function() {
-                    this.style.height = 'auto';
-                    this.style.height = Math.min(this.scrollHeight, 120) + 'px';
-                    
-                    if (sendButton) {
-                        sendButton.disabled = !this.value.trim();
-                    }
-                });
-                
-                // Enter key handling
-                messageInput.addEventListener('keydown', function(e) {
-                    if (e.key === 'Enter' && !e.shiftKey) {
-                        e.preventDefault();
-                        sendMessage();
-                    }
-                });
-            }
-            
-            // Send message function
-            window.sendMessage = async function() {
-                const messageText = messageInput.value.trim();
-                if (!messageText) return;
-                
-                messageInput.value = '';
-                messageInput.style.height = 'auto';
-                if (sendButton) sendButton.disabled = true;
-                
-                try {
-                    await sendMessageWithIntegration(messageText);
-                } finally {
-                    if (sendButton) sendButton.disabled = false;
-                }
-            };
-            
-            // Form submission
-            if (messageForm) {
-                messageForm.addEventListener('submit', async function(e) {
-                    e.preventDefault();
-                    await sendMessage();
-                });
-            }
-            
-            // Send button click
-            if (sendButton) {
-                sendButton.addEventListener('click', async function(e) {
-                    e.preventDefault();
-                    await sendMessage();
-                });
-            }
-            
-            // Back button handler
-            const backBtn = document.getElementById('backBtn');
-            if (backBtn) {
-                backBtn.addEventListener('click', function() {
-                    window.location.href = 'project.html';
-                });
-            }
-            
-            // Initial connection status
-            updateConnectionStatus('connected');
-            
-            console.log('✅ INTEGRATION FIX: Chat integration setup complete');
-        }
-        
-        // Start initialization
-        initializeChatIntegration().catch(error => {
-            console.error('❌ INTEGRATION FIX: Failed to initialize:', error);
-        });
-    });
-    
-    console.log('🔧 INTEGRATION FIX: Chat integration script loaded');
-    </script>
 </body>
 
 </html>

@@ -1,6 +1,6 @@
 /**
- * High-Performance Chat Integration Service for AAAI Solutions
- * FIXED: Enhanced message handling and UI integration
+ * Chat Integration Service for AAAI Solutions
+ * Handles direct API communication for chat functionality
  */
 const ChatIntegration = {
     // Core state
@@ -16,16 +16,12 @@ const ChatIntegration = {
         typingIndicator: null
     },
     
+    // Project context
+    currentProjectId: null,
+    currentProjectName: null,
+    
     // Message management
     messages: [],
-    currentMessageId: null,
-    
-    // FIXED: Event listener management
-    chatServiceListeners: {
-        message: null,
-        status: null,
-        error: null
-    },
     
     // Configuration
     options: {
@@ -37,16 +33,16 @@ const ChatIntegration = {
     },
     
     /**
-     * FIXED: Enhanced initialization with robust error handling and validation
+     * Initialize ChatIntegration
      */
     init(containerId, options = {}) {
         if (this.isInitialized) {
-            this._log('FIXED: ChatIntegration already initialized');
+            this._log('ChatIntegration already initialized');
             return this;
         }
         
         try {
-            this._log('FIXED: Starting ChatIntegration initialization...');
+            this._log('Starting ChatIntegration initialization...');
             
             this.containerId = containerId;
             this.container = document.getElementById(containerId);
@@ -56,141 +52,64 @@ const ChatIntegration = {
                 this.options.debug = true;
             }
             
-            // FIXED: Validate container exists
             if (!this.container) {
-                throw new Error(`FIXED: Container element '${containerId}' not found`);
+                throw new Error(`Container element '${containerId}' not found`);
             }
             
-            this._log('FIXED: Container found:', this.container);
+            this._log('Container found:', this.container);
             
-            // FIXED: Find and validate UI elements
-            this._findUIElementsFixed();
-            
-            // FIXED: Initialize ChatService if needed
-            if (window.ChatService && !window.ChatService.isInitialized) {
-                this._log('FIXED: Initializing ChatService...');
-                window.ChatService.init(window.AuthService, {
-                    debug: this.options.debug
-                });
-            }
-            
-            // FIXED: Setup ChatService integration with validation
-            if (window.ChatService?.isInitialized) {
-                this._log('FIXED: Setting up ChatService integration...');
-                this._setupChatServiceIntegrationFixed();
-                
-                // Connect immediately if requested
-                if (this.options.connectImmediately && window.AuthService?.isAuthenticated()) {
-                    this._log('FIXED: Starting immediate connection...');
-                    this._connectImmediately();
-                }
-            } else {
-                this._error('FIXED: ChatService not available or not initialized');
-                throw new Error('ChatService not available');
-            }
+            // Find and validate UI elements
+            this._findUIElements();
             
             this.isInitialized = true;
-            this._log('FIXED: ChatIntegration initialized successfully');
+            this._log('ChatIntegration initialized successfully');
             
             return this;
             
         } catch (error) {
-            this._error('FIXED: Failed to initialize ChatIntegration:', error);
+            this._error('Failed to initialize ChatIntegration:', error);
             throw error;
-        }
-    },
-
-    /**
-     * Connect immediately without waiting for project context
-     */
-    async _connectImmediately() {
-        try {
-            this._log('FIXED: Connecting immediately...');
-            
-            // Start connection immediately
-            const connectionPromise = window.ChatService.connect();
-            
-            // Load chat history in parallel (don't wait)
-            this._loadChatHistory().catch(error => {
-                this._log('FIXED: Chat history load failed (non-critical):', error);
-            });
-            
-            // Wait for connection
-            await connectionPromise;
-            this._log('FIXED: Immediate connection established');
-            
-        } catch (error) {
-            this._error('FIXED: Immediate connection failed:', error);
-            // Don't throw - let the app continue
-        }
-    },
-
-    /**
-     * Set project context after initialization
-     */
-    setProjectContext(projectId, projectName) {
-        try {
-            this._log('FIXED: Setting project context:', { projectId, projectName });
-            
-            this.currentProjectId = projectId;
-            this.currentProjectName = projectName;
-            this.hasProject = true;
-            
-            // Update ChatService context if connected
-            if (window.ChatService?.isConnected) {
-                window.ChatService.setProjectContext(projectId, projectName);
-            }
-            
-            // Reload chat history for this project
-            this._loadChatHistory().catch(error => {
-                this._log('FIXED: Failed to load project chat history:', error);
-            });
-            
-        } catch (error) {
-            this._error('FIXED: Failed to set project context:', error);
-        }
-    },
-
-    /**
-     * Initialize with project context (kept for compatibility but simplified)
-     */
-    async initializeWithProject(projectId, projectName) {
-        try {
-            this._log('FIXED: Setting project context:', { projectId, projectName });
-            
-            if (!this.isInitialized) {
-                throw new Error('FIXED: ChatIntegration not initialized');
-            }
-            
-            // Just set the project context
-            this.setProjectContext(projectId, projectName);
-            
-            return true;
-            
-        } catch (error) {
-            this._error('FIXED: Failed to initialize with project:', error);
-            return false;
         }
     },
     
     /**
-     * Send message through ChatService
+     * Set project context
+     */
+    setProjectContext(projectId, projectName) {
+        try {
+            this._log('Setting project context:', { projectId, projectName });
+            
+            this.currentProjectId = projectId;
+            this.currentProjectName = projectName;
+            
+            // Load chat history for this project
+            this._loadChatHistory().catch(error => {
+                this._log('Failed to load project chat history:', error);
+            });
+            
+        } catch (error) {
+            this._error('Failed to set project context:', error);
+        }
+    },
+    
+    /**
+     * Send message via direct API call
      */
     async sendMessage() {
         try {
             if (!this.elements.messageInput) {
-                throw new Error('FIXED: Message input not found');
+                throw new Error('Message input not found');
             }
             
             const text = this.elements.messageInput.value.trim();
             if (!text) {
-                throw new Error('FIXED: Message cannot be empty');
+                throw new Error('Message cannot be empty');
             }
             
-            this._log('FIXED: Sending message:', text.substring(0, 30) + '...');
+            this._log('Sending message:', text.substring(0, 30) + '...');
             
             // Add user message to UI immediately
-            this._addMessageToUIFixed({
+            this._addMessageToUI({
                 type: 'user',
                 text: text,
                 timestamp: Date.now()
@@ -203,71 +122,192 @@ const ChatIntegration = {
             // Show typing indicator
             this._showTypingIndicator();
             
-            // Send through ChatService
-            if (window.ChatService) {
-                const messageId = await window.ChatService.sendMessage(text);
-                this.currentMessageId = messageId;
-                this._log('FIXED: Message sent with ID:', messageId);
+            // Send via API
+            const authService = window.AuthService;
+            if (!authService) {
+                throw new Error('AuthService not available');
+            }
+            
+            const result = await authService.executeFunction('send_chat_message', {
+                content: text,
+                chat_id: this.currentProjectId,
+                context_data: {
+                    source: 'chat_integration',
+                    timestamp: new Date().toISOString()
+                }
+            });
+            
+            this._log('API response received:', result);
+            
+            // Hide typing indicator
+            this._hideTypingIndicator();
+            
+            if (result?.status === 'success' && result?.data?.success) {
+                // Handle immediate response
+                if (result.data.response) {
+                    this._handleAPIResponse(result.data.response);
+                } else if (result.data.bot_message) {
+                    this._addMessageToUI({
+                        type: 'bot',
+                        text: result.data.bot_message.content,
+                        timestamp: new Date(result.data.bot_message.timestamp).getTime(),
+                        id: result.data.bot_message.id
+                    });
+                } else {
+                    // Poll for response if no immediate response
+                    this._pollForResponse(result.data.message_id);
+                }
             } else {
-                throw new Error('FIXED: ChatService not available');
+                this._addMessageToUI({
+                    type: 'error',
+                    text: 'Failed to send message: ' + (result?.data?.error || 'Unknown error'),
+                    timestamp: Date.now()
+                });
             }
             
         } catch (error) {
-            this._error('FIXED: Failed to send message:', error);
+            this._error('Failed to send message:', error);
             this._hideTypingIndicator();
             throw error;
         }
     },
     
     /**
-     * FIXED: Enhanced message addition to UI with comprehensive validation and error handling
+     * Handle API response
      */
-    _addMessageToUIFixed(message) {
-        this._log('FIXED: Adding message to UI:', {
-            type: message.type,
-            textLength: message.text ? message.text.length : 0,
-            hasText: !!message.text,
-            hasTimestamp: !!message.timestamp
-        });
+    _handleAPIResponse(response) {
+        this._log('Handling API response:', response);
         
-        // FIXED: Validate inputs
-        if (!message) {
-            this._error('FIXED: Cannot add null/undefined message to UI');
-            return;
+        let responseText = '';
+        
+        // Extract text from response
+        if (response.text && typeof response.text === 'string') {
+            responseText = response.text;
+        } else if (response.message && typeof response.message === 'string') {
+            responseText = response.message;
+        } else if (response.content && typeof response.content === 'string') {
+            responseText = response.content;
+        } else if (typeof response === 'string') {
+            responseText = response;
+        } else {
+            responseText = 'Response received but could not parse content';
+            this._error('Could not parse response:', response);
         }
         
-        if (!message.type) {
-            this._error('FIXED: Message missing type field:', message);
+        // Add bot message to UI
+        this._addMessageToUI({
+            type: 'bot',
+            text: responseText,
+            timestamp: Date.now(),
+            id: response.message_id
+        });
+        
+        // Handle components if present
+        if (response.components && Array.isArray(response.components)) {
+            response.components.forEach(component => {
+                this._addComponentToUI(component);
+            });
+        }
+    },
+    
+    /**
+     * Poll for response from API
+     */
+    async _pollForResponse(messageId) {
+        this._log('Polling for response to message:', messageId);
+        
+        const maxAttempts = 30;
+        let attempts = 0;
+        
+        const poll = async () => {
+            try {
+                const authService = window.AuthService;
+                const result = await authService.executeFunction('get_chat_messages', {
+                    chat_id: this.currentProjectId,
+                    limit: 5,
+                    offset: 0
+                });
+                
+                if (result?.status === 'success' && result?.data?.messages?.length > 0) {
+                    const messages = result.data.messages;
+                    
+                    for (const msg of messages) {
+                        if (msg.sender === 'bot' && 
+                            !document.querySelector(`[data-message-id="${msg.id}"]`)) {
+                            
+                            this._log('Found response:', msg.id);
+                            this._hideTypingIndicator();
+                            
+                            this._addMessageToUI({
+                                type: 'bot',
+                                text: msg.content,
+                                timestamp: new Date(msg.timestamp).getTime(),
+                                id: msg.id
+                            });
+                            
+                            return;
+                        }
+                    }
+                }
+                
+                attempts++;
+                if (attempts < maxAttempts) {
+                    setTimeout(poll, 2000);
+                } else {
+                    this._hideTypingIndicator();
+                    this._addMessageToUI({
+                        type: 'error',
+                        text: 'Response timeout - please try again',
+                        timestamp: Date.now()
+                    });
+                }
+                
+            } catch (error) {
+                this._error('Poll error:', error);
+                attempts++;
+                if (attempts < maxAttempts) {
+                    setTimeout(poll, 3000);
+                } else {
+                    this._hideTypingIndicator();
+                }
+            }
+        };
+        
+        poll();
+    },
+    
+    /**
+     * Add message to UI
+     */
+    _addMessageToUI(message) {
+        this._log('Adding message to UI:', {
+            type: message.type,
+            textLength: message.text ? message.text.length : 0
+        });
+        
+        if (!message || !message.type) {
+            this._error('Invalid message data:', message);
             return;
         }
         
         if (!this.elements.chatBody) {
-            this._error('FIXED: Chat body element not found - cannot add message');
-            // Try to find it again
-            this._findUIElementsFixed();
-            if (!this.elements.chatBody) {
-                this._error('FIXED: Chat body still not found after retry');
-                return;
-            }
+            this._error('Chat body element not found');
+            return;
         }
         
         try {
-            // FIXED: Create message element with enhanced error handling
-            const messageElement = this._createMessageElementFixed(message);
+            const messageElement = this._createMessageElement(message);
             if (!messageElement) {
-                this._error('FIXED: Failed to create message element');
+                this._error('Failed to create message element');
                 return;
             }
             
-            // FIXED: Add to chat body with validation
             this.elements.chatBody.appendChild(messageElement);
-            this._log('FIXED: Message element added to DOM');
             
             // Hide welcome message if visible
             const welcomeMessage = this.elements.chatBody.querySelector('.welcome-message');
             if (welcomeMessage) {
                 welcomeMessage.style.display = 'none';
-                this._log('FIXED: Welcome message hidden');
             }
             
             // Manage message limit
@@ -281,35 +321,32 @@ const ChatIntegration = {
             // Store message
             this.messages.push(message);
             
-            this._log('FIXED: Message successfully added to UI, total messages:', this.messages.length);
+            this._log('Message successfully added to UI');
             
         } catch (error) {
-            this._error('FIXED: Failed to add message to UI:', error);
+            this._error('Failed to add message to UI:', error);
         }
     },
     
     /**
-     * FIXED: Enhanced message element creation with validation
+     * Create message element
      */
-    _createMessageElementFixed(message) {
+    _createMessageElement(message) {
         try {
             const messageEl = document.createElement('div');
             messageEl.className = `message message-${message.type}`;
             
-            if (message.temporary) {
-                messageEl.classList.add('temporary-message');
+            if (message.id) {
+                messageEl.setAttribute('data-message-id', message.id);
             }
             
-            // FIXED: Validate message text
             let messageText = message.text || '';
             if (typeof messageText !== 'string') {
-                this._log('FIXED: Converting non-string message text:', typeof messageText);
                 messageText = String(messageText);
             }
             
             if (!messageText.trim()) {
                 messageText = '[Empty message]';
-                this._log('FIXED: Empty message text, using fallback');
             }
             
             // Message content
@@ -326,22 +363,16 @@ const ChatIntegration = {
                 messageEl.appendChild(timestampEl);
             }
             
-            // Message ID for tracking
-            if (message.id) {
-                messageEl.setAttribute('data-message-id', message.id);
-            }
-            
-            this._log('FIXED: Message element created successfully');
             return messageEl;
             
         } catch (error) {
-            this._error('FIXED: Error creating message element:', error);
+            this._error('Error creating message element:', error);
             return null;
         }
     },
     
     /**
-     * Format message content (basic implementation)
+     * Format message content
      */
     _formatMessageContent(text) {
         if (!text) return '';
@@ -403,11 +434,18 @@ const ChatIntegration = {
      */
     async _loadChatHistory() {
         try {
-            if (!window.ChatService) return;
+            if (!this.currentProjectId) return;
             
-            const history = await window.ChatService.loadChatHistory();
+            const authService = window.AuthService;
+            if (!authService) return;
             
-            if (history && history.length > 0) {
+            const result = await authService.executeFunction('get_chat_messages', {
+                chat_id: this.currentProjectId,
+                limit: 30,
+                offset: 0
+            });
+            
+            if (result?.status === 'success' && result?.data?.messages?.length > 0) {
                 // Clear existing messages
                 this.messages = [];
                 if (this.elements.chatBody) {
@@ -416,328 +454,56 @@ const ChatIntegration = {
                 }
                 
                 // Add history messages
-                history.forEach(msg => {
+                result.data.messages.reverse().forEach(msg => {
                     const messageData = {
-                        type: msg.role === 'user' ? 'user' : 'bot',
+                        type: msg.sender === 'user' ? 'user' : 'bot',
                         text: msg.content,
                         timestamp: new Date(msg.timestamp).getTime(),
                         id: msg.id
                     };
                     
-                    this._addMessageToUIFixed(messageData);
+                    this._addMessageToUI(messageData);
                 });
                 
-                this._log(`FIXED: Loaded ${history.length} messages from history`);
+                this._log(`Loaded ${result.data.messages.length} messages from history`);
             }
             
         } catch (error) {
-            this._error('FIXED: Failed to load chat history:', error);
+            this._error('Failed to load chat history:', error);
         }
     },
     
     /**
-     * FIXED: Enhanced ChatService integration with comprehensive error handling and listener management
-     */
-    _setupChatServiceIntegrationFixed() {
-        if (!window.ChatService) {
-            this._error('FIXED: ChatService not available for integration');
-            return;
-        }
-        
-        this._log('FIXED: Setting up ChatService integration...');
-        
-        // FIXED: Clean up existing listeners first
-        this._cleanupChatServiceListeners();
-        
-        // FIXED: Create and store listener functions
-        this.chatServiceListeners.message = (data) => {
-            this._log('FIXED: ChatService message received:', {
-                type: data.type,
-                messageId: data.messageId,
-                hasText: !!data.text,
-                textLength: data.text ? data.text.length : 0
-            });
-            this._handleChatServiceMessageFixed(data);
-        };
-        
-        this.chatServiceListeners.status = (status) => {
-            this._log('FIXED: ChatService status changed:', status);
-            this._handleStatusChange(status);
-        };
-        
-        this.chatServiceListeners.error = (error) => {
-            this._error('FIXED: ChatService error:', error);
-            this._handleChatServiceError(error);
-        };
-        
-        // FIXED: Add listeners to ChatService
-        try {
-            window.ChatService.onMessage(this.chatServiceListeners.message);
-            window.ChatService.onStatusChange(this.chatServiceListeners.status);
-            window.ChatService.onError(this.chatServiceListeners.error);
-            
-            this._log('FIXED: ChatService integration setup complete, listeners added');
-            
-            // FIXED: Validate listener registration
-            const status = window.ChatService.getStatus();
-            this._log('FIXED: ChatService status after integration:', status);
-            
-        } catch (error) {
-            this._error('FIXED: Error adding ChatService listeners:', error);
-            throw error;
-        }
-    },
-    
-    /**
-     * FIXED: Clean up ChatService listeners
-     */
-    _cleanupChatServiceListeners() {
-        if (window.ChatService) {
-            try {
-                if (this.chatServiceListeners.message) {
-                    window.ChatService.removeMessageListener(this.chatServiceListeners.message);
-                }
-                if (this.chatServiceListeners.status) {
-                    window.ChatService.removeStatusListener(this.chatServiceListeners.status);
-                }
-                if (this.chatServiceListeners.error) {
-                    window.ChatService.removeErrorListener(this.chatServiceListeners.error);
-                }
-                
-                this._log('FIXED: ChatService listeners cleaned up');
-            } catch (error) {
-                this._log('FIXED: Error cleaning up listeners (might not exist):', error);
-            }
-        }
-        
-        this.chatServiceListeners = {
-            message: null,
-            status: null,
-            error: null
-        };
-    },
-    
-    /**
-     * FIXED: Enhanced ChatService message handling with comprehensive validation
-     */
-    _handleChatServiceMessageFixed(data) {
-        this._log('FIXED: Processing ChatService message:', {
-            type: data.type,
-            messageId: data.messageId,
-            timestamp: data.timestamp,
-            hasText: !!data.text,
-            hasResponse: !!data.response,
-            hasComponents: !!(data.components && data.components.length > 0)
-        });
-        
-        try {
-            // FIXED: Validate message data
-            if (!data || typeof data !== 'object') {
-                this._error('FIXED: Invalid message data received:', data);
-                return;
-            }
-            
-            switch (data.type) {
-                case 'message_queued':
-                    this._handleMessageQueued(data);
-                    break;
-                    
-                case 'chat_response':
-                    this._handleChatResponseFixed(data);
-                    break;
-                    
-                case 'chat_error':
-                    this._handleChatErrorFixed(data);
-                    break;
-                    
-                default:
-                    this._log('FIXED: Unhandled message type:', data.type, data);
-                    break;
-            }
-        } catch (error) {
-            this._error('FIXED: Error handling ChatService message:', error, data);
-        }
-    },
-    
-    /**
-     * Handle message queued
-     */
-    _handleMessageQueued(data) {
-        // Update UI to show message is being processed
-        this._log('FIXED: Message queued:', data.messageId);
-    },
-    
-    /**
-     * FIXED: Enhanced chat response handling with comprehensive text extraction and error handling
-     */
-    _handleChatResponseFixed(data) {
-        this._log('FIXED: Processing chat response:', {
-            messageId: data.messageId,
-            hasText: !!data.text,
-            hasResponse: !!data.response,
-            hasComponents: !!(data.components && data.components.length > 0),
-            timestamp: data.timestamp
-        });
-        
-        this._hideTypingIndicator();
-        
-        try {
-            let messageText = '';
-            
-            // FIXED: Comprehensive text extraction with multiple fallback methods
-            if (data.text && typeof data.text === 'string' && data.text.trim()) {
-                messageText = data.text;
-                this._log('FIXED: Using data.text field');
-            } else if (data.response) {
-                if (typeof data.response === 'string' && data.response.trim()) {
-                    messageText = data.response;
-                    this._log('FIXED: Using data.response as string');
-                } else if (data.response && typeof data.response === 'object') {
-                    if (data.response.text && typeof data.response.text === 'string' && data.response.text.trim()) {
-                        messageText = data.response.text;
-                        this._log('FIXED: Using data.response.text');
-                    } else if (data.response.message && typeof data.response.message === 'string' && data.response.message.trim()) {
-                        messageText = data.response.message;
-                        this._log('FIXED: Using data.response.message');
-                    } else if (data.response.content && typeof data.response.content === 'string' && data.response.content.trim()) {
-                        messageText = data.response.content;
-                        this._log('FIXED: Using data.response.content');
-                    } else {
-                        // Try to extract any meaningful content
-                        const responseStr = JSON.stringify(data.response);
-                        if (responseStr && responseStr.length > 2) { // More than just "{}"
-                            messageText = responseStr;
-                            this._log('FIXED: Using JSON.stringify(data.response)');
-                        }
-                    }
-                }
-            }
-            
-            // FIXED: Final validation and fallback
-            if (!messageText || messageText.trim() === '' || messageText === '{}' || messageText === 'null') {
-                messageText = 'Response received but content could not be extracted';
-                this._error('FIXED: Could not extract meaningful text from response:', data);
-            }
-            
-            this._log('FIXED: Final message text:', {
-                length: messageText.length,
-                preview: messageText.substring(0, 50) + (messageText.length > 50 ? '...' : ''),
-                isEmpty: !messageText.trim()
-            });
-            
-            // FIXED: Add bot message to UI with validation
-            const messageData = {
-                type: 'bot',
-                text: messageText,
-                timestamp: data.timestamp || Date.now(),
-                id: data.messageId
-            };
-            
-            this._addMessageToUIFixed(messageData);
-            
-            this._log('FIXED: Bot message added to UI successfully');
-            
-            // FIXED: Handle components if present
-            if (data.components && Array.isArray(data.components) && data.components.length > 0) {
-                this._log('FIXED: Processing components:', data.components.length);
-                data.components.forEach((component, index) => {
-                    try {
-                        this._addComponentToUI(component);
-                        this._log('FIXED: Component added:', index, component.type);
-                    } catch (error) {
-                        this._error('FIXED: Failed to add component:', error, component);
-                    }
-                });
-            }
-            
-            // FIXED: Trigger a custom event for external integration
-            if (typeof window !== 'undefined') {
-                window.dispatchEvent(new CustomEvent('chatResponse', {
-                    detail: {
-                        messageId: data.messageId,
-                        text: messageText,
-                        timestamp: data.timestamp || Date.now(),
-                        type: 'bot'
-                    }
-                }));
-            }
-            
-        } catch (error) {
-            this._error('FIXED: Error handling chat response:', error, data);
-            
-            // FIXED: Add error message to UI as fallback
-            this._addMessageToUIFixed({
-                type: 'error',
-                text: 'Error displaying response: ' + error.message,
-                timestamp: Date.now()
-            });
-        }
-    },
-    
-    /**
-     * FIXED: Enhanced chat error handling
-     */
-    _handleChatErrorFixed(data) {
-        this._log('FIXED: Handling chat error:', data);
-        this._hideTypingIndicator();
-        
-        const errorText = data.error || 'Unknown error occurred';
-        
-        this._addMessageToUIFixed({
-            type: 'error',
-            text: `Error: ${errorText}`,
-            timestamp: data.timestamp || Date.now(),
-            id: data.messageId
-        });
-    },
-    
-    /**
-     * Handle status changes
-     */
-    _handleStatusChange(status) {
-        this._log('FIXED: Chat status changed:', status);
-        // Status changes are handled by the main chat application
-    },
-    
-    /**
-     * Handle ChatService errors
-     */
-    _handleChatServiceError(error) {
-        this._error('FIXED: ChatService error:', error);
-        this._hideTypingIndicator();
-    },
-    
-    /**
-     * Add component to UI (placeholder for future component support)
+     * Add component to UI (placeholder for future use)
      */
     _addComponentToUI(component) {
-        this._log('FIXED: Component received:', component);
+        this._log('Component received:', component);
         // Future implementation for rich components
     },
     
     /**
-     * FIXED: Enhanced UI element finding with validation and error handling
+     * Find UI elements
      */
-    _findUIElementsFixed() {
+    _findUIElements() {
         if (!this.container) {
-            this._error('FIXED: Container not available for UI element search');
+            this._error('Container not available for UI element search');
             return;
         }
         
-        this._log('FIXED: Finding UI elements in container...');
+        this._log('Finding UI elements in container...');
         
-        // FIXED: Try multiple selectors for each element
+        // Find elements with multiple selector attempts
         const selectors = {
-            chatBody: ['.chat-body', '#chatBody', '.messages', '.chat-messages', '.conversation'],
-            messageInput: ['.chat-input', '#messageInput', '.message-input', 'textarea', 'input[type="text"]'],
-            sendButton: ['.chat-send-btn', '#sendMessageBtn', '.send-button', '.send-btn', 'button[type="submit"]']
+            chatBody: ['.chat-body', '#chatBody', '.messages', '.chat-messages'],
+            messageInput: ['.chat-input', '#messageInput', '.message-input', 'textarea'],
+            sendButton: ['.chat-send-btn', '#sendMessageBtn', '.send-button', '.send-btn']
         };
         
         // Find chat body
         for (const selector of selectors.chatBody) {
             this.elements.chatBody = this.container.querySelector(selector);
             if (this.elements.chatBody) {
-                this._log('FIXED: Chat body found with selector:', selector);
+                this._log('Chat body found with selector:', selector);
                 break;
             }
         }
@@ -746,7 +512,7 @@ const ChatIntegration = {
         for (const selector of selectors.messageInput) {
             this.elements.messageInput = this.container.querySelector(selector);
             if (this.elements.messageInput) {
-                this._log('FIXED: Message input found with selector:', selector);
+                this._log('Message input found with selector:', selector);
                 break;
             }
         }
@@ -755,32 +521,22 @@ const ChatIntegration = {
         for (const selector of selectors.sendButton) {
             this.elements.sendButton = this.container.querySelector(selector);
             if (this.elements.sendButton) {
-                this._log('FIXED: Send button found with selector:', selector);
+                this._log('Send button found with selector:', selector);
                 break;
             }
         }
         
-        // FIXED: Log results and validate critical elements
-        const results = {
-            chatBody: !!this.elements.chatBody,
-            messageInput: !!this.elements.messageInput,
-            sendButton: !!this.elements.sendButton
-        };
-        
-        this._log('FIXED: UI elements search results:', results);
-        
-        // FIXED: Validate critical elements
+        // Validate critical elements
         if (!this.elements.chatBody) {
-            this._error('FIXED: CRITICAL - Chat body element not found! Available elements:', 
-                Array.from(this.container.querySelectorAll('*')).map(el => el.className || el.tagName).slice(0, 10));
+            this._error('CRITICAL - Chat body element not found!');
         }
         
         if (!this.elements.messageInput) {
-            this._error('FIXED: WARNING - Message input element not found!');
+            this._error('WARNING - Message input element not found!');
         }
         
         if (!this.elements.sendButton) {
-            this._error('FIXED: WARNING - Send button element not found!');
+            this._error('WARNING - Send button element not found!');
         }
     },
     
@@ -842,24 +598,19 @@ const ChatIntegration = {
     },
     
     /**
-     * FIXED: Enhanced disconnect and cleanup
+     * Disconnect and cleanup
      */
     disconnect() {
-        this._log('FIXED: Disconnecting ChatIntegration...');
-        
-        // FIXED: Clean up ChatService listeners
-        this._cleanupChatServiceListeners();
-        
-        if (window.ChatService) {
-            window.ChatService.disconnect();
-        }
+        this._log('Disconnecting ChatIntegration...');
         
         this.isInitialized = false;
         this.container = null;
         this.elements = {};
         this.messages = [];
+        this.currentProjectId = null;
+        this.currentProjectName = null;
         
-        this._log('FIXED: ChatIntegration disconnected');
+        this._log('ChatIntegration disconnected');
     },
     
     // Utility methods
