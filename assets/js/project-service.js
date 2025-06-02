@@ -73,7 +73,7 @@ const ProjectService = {
     },
 
     /**
-     * Fast project creation with robust response handling
+     * Fast project creation with post-creation recovery
      */
     async createProject(projectData) {
         try {
@@ -93,64 +93,48 @@ const ProjectService = {
                 email: user.email
             };
             
-            this._log('Function input:', functionInput);
-            
             const result = await this._executeFunction('create_project_with_context', functionInput);
             
-            this._log('Raw API response:', JSON.stringify(result, null, 2));
+            this._log('API response:', result);
             
-            // Robust response validation - handle multiple possible formats
+            // Handle the case where project was created but function failed
+            if (result?.status === 'success' && result?.data?.success === false) {
+                this._log('Project creation function failed, attempting recovery...');
+                
+                // Wait a moment for the project to be fully committed to database
+                await new Promise(resolve => setTimeout(resolve, 1000));
+                
+                // Try to find the project that was just created
+                const recoveredProject = await this._recoverCreatedProject(projectData.name, user.email);
+                
+                if (recoveredProject) {
+                    this._log('Successfully recovered created project:', recoveredProject);
+                    return recoveredProject;
+                }
+                
+                throw new Error('Project creation failed and recovery unsuccessful');
+            }
+            
+            // Standard success path
+            if (result?.status !== 'success' || !result?.data) {
+                throw new Error('Invalid API response');
+            }
+            
+            // Parse successful response
             let project = null;
             let chat_id = null;
-            let responseData = null;
             
-            // Case 1: Standard format { status: "success", data: { success: true, project: {...}, chat_id: "..." } }
-            if (result?.status === 'success' && result?.data) {
-                responseData = result.data;
-                if (responseData.success && responseData.project) {
-                    project = responseData.project;
-                    chat_id = responseData.chat_id;
-                    this._log('Format 1: Standard wrapped response');
-                }
-            }
-            
-            // Case 2: Direct success response { success: true, project: {...}, chat_id: "..." }
-            else if (result?.success && result?.project) {
-                project = result.project;
-                chat_id = result.chat_id;
-                this._log('Format 2: Direct response');
-            }
-            
-            // Case 3: Data is at root level { project: {...}, chat_id: "..." }
-            else if (result?.project && result?.chat_id) {
-                project = result.project;
-                chat_id = result.chat_id;
-                this._log('Format 3: Root level data');
-            }
-            
-            // Case 4: Nested in result.data without success flag
-            else if (result?.data?.project && result?.data?.chat_id) {
+            if (result.data.success && result.data.project) {
                 project = result.data.project;
                 chat_id = result.data.chat_id;
-                this._log('Format 4: Nested data without success flag');
+            } else if (result.data.project && result.data.chat_id) {
+                project = result.data.project;
+                chat_id = result.data.chat_id;
             }
             
-            // Validate extracted data
-            if (!project || !project.id) {
-                this._error('No valid project found in response:', result);
-                throw new Error('Invalid project data in API response');
+            if (!project?.id || !chat_id) {
+                throw new Error('Invalid project data in response');
             }
-            
-            if (!chat_id) {
-                this._error('No chat_id found in response:', result);
-                throw new Error('No chat_id in API response');
-            }
-            
-            this._log('Successfully extracted:', {
-                projectId: project.id,
-                projectName: project.name,
-                chatId: chat_id
-            });
             
             // Quick cache update
             this._quickCacheProject(project);
@@ -174,12 +158,8 @@ const ProjectService = {
             };
             
         } catch (error) {
-            this._error('Error creating project:', {
-                message: error.message,
-                stack: error.stack,
-                projectData: projectData
-            });
-            throw new Error(`Failed to create project: ${error.message}`);
+            this._error('Error creating project:', error);
+            throw error;
         }
     },
 
@@ -291,7 +271,7 @@ const ProjectService = {
     },
 
     /**
-     * Fast context switching
+     * Fast context switching with retry logic
      */
     async switchToProject(projectId, projectName = null) {
         try {
@@ -304,11 +284,23 @@ const ProjectService = {
             
             this._log('Quick project switch:', projectId);
             
-            const result = await this._executeFunction('switch_project_context', {
+            let result = await this._executeFunction('switch_project_context', {
                 email: user.email,
                 project_id: projectId,
                 reel_id: null
             });
+            
+            // Retry once if failed
+            if (result?.status === 'success' && result?.data?.success === false) {
+                this._log('Context switch failed, retrying...');
+                await new Promise(resolve => setTimeout(resolve, 1000));
+                
+                result = await this._executeFunction('switch_project_context', {
+                    email: user.email,
+                    project_id: projectId,
+                    reel_id: null
+                });
+            }
             
             if (result?.status === 'success' && result?.data?.success) {
                 const project = result.data.project;
@@ -340,11 +332,11 @@ const ProjectService = {
                 };
             }
             
-            throw new Error(result?.data?.message || 'Failed to switch project context');
+            throw new Error('Failed to switch project context');
             
         } catch (error) {
             this._error('Error switching project:', error);
-            throw new Error(`Failed to switch to project: ${error.message}`);
+            throw error;
         }
     },
 
@@ -607,6 +599,79 @@ const ProjectService = {
                 }
             });
         }, 0);
+    },
+
+    /**
+     * Recover a project that was created but function failed
+     */
+    async _recoverCreatedProject(projectName, userEmail) {
+        try {
+            this._log('Attempting to recover project:', projectName);
+            
+            // Get recent projects to find the one we just created
+            const projectsResult = await this._executeFunction('list_user_projects', {
+                email: userEmail,
+                limit: 10,
+                offset: 0,
+                search: projectName
+            });
+            
+            if (projectsResult?.status === 'success' && projectsResult?.data?.success && projectsResult?.data?.projects) {
+                const projects = projectsResult.data.projects;
+                
+                // Find project with exact name match that was created recently (within last 2 minutes)
+                const recentProject = projects.find(p => {
+                    if (p.name !== projectName) return false;
+                    
+                    const createdAt = new Date(p.created_at);
+                    const now = new Date();
+                    const timeDiff = now - createdAt;
+                    
+                    // Project created within last 2 minutes
+                    return timeDiff < 120000;
+                });
+                
+                if (recentProject) {
+                    this._log('Found recently created project:', recentProject.id);
+                    
+                    // Now get the context for this project to get chat_id
+                    const contextResult = await this._executeFunction('switch_project_context', {
+                        email: userEmail,
+                        project_id: recentProject.id,
+                        reel_id: null
+                    });
+                    
+                    if (contextResult?.status === 'success' && contextResult?.data?.success) {
+                        const project = contextResult.data.project;
+                        const chat_id = contextResult.data.chat_id;
+                        
+                        // Cache and update context
+                        this._quickCacheProject(project);
+                        this._clearProjectListCache();
+                        
+                        this._updateContextQuick({
+                            current_project: project,
+                            chat_id: chat_id,
+                            project_name: project.name
+                        });
+                        
+                        this._notifyQuick('project_created', { project, chat_id });
+                        
+                        return {
+                            success: true,
+                            project: project,
+                            chat_id: chat_id
+                        };
+                    }
+                }
+            }
+            
+            return null;
+            
+        } catch (error) {
+            this._log('Project recovery failed:', error);
+            return null;
+        }
     },
 
     /**
