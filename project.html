@@ -1067,6 +1067,18 @@
         elements.projectsGrid.innerHTML = '';
         elements.projectsGrid.appendChild(fragment);
       }
+
+      /**
+      * Render projects list
+      */
+      function renderProjectsListFast() {
+        elements.projectsList.innerHTML = '';
+        
+        filteredProjects.forEach(project => {
+          const projectItem = createProjectListItemFast(project);
+          elements.projectsList.appendChild(projectItem);
+        });
+      }
       
       /**
       * Fast project card creation
@@ -1104,6 +1116,32 @@
         `;
         
         return card;
+      }
+
+      /**
+      * Create project list item
+      */
+      function createProjectListItemFast(project) {
+        const item = document.createElement('div');
+        item.className = 'project-list-item';
+        item.onclick = () => openProject(project.id, project.name);
+        
+        const chatId = project.id;
+        
+        item.innerHTML = `
+          <div class="project-list-header">
+            <h3 class="project-list-title">${escapeHtml(project.name)}</h3>
+            <div class="project-list-stats">
+              <span>${project.message_count || 0} messages</span>
+              <span>${formatDate(project.created_at)}</span>
+              <span>${formatRelativeTime(project.last_accessed_at || project.created_at)}</span>
+              <span title="Chat ID">ID: ${chatId.substring(0, 8)}...</span>
+            </div>
+          </div>
+          <p class="project-description">${escapeHtml(project.description || 'No description provided')}</p>
+        `;
+        
+        return item;
       }
       
       /**
