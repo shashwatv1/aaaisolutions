@@ -73,7 +73,7 @@ const ProjectService = {
     },
 
     /**
-     * Fast project creation with enhanced error handling
+     * Fast project creation with robust response handling
      */
     async createProject(projectData) {
         try {
@@ -97,37 +97,60 @@ const ProjectService = {
             
             const result = await this._executeFunction('create_project_with_context', functionInput);
             
-            this._log('API response:', result);
+            this._log('Raw API response:', JSON.stringify(result, null, 2));
             
-            // Enhanced response validation with detailed error reporting
-            if (!result) {
-                throw new Error('No response from API');
+            // Robust response validation - handle multiple possible formats
+            let project = null;
+            let chat_id = null;
+            let responseData = null;
+            
+            // Case 1: Standard format { status: "success", data: { success: true, project: {...}, chat_id: "..." } }
+            if (result?.status === 'success' && result?.data) {
+                responseData = result.data;
+                if (responseData.success && responseData.project) {
+                    project = responseData.project;
+                    chat_id = responseData.chat_id;
+                    this._log('Format 1: Standard wrapped response');
+                }
             }
             
-            if (result.status !== 'success') {
-                const errorMsg = result.error || result.detail || 'API request failed';
-                throw new Error(`API error: ${errorMsg}`);
+            // Case 2: Direct success response { success: true, project: {...}, chat_id: "..." }
+            else if (result?.success && result?.project) {
+                project = result.project;
+                chat_id = result.chat_id;
+                this._log('Format 2: Direct response');
             }
             
-            if (!result.data) {
-                throw new Error('No data in API response');
+            // Case 3: Data is at root level { project: {...}, chat_id: "..." }
+            else if (result?.project && result?.chat_id) {
+                project = result.project;
+                chat_id = result.chat_id;
+                this._log('Format 3: Root level data');
             }
             
-            if (!result.data.success) {
-                const errorMsg = result.data.error || result.data.message || 'Project creation failed';
-                throw new Error(`Project creation failed: ${errorMsg}`);
+            // Case 4: Nested in result.data without success flag
+            else if (result?.data?.project && result?.data?.chat_id) {
+                project = result.data.project;
+                chat_id = result.data.chat_id;
+                this._log('Format 4: Nested data without success flag');
             }
             
-            const project = result.data.project;
-            const chat_id = result.data.chat_id;
-            
+            // Validate extracted data
             if (!project || !project.id) {
-                throw new Error('Invalid project data in response');
+                this._error('No valid project found in response:', result);
+                throw new Error('Invalid project data in API response');
             }
             
             if (!chat_id) {
-                throw new Error('No chat_id in response');
+                this._error('No chat_id found in response:', result);
+                throw new Error('No chat_id in API response');
             }
+            
+            this._log('Successfully extracted:', {
+                projectId: project.id,
+                projectName: project.name,
+                chatId: chat_id
+            });
             
             // Quick cache update
             this._quickCacheProject(project);
@@ -151,8 +174,7 @@ const ProjectService = {
             };
             
         } catch (error) {
-            this._error('Error creating project:', error);
-            this._error('Error details:', {
+            this._error('Error creating project:', {
                 message: error.message,
                 stack: error.stack,
                 projectData: projectData
@@ -436,12 +458,36 @@ const ProjectService = {
         
         try {
             const result = await this.authService.executeFunction(functionName, inputData);
-            this._log('Function result:', functionName, result);
+            
+            // Log detailed response structure
+            this._logAPIResponse(functionName, result);
+            
             return result;
         } catch (error) {
-            this._error('Function execution failed:', functionName, error);
+            this._error('Function execution failed:', functionName, {
+                error: error.message,
+                stack: error.stack,
+                inputData: inputData
+            });
             throw error;
         }
+    },
+
+    /**
+     * Enhanced error logging with response details
+     */
+    _logAPIResponse(functionName, result) {
+        this._log(`API Response for ${functionName}:`, {
+            hasStatus: !!result?.status,
+            status: result?.status,
+            hasData: !!result?.data,
+            dataType: typeof result?.data,
+            hasSuccess: !!result?.success,
+            hasProject: !!(result?.project || result?.data?.project),
+            hasChatId: !!(result?.chat_id || result?.data?.chat_id),
+            keys: result ? Object.keys(result) : [],
+            dataKeys: result?.data ? Object.keys(result.data) : []
+        });
     },
 
     _quickCacheProject(project) {

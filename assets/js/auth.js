@@ -206,7 +206,7 @@ const AuthService = {
     },
 
     /**
-     * Optimized function execution with better caching
+     * Optimized function execution with enhanced logging
      */
     async executeFunction(functionName, inputData) {
         if (!this.isAuthenticated()) {
@@ -222,6 +222,8 @@ const AuthService = {
                 throw new Error('No valid access token available');
             }
         }
+        
+        this._log('Executing function:', functionName, 'with input:', inputData);
         
         try {
             const controller = new AbortController();
@@ -240,6 +242,8 @@ const AuthService = {
             
             clearTimeout(timeoutId);
             
+            this._log('Response status:', response.status, response.statusText);
+            
             if (!response.ok) {
                 if (response.status === 401) {
                     // Try refresh once
@@ -252,12 +256,17 @@ const AuthService = {
                 }
                 
                 const errorData = await response.json().catch(() => ({}));
-                throw new Error(errorData.error || `Function execution failed`);
+                this._error('API error response:', errorData);
+                throw new Error(errorData.error || errorData.detail || `Function execution failed with status ${response.status}`);
             }
             
-            return await response.json();
+            const result = await response.json();
+            this._log('Function response:', functionName, JSON.stringify(result, null, 2));
+            
+            return result;
             
         } catch (error) {
+            this._error('Function execution error:', functionName, error);
             throw error;
         }
     },
