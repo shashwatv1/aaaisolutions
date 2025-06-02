@@ -3,8 +3,14 @@ const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 const {getSecret} = require('../utils/secret-manager');
 
+// Cached connections and secrets for performance
+let supabaseClient = null;
+let jwtSecretCache = null;
+let secretCacheExpiry = null;
+
 /**
- * Refresh JWT access token using refresh token
+ * High-Performance JWT Token Refresh
+ * Optimized for minimal latency
  */
 async function refreshToken(req, res) {
   return cors(req, res, async () => {
@@ -13,33 +19,34 @@ async function refreshToken(req, res) {
       return;
     }
     
+    const startTime = Date.now();
+    
     try {
-      console.log('🔄 JWT token refresh starting...');
+      console.log('🔄 Fast JWT token refresh starting...');
       
-      // Get refresh token from HTTP-only cookie
+      // Quick refresh token extraction
       const refreshToken = req.cookies?.refresh_token;
       
       if (!refreshToken) {
-        console.log('❌ No refresh token found in cookies');
+        console.log('❌ No refresh token in cookies');
         return res.status(401).json({
           error: 'Refresh token required',
           code: 'MISSING_REFRESH_TOKEN'
         });
       }
       
-      // Get JWT secret
-      const jwtSecret = await getSecret('JWT_SECRET_KEY');
+      // Fast JWT secret retrieval (with caching)
+      const jwtSecret = await getFastJWTSecret();
       
-      // Verify refresh token
+      // Quick token verification
       let payload;
       try {
         payload = jwt.verify(refreshToken, jwtSecret);
       } catch (error) {
         console.log('❌ Invalid refresh token:', error.message);
         
-        // Clear invalid refresh token
-        res.clearCookie('refresh_token');
-        res.clearCookie('authenticated');
+        // Clear invalid cookies
+        clearAuthCookies(res);
         
         return res.status(401).json({
           error: 'Invalid refresh token',
@@ -47,55 +54,41 @@ async function refreshToken(req, res) {
         });
       }
       
-      // Validate payload structure
+      // Fast payload validation
       if (!payload.user_id || !payload.email || payload.token_type !== 'user_refresh') {
-        console.log('❌ Invalid refresh token structure:', payload);
+        console.log('❌ Invalid refresh token structure');
+        clearAuthCookies(res);
         return res.status(401).json({
           error: 'Invalid refresh token structure',
           code: 'INVALID_TOKEN_STRUCTURE'
         });
       }
       
-      // Verify refresh token exists in database
-      const isValidToken = await verifyRefreshTokenInDatabase(refreshToken, payload.user_id);
-      if (!isValidToken) {
+      // Fast database validation (with connection reuse)
+      const isValid = await verifyRefreshTokenFast(refreshToken, payload.user_id);
+      if (!isValid) {
         console.log('❌ Refresh token not found in database');
-        
-        // Clear invalid refresh token
-        res.clearCookie('refresh_token');
-        res.clearCookie('authenticated');
-        
+        clearAuthCookies(res);
         return res.status(401).json({
           error: 'Refresh token revoked',
           code: 'TOKEN_REVOKED'
         });
       }
       
-      console.log('✅ Refresh token validated for user:', payload.email);
+      console.log('✅ Fast refresh token validated for:', payload.email);
       
-      // Create new access token
-      const now = Math.floor(Date.now() / 1000);
+      // Create new access token quickly
+      const newAccessToken = await createFastAccessToken(payload);
       
-      const newAccessTokenPayload = {
-        user_id: payload.user_id,
-        email: payload.email,
-        session_id: payload.session_id,
-        token_type: 'user_access',
-        iss: 'aaai-solutions',
-        aud: 'aaai-api',
-        iat: now,
-        exp: now + 900, // 15 minutes
-        jti: crypto.randomBytes(16).toString('hex')
-      };
+      // Update database asynchronously (non-blocking)
+      updateRefreshTokenUsageAsync(refreshToken).catch(error => {
+        console.warn('Warning: Failed to update token usage:', error);
+      });
       
-      const newAccessToken = jwt.sign(newAccessTokenPayload, jwtSecret, { algorithm: 'HS256' });
+      const responseTime = Date.now() - startTime;
+      console.log(`✅ Fast token refresh completed in ${responseTime}ms for:`, payload.email);
       
-      // Update last_used_at in database
-      await updateRefreshTokenLastUsed(refreshToken);
-      
-      console.log('✅ New access token created for user:', payload.email);
-      
-      // Return new access token
+      // Return optimized response
       res.status(200).json({
         tokens: {
           access_token: newAccessToken,
@@ -105,11 +98,14 @@ async function refreshToken(req, res) {
           id: payload.user_id,
           email: payload.email,
           session_id: payload.session_id
+        },
+        performance: {
+          response_time_ms: responseTime
         }
       });
       
     } catch (error) {
-      console.error('💥 Token refresh error:', error);
+      console.error('💥 Fast token refresh error:', error);
       res.status(500).json({
         error: 'Internal server error during token refresh',
         code: 'INTERNAL_ERROR',
@@ -120,82 +116,148 @@ async function refreshToken(req, res) {
 }
 
 /**
- * Verify refresh token exists in database
+ * Get JWT secret with caching for performance
  */
-async function verifyRefreshTokenInDatabase(refreshToken, userId) {
+async function getFastJWTSecret() {
+  // Use cached secret if still valid (cache for 5 minutes)
+  if (jwtSecretCache && secretCacheExpiry && Date.now() < secretCacheExpiry) {
+    return jwtSecretCache;
+  }
+  
   try {
-    // Get Supabase credentials
-    const supabaseUrl = await getSecret('supabase-url');
-    const supabaseKey = await getSecret('supabase-service-key');
+    jwtSecretCache = await getSecret('JWT_SECRET_KEY');
+    secretCacheExpiry = Date.now() + (5 * 60 * 1000); // 5 minutes
+    return jwtSecretCache;
+  } catch (error) {
+    console.error('Failed to get JWT secret:', error);
+    throw new Error('JWT secret not available');
+  }
+}
+
+/**
+ * Fast refresh token verification with connection reuse
+ */
+async function verifyRefreshTokenFast(refreshToken, userId) {
+  try {
+    // Initialize Supabase client once and reuse
+    if (!supabaseClient) {
+      const [supabaseUrl, supabaseKey] = await Promise.all([
+        getSecret('SUPABASE_URL'),
+        getSecret('SUPABASE_KEY')
+      ]);
+      
+      const { createClient } = require('@supabase/supabase-js');
+      supabaseClient = createClient(supabaseUrl, supabaseKey);
+      console.log('✅ Supabase client initialized for fast refresh');
+    }
     
-    // Initialize Supabase client
-    const { createClient } = require('@supabase/supabase-js');
-    const supabase = createClient(supabaseUrl, supabaseKey);
-    
-    // Query the user_refresh_token table
-    const { data, error } = await supabase
+    // Fast query with minimal data
+    const { data, error } = await supabaseClient
       .from('user_refresh_token')
-      .select('id, user_id, expires_at, is_active')
+      .select('expires_at, is_active')
       .eq('refresh_token', refreshToken)
       .eq('user_id', userId)
       .eq('is_active', true)
-      .single();
+      .maybeSingle(); // Use maybeSingle for better performance
     
     if (error) {
-      console.log('❌ Refresh token query error:', error);
+      console.log('❌ Fast refresh token query error:', error);
       return false;
     }
     
     if (!data) {
-      console.log('❌ Refresh token not found in database');
+      console.log('❌ Fast refresh token not found');
       return false;
     }
     
-    // Check if token is expired
+    // Quick expiration check
     const expiresAt = new Date(data.expires_at);
     if (expiresAt < new Date()) {
-      console.log('❌ Refresh token expired in database');
+      console.log('❌ Fast refresh token expired');
       return false;
     }
     
-    console.log('✅ Refresh token validated in database');
+    console.log('✅ Fast refresh token validated');
     return true;
     
   } catch (error) {
-    console.error('❌ Error verifying refresh token:', error);
+    console.error('❌ Fast refresh token verification error:', error);
     return false;
   }
 }
 
 /**
- * Update last_used_at timestamp for refresh token
+ * Create new access token quickly
  */
-async function updateRefreshTokenLastUsed(refreshToken) {
+async function createFastAccessToken(payload) {
   try {
-    // Get Supabase credentials
-    const supabaseUrl = await getSecret('SUPABASE_URL');
-    const supabaseKey = await getSecret('SUPABASE_KEY');
+    const jwtSecret = await getFastJWTSecret();
+    const now = Math.floor(Date.now() / 1000);
     
-    // Initialize Supabase client
-    const { createClient } = require('@supabase/supabase-js');
-    const supabase = createClient(supabaseUrl, supabaseKey);
+    const newAccessTokenPayload = {
+      user_id: payload.user_id,
+      email: payload.email,
+      session_id: payload.session_id,
+      token_type: 'user_access',
+      iss: 'aaai-solutions',
+      aud: 'aaai-api',
+      iat: now,
+      exp: now + 900, // 15 minutes
+      jti: crypto.randomBytes(8).toString('hex')
+    };
     
-    // Update last_used_at
-    const { error } = await supabase
+    // Use synchronous signing for speed
+    return jwt.sign(newAccessTokenPayload, jwtSecret, { algorithm: 'HS256' });
+    
+  } catch (error) {
+    console.error('❌ Fast access token creation failed:', error);
+    throw new Error('Access token creation failed');
+  }
+}
+
+/**
+ * Update refresh token usage asynchronously (non-blocking)
+ */
+async function updateRefreshTokenUsageAsync(refreshToken) {
+  try {
+    if (!supabaseClient) {
+      return; // Skip if no client available
+    }
+    
+    const now = new Date().toISOString();
+    
+    // Fast update with minimal data
+    const { error } = await supabaseClient
       .from('user_refresh_token')
       .update({
-        last_used_at: new Date().toISOString(),
-        updated_at: new Date().toISOString()
+        last_used_at: now,
+        updated_at: now
       })
       .eq('refresh_token', refreshToken);
     
     if (error) {
-      console.warn('⚠️ Failed to update refresh token last_used_at:', error);
+      console.warn('⚠️ Fast refresh token update failed:', error);
+    } else {
+      console.log('✅ Fast refresh token usage updated');
     }
     
   } catch (error) {
-    console.warn('⚠️ Error updating refresh token last_used_at:', error);
+    console.warn('⚠️ Fast refresh token update error:', error);
   }
+}
+
+/**
+ * Clear authentication cookies efficiently
+ */
+function clearAuthCookies(res) {
+  const cookieOptions = {
+    path: '/',
+    secure: true,
+    sameSite: 'lax'
+  };
+  
+  res.clearCookie('refresh_token', cookieOptions);
+  res.clearCookie('authenticated', cookieOptions);
 }
 
 module.exports = refreshToken;

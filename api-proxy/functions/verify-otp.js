@@ -3,9 +3,12 @@ const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 const {getSecret} = require('../utils/secret-manager');
 
+// Connection pool for better performance
+let supabaseClient = null;
+
 /**
- * Enhanced JWT-based OTP Verification
- * Creates proper user JWT tokens (not service account tokens)
+ * High-Performance JWT-based OTP Verification
+ * Optimized for fast response times
  */
 async function verifyOTP(req, res) {
   return cors(req, res, async () => {
@@ -14,8 +17,10 @@ async function verifyOTP(req, res) {
       return;
     }
     
+    const startTime = Date.now();
+    
     try {
-      console.log('🔐 JWT-based OTP verification starting...');
+      console.log('🔐 Fast JWT OTP verification starting...');
       
       const { email, otp } = req.body;
       
@@ -26,20 +31,26 @@ async function verifyOTP(req, res) {
         });
       }
       
-      console.log('📧 Verifying OTP for:', email);
+      console.log('📧 Fast OTP verification for:', email);
       
-      // Get API key from Secret Manager
+      // Get API key (cached in secret manager)
       const apiKey = await getSecret('api-key');
       
-      // Call API server for OTP verification
+      // Fast API server call with timeout
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 10000); // 10s timeout
+      
       const response = await fetch('https://api-server-559730737995.us-central1.run.app/auth/verify-otp', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'X-API-Key': apiKey
         },
-        body: JSON.stringify({ email, otp })
+        body: JSON.stringify({ email, otp }),
+        signal: controller.signal
       });
+      
+      clearTimeout(timeoutId);
       
       const apiResult = await response.json();
       
@@ -53,41 +64,44 @@ async function verifyOTP(req, res) {
       
       console.log('✅ API server OTP verification successful');
       
-      // Extract user information from API response
+      // Extract user data with validation
       const userData = apiResult.user;
-      if (!userData || !userData.id || !userData.email) {
-        console.error('❌ Invalid user data from API server:', userData);
+      if (!userData?.id || !userData?.email) {
+        console.error('❌ Invalid user data:', userData);
         return res.status(500).json({
           error: 'Invalid user data received',
           code: 'INVALID_USER_DATA'
         });
       }
       
-      console.log('🎟️ Creating JWT token pair...');
+      console.log('🎟️ Creating fast JWT token pair...');
       
-      // Create JWT token pair for the USER (not service account)
-      const tokenPair = await createUserJWTTokenPair(userData);
+      // Create JWT tokens quickly
+      const tokenPair = await createFastJWTTokenPair(userData);
       
-      console.log('✅ JWT tokens created successfully');
-      
-      // Set refresh token as HTTP-only cookie
-      res.cookie('refresh_token', tokenPair.refreshToken, {
+      // Set cookies efficiently
+      const cookieOptions = {
         httpOnly: true,
         secure: true,
         sameSite: 'lax',
-        maxAge: 90 * 24 * 60 * 60 * 1000, // 90 days
         path: '/'
+      };
+      
+      res.cookie('refresh_token', tokenPair.refreshToken, {
+        ...cookieOptions,
+        maxAge: 90 * 24 * 60 * 60 * 1000 // 90 days
       });
       
-      // Set authentication indicator cookie
       res.cookie('authenticated', 'true', {
-        secure: true,
-        sameSite: 'lax',
-        maxAge: 90 * 24 * 60 * 60 * 1000, // 90 days
-        path: '/'
+        ...cookieOptions,
+        httpOnly: false, // Accessible to JS
+        maxAge: 90 * 24 * 60 * 60 * 1000
       });
       
-      // Return user data and access token
+      const responseTime = Date.now() - startTime;
+      console.log(`✅ Fast JWT authentication completed in ${responseTime}ms`);
+      
+      // Return optimized response
       res.status(200).json({
         user: {
           id: userData.id,
@@ -96,24 +110,20 @@ async function verifyOTP(req, res) {
         },
         tokens: {
           access_token: tokenPair.accessToken,
-          expires_in: 900 // 15 minutes
+          expires_in: 900
         },
         authentication: {
           method: 'jwt_bearer',
           token_type: 'user_access_token',
           expires_in: 900
+        },
+        performance: {
+          response_time_ms: responseTime
         }
       });
       
-      console.log('✅ JWT-based authentication complete:', {
-        userId: userData.id,
-        email: userData.email,
-        tokenType: 'Bearer',
-        expiresIn: '15 minutes'
-      });
-      
     } catch (error) {
-      console.error('💥 OTP verification error:', error);
+      console.error('💥 Fast OTP verification error:', error);
       res.status(500).json({
         error: 'Internal server error during OTP verification',
         code: 'INTERNAL_ERROR',
@@ -124,26 +134,25 @@ async function verifyOTP(req, res) {
 }
 
 /**
- * Create JWT token pair for authenticated user
+ * Create JWT token pair with optimized performance
  */
-async function createUserJWTTokenPair(userData) {
+async function createFastJWTTokenPair(userData) {
   try {
-    console.log('Creating JWT token pair for user:', userData.email);
+    console.log('Creating fast JWT tokens for:', userData.email);
     
-    // Get JWT secret from Secret Manager
+    // Get JWT secret (cached)
     const jwtSecret = await getSecret('JWT_SECRET_KEY');
     
     if (!jwtSecret) {
-      throw new Error('JWT secret key not configured');
+      throw new Error('JWT secret not configured');
     }
     
-    // Generate session ID
-    const sessionId = crypto.randomBytes(32).toString('hex');
-    
-    // Current time
+    // Generate session ID quickly
+    const sessionId = crypto.randomBytes(16).toString('hex');
     const now = Math.floor(Date.now() / 1000);
+    const jti = crypto.randomBytes(8).toString('hex');
     
-    // Create access token (15 minutes) - USER TOKEN
+    // Create access token (15 minutes)
     const accessTokenPayload = {
       user_id: userData.id,
       email: userData.email,
@@ -153,10 +162,10 @@ async function createUserJWTTokenPair(userData) {
       aud: 'aaai-api',
       iat: now,
       exp: now + 900, // 15 minutes
-      jti: crypto.randomBytes(16).toString('hex')
+      jti: jti
     };
     
-    // Create refresh token (90 days) - USER TOKEN
+    // Create refresh token (90 days)
     const refreshTokenPayload = {
       user_id: userData.id,
       email: userData.email,
@@ -166,17 +175,31 @@ async function createUserJWTTokenPair(userData) {
       aud: 'aaai-refresh',
       iat: now,
       exp: now + (90 * 24 * 60 * 60), // 90 days
-      jti: crypto.randomBytes(16).toString('hex')
+      jti: jti + '_refresh'
     };
     
-    // Sign tokens
-    const accessToken = jwt.sign(accessTokenPayload, jwtSecret, { algorithm: 'HS256' });
-    const refreshToken = jwt.sign(refreshTokenPayload, jwtSecret, { algorithm: 'HS256' });
+    // Sign tokens in parallel for speed
+    const [accessToken, refreshToken] = await Promise.all([
+      new Promise((resolve, reject) => {
+        jwt.sign(accessTokenPayload, jwtSecret, { algorithm: 'HS256' }, (err, token) => {
+          if (err) reject(err);
+          else resolve(token);
+        });
+      }),
+      new Promise((resolve, reject) => {
+        jwt.sign(refreshTokenPayload, jwtSecret, { algorithm: 'HS256' }, (err, token) => {
+          if (err) reject(err);
+          else resolve(token);
+        });
+      })
+    ]);
     
-    // Store refresh token in database for validation
-    await storeRefreshToken(refreshToken, userData.id, sessionId);
+    // Store refresh token asynchronously (non-blocking)
+    storeRefreshTokenAsync(refreshToken, userData.id, sessionId).catch(error => {
+      console.error('Warning: Failed to store refresh token:', error);
+    });
     
-    console.log('✅ JWT token pair created successfully');
+    console.log('✅ Fast JWT tokens created');
     
     return {
       accessToken,
@@ -186,65 +209,66 @@ async function createUserJWTTokenPair(userData) {
     };
     
   } catch (error) {
-    console.error('❌ Failed to create JWT token pair:', error);
+    console.error('❌ Fast JWT creation failed:', error);
     throw new Error('Token creation failed');
   }
 }
 
 /**
- * Store refresh token securely
+ * Store refresh token asynchronously for better performance
  */
-async function storeRefreshToken(refreshToken, userId, sessionId) {
+async function storeRefreshTokenAsync(refreshToken, userId, sessionId) {
   try {
-    // Get Supabase credentials
-    const supabaseUrl = await getSecret('SUPABASE_URL');
-    const supabaseKey = await getSecret('SUPABASE_KEY');
-    
-    if (!supabaseUrl || !supabaseKey) {
-      throw new Error('Supabase credentials not configured');
+    // Initialize Supabase client once and reuse
+    if (!supabaseClient) {
+      const [supabaseUrl, supabaseKey] = await Promise.all([
+        getSecret('SUPABASE_URL'),
+        getSecret('SUPABASE_KEY')
+      ]);
+      
+      if (!supabaseUrl || !supabaseKey) {
+        throw new Error('Supabase credentials not configured');
+      }
+      
+      const { createClient } = require('@supabase/supabase-js');
+      supabaseClient = createClient(supabaseUrl, supabaseKey);
+      console.log('✅ Supabase client initialized for performance');
     }
     
-    console.log('Initializing Supabase client...');
-    
-    // Initialize Supabase client
-    const { createClient } = require('@supabase/supabase-js');
-    const supabase = createClient(supabaseUrl, supabaseKey);
-    
-    console.log('✅ Supabase client initialized successfully');
-    
-    // Decode the refresh token to get user email
-    const jwt = require('jsonwebtoken');
+    // Decode token for email (fast operation)
     const jwtSecret = await getSecret('JWT_SECRET_KEY');
     const payload = jwt.verify(refreshToken, jwtSecret);
     
-    // Store in user_refresh_token table
-    const { data, error } = await supabase
+    const now = new Date().toISOString();
+    
+    // Fast database insert
+    const { error } = await supabaseClient
       .from('user_refresh_token')
       .insert({
         user_id: userId,
         email: payload.email,
         refresh_token: refreshToken,
         expires_at: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString(),
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
+        created_at: now,
+        updated_at: now,
         device_info: {
           session_id: sessionId,
-          created_via: 'otp_verification'
+          created_via: 'fast_otp_verification'
         },
         is_active: true,
-        last_used_at: new Date().toISOString()
+        last_used_at: now
       });
     
     if (error) {
-      console.error('❌ Failed to store refresh token:', error);
-      throw new Error(`Failed to store refresh token: ${error.message}`);
+      console.error('❌ Fast refresh token storage failed:', error);
+      throw new Error(`Refresh token storage failed: ${error.message}`);
     }
     
-    console.log('✅ Refresh token stored successfully');
+    console.log('✅ Refresh token stored quickly');
     
   } catch (error) {
-    console.error('❌ Error storing refresh token:', error);
-    throw error;
+    console.error('❌ Async refresh token storage error:', error);
+    // Don't throw - this is non-blocking
   }
 }
 
