@@ -388,9 +388,12 @@ const ChatService = {
         }
     },
     
-    // Private methods - optimized for speed
-    
+    /**
+     * Handle ChatService messages with enhanced logging
+     */
     _handleMessageFast(data) {
+        this._log('Received WebSocket message:', data);
+        
         switch (data.type) {
             case 'session_established':
             case 'auth_success':
@@ -421,6 +424,7 @@ const ChatService = {
                 break;
                 
             case 'message_queued':
+            case 'message_queued_jwt':
                 this.pendingMessages.set(data.message_id, {
                     queuedAt: Date.now(),
                     status: 'pending'
@@ -428,33 +432,55 @@ const ChatService = {
                 this._notifyMessageListeners({
                     type: 'message_queued',
                     messageId: data.message_id,
-                    text: 'Processing...',
+                    text: 'Processing your message...',
                     timestamp: Date.now()
                 });
                 break;
                 
             case 'chat_response':
+                this._log('Chat response received:', data);
                 this.pendingMessages.delete(data.message_id);
+                
+                // Parse response data properly
+                let responseText = 'No response';
+                let components = [];
+                
+                if (data.response) {
+                    if (typeof data.response === 'string') {
+                        responseText = data.response;
+                    } else if (data.response.text) {
+                        responseText = data.response.text;
+                        components = data.response.components || [];
+                    } else {
+                        responseText = JSON.stringify(data.response);
+                    }
+                } else if (data.text) {
+                    responseText = data.text;
+                    components = data.components || [];
+                }
+                
                 this._notifyMessageListeners({
                     type: 'chat_response',
                     messageId: data.message_id,
-                    text: data.response?.text || 'No response',
-                    components: data.response?.components || [],
-                    timestamp: Date.now()
+                    text: responseText,
+                    components: components,
+                    timestamp: data.timestamp || Date.now()
                 });
                 break;
                 
             case 'chat_error':
+                this._log('Chat error received:', data);
                 this.pendingMessages.delete(data.message_id);
                 this._notifyMessageListeners({
                     type: 'chat_error',
                     messageId: data.message_id,
                     error: data.error || 'Unknown error',
-                    timestamp: Date.now()
+                    timestamp: data.timestamp || Date.now()
                 });
                 break;
                 
             case 'error':
+                this._error('Server error received:', data);
                 this._notifyErrorListeners({
                     type: 'server_error',
                     message: data.message || 'Server error',
@@ -463,6 +489,8 @@ const ChatService = {
                 break;
                 
             default:
+                this._log('Unhandled message type:', data.type, data);
+                // Still notify listeners for unknown message types
                 this._notifyMessageListeners(data);
                 break;
         }

@@ -199,30 +199,42 @@ const ChatIntegration = {
     },
     
     /**
-     * Add message to UI
+     * Add message to UI with enhanced debugging
      */
     _addMessageToUI(message) {
-        if (!this.elements.chatBody) return;
+        this._log('Adding message to UI:', message.type, message.text ? message.text.substring(0, 30) + '...' : 'no text');
         
-        const messageElement = this._createMessageElement(message);
-        this.elements.chatBody.appendChild(messageElement);
-        
-        // Hide welcome message if visible
-        const welcomeMessage = this.elements.chatBody.querySelector('.welcome-message');
-        if (welcomeMessage) {
-            welcomeMessage.style.display = 'none';
+        if (!this.elements.chatBody) {
+            this._error('Chat body element not found, cannot add message');
+            return;
         }
         
-        // Manage message limit
-        this._enforceMessageLimit();
-        
-        // Auto scroll
-        if (this.options.autoScroll) {
-            this._scrollToBottom();
+        try {
+            const messageElement = this._createMessageElement(message);
+            this.elements.chatBody.appendChild(messageElement);
+            
+            // Hide welcome message if visible
+            const welcomeMessage = this.elements.chatBody.querySelector('.welcome-message');
+            if (welcomeMessage) {
+                welcomeMessage.style.display = 'none';
+            }
+            
+            // Manage message limit
+            this._enforceMessageLimit();
+            
+            // Auto scroll
+            if (this.options.autoScroll) {
+                this._scrollToBottom();
+            }
+            
+            // Store message
+            this.messages.push(message);
+            
+            this._log('Message successfully added to UI, total messages:', this.messages.length);
+            
+        } catch (error) {
+            this._error('Failed to add message to UI:', error);
         }
-        
-        // Store message
-        this.messages.push(message);
     },
     
     /**
@@ -354,23 +366,31 @@ const ChatIntegration = {
     },
     
     /**
-     * Setup ChatService integration
+     * Setup ChatService integration with enhanced debugging
      */
     _setupChatServiceIntegration() {
-        if (!window.ChatService) return;
+        if (!window.ChatService) {
+            this._error('ChatService not available for integration');
+            return;
+        }
+        
+        this._log('Setting up ChatService integration...');
         
         // Listen for messages
         window.ChatService.onMessage((data) => {
+            this._log('ChatService message received:', data.type);
             this._handleChatServiceMessage(data);
         });
         
         // Listen for status changes
         window.ChatService.onStatusChange((status) => {
+            this._log('ChatService status changed:', status);
             this._handleStatusChange(status);
         });
         
         // Listen for errors
         window.ChatService.onError((error) => {
+            this._error('ChatService error:', error);
             this._handleChatServiceError(error);
         });
         
@@ -411,24 +431,59 @@ const ChatIntegration = {
     },
     
     /**
-     * Handle chat response
+     * Handle chat response with enhanced logging and error handling
      */
     _handleChatResponse(data) {
+        this._log('Processing chat response:', data);
         this._hideTypingIndicator();
         
-        if (data.text) {
+        try {
+            let messageText = 'No response received';
+            
+            // Extract text from various possible response formats
+            if (data.text) {
+                messageText = data.text;
+            } else if (data.response) {
+                if (typeof data.response === 'string') {
+                    messageText = data.response;
+                } else if (data.response.text) {
+                    messageText = data.response.text;
+                } else {
+                    messageText = JSON.stringify(data.response);
+                }
+            }
+            
+            // Add bot message to UI
             this._addMessageToUI({
                 type: 'bot',
-                text: data.text,
+                text: messageText,
                 timestamp: data.timestamp || Date.now(),
                 id: data.messageId
             });
-        }
-        
-        // Handle components if present
-        if (data.components && data.components.length > 0) {
-            data.components.forEach(component => {
-                this._addComponentToUI(component);
+            
+            this._log('Bot message added to UI:', messageText.substring(0, 50) + '...');
+            
+            // Handle components if present
+            if (data.components && Array.isArray(data.components) && data.components.length > 0) {
+                this._log('Processing components:', data.components.length);
+                data.components.forEach((component, index) => {
+                    try {
+                        this._addComponentToUI(component);
+                        this._log('Component added:', index, component.type);
+                    } catch (error) {
+                        this._error('Failed to add component:', error, component);
+                    }
+                });
+            }
+            
+        } catch (error) {
+            this._error('Error handling chat response:', error, data);
+            
+            // Add error message to UI
+            this._addMessageToUI({
+                type: 'error',
+                text: 'Error displaying response: ' + error.message,
+                timestamp: Date.now()
             });
         }
     },
