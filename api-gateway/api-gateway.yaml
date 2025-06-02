@@ -15,6 +15,11 @@ securityDefinitions:
     name: Authorization
     in: header
     description: 'JWT Bearer token in the format: Bearer {jwt_token}'
+  tokenQuery:
+    type: apiKey
+    name: token
+    in: query
+    description: 'JWT token as query parameter for WebSocket connections'
 x-google-endpoints:
   - name: aaai-gateway-754x89jf.uc.gateway.dev
     allowCors: true
@@ -293,7 +298,7 @@ paths:
 
   /ws/{user_id}:
     get:
-      summary: WebSocket connection endpoint with JWT Bearer authentication
+      summary: WebSocket connection endpoint with JWT authentication via query parameter
       operationId: websocketConnection
       parameters:
         - name: user_id
@@ -301,6 +306,11 @@ paths:
           required: true
           type: string
           description: User ID for WebSocket connection
+        - name: token
+          in: query
+          required: true
+          type: string
+          description: JWT Bearer token for authentication
         - name: chat_id
           in: query
           required: false
@@ -325,7 +335,7 @@ paths:
         address: wss://api-server-559730737995.us-central1.run.app
         protocol: websocket
       security:
-        - bearerAuth: []
+        - tokenQuery: []
       responses:
         '101':
           description: WebSocket connection established

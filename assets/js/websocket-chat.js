@@ -31,7 +31,7 @@ const ChatService = {
         reconnectInterval: 5000,
         maxReconnectAttempts: 3,
         heartbeatInterval: 90000,
-        connectionTimeout: 10000,
+        connectionTimeout: 15000, // Increased for WebSocket handshake
         debug: false,
         fastMode: true
     },
@@ -62,7 +62,7 @@ const ChatService = {
     },
 
     /**
-     * Fast connection with Bearer token authentication
+     * Fast connection with JWT token in query parameters
      */
     async connect() {
         if (this.isConnected && this.isAuthenticated) {
@@ -95,79 +95,57 @@ const ChatService = {
             this.isConnecting = true;
             this._notifyStatusChange('connecting');
             
-            // Build WebSocket URL quickly
-            const wsUrl = this._buildGatewayWebSocketURL(user);
+            // Build WebSocket URL with token in query parameters
+            const wsUrl = this._buildGatewayWebSocketURL(user, accessToken);
             
-            // Short connection timeout
+            this._log('Connecting to WebSocket URL:', wsUrl.replace(/token=[^&]+/, 'token=***'));
+            
+            // Connection timeout
             const timeout = setTimeout(() => {
                 if (this.isConnecting) {
                     this._cleanup();
                     this.isConnecting = false;
                     this._notifyStatusChange('disconnected');
-                    reject(new Error('Connection timeout'));
+                    reject(new Error('WebSocket connection timeout'));
                 }
             }, this.options.connectionTimeout);
             
             try {
-                // Create WebSocket with Bearer token authentication
-                this.socket = new WebSocket(wsUrl, [], {
-                    headers: {
-                        'Authorization': `Bearer ${accessToken}`
-                    }
-                });
+                // Create WebSocket with token in URL (no custom headers needed)
+                this.socket = new WebSocket(wsUrl);
                 
-                // For browsers that don't support headers in WebSocket constructor,
-                // we'll handle authentication in the onopen event
                 this.socket.onopen = () => {
-                    this._log('WebSocket opened quickly');
+                    this._log('WebSocket opened successfully');
                     this.isConnected = true;
+                    this.isAuthenticated = true; // Token is in URL, so authentication is handled by gateway
+                    this.isConnecting = false;
+                    this.reconnectAttempts = 0;
+                    this.sessionId = user.sessionId || 'gateway_session';
                     
-                    // Send authentication message with Bearer token
-                    this._sendGatewayAuth(user, accessToken);
+                    clearTimeout(timeout);
+                    this._notifyStatusChange('connected');
+                    this._startSimpleHeartbeat();
+                    this._processQueuedMessagesFast();
+                    
+                    resolve(true);
                 };
                 
                 this.socket.onmessage = (event) => {
                     try {
                         const data = JSON.parse(event.data);
-                        
-                        if (data.type === 'session_established' || 
-                            data.type === 'auth_success' || 
-                            data.type === 'authenticated') {
-                            
-                            this.isAuthenticated = true;
-                            this.isConnecting = false;
-                            this.reconnectAttempts = 0;
-                            this.sessionId = data.session_id || user.sessionId;
-                            
-                            clearTimeout(timeout);
-                            this._notifyStatusChange('connected');
-                            this._startSimpleHeartbeat();
-                            this._processQueuedMessagesFast();
-                            
-                            resolve(true);
-                            return;
-                        }
-                        
-                        if (data.type === 'error' && this.isConnecting) {
-                            clearTimeout(timeout);
-                            this.isConnecting = false;
-                            this._cleanup();
-                            reject(new Error(data.message || 'Connection error'));
-                            return;
-                        }
-                        
                         this._handleMessageFast(data);
-                        
                     } catch (e) {
                         this._error('Message parse error:', e);
                     }
                 };
                 
                 this.socket.onclose = (event) => {
+                    this._log('WebSocket closed:', event.code, event.reason);
+                    
                     if (this.isConnecting) {
                         clearTimeout(timeout);
                         this.isConnecting = false;
-                        reject(new Error('Connection closed during handshake'));
+                        reject(new Error(`Connection closed during handshake: ${event.code} ${event.reason}`));
                         return;
                     }
                     
@@ -200,36 +178,21 @@ const ChatService = {
     },
     
     /**
-     * Build Gateway WebSocket URL with Bearer authentication
+     * Build Gateway WebSocket URL with JWT token in query parameters
      */
-    _buildGatewayWebSocketURL(user) {
+    _buildGatewayWebSocketURL(user, accessToken) {
         const wsHost = window.AAAI_CONFIG.WEBSOCKET_BASE_URL || 'aaai.solutions';
         
         const params = new URLSearchParams({
+            token: accessToken, // JWT token in query parameter for gateway authentication
             user_id: user.id,
             email: encodeURIComponent(user.email),
             chat_id: this._getCurrentChatId() || '',
-            session_id: user.sessionId || 'gateway_session'
+            session_id: user.sessionId || 'gateway_session',
+            auth_method: 'jwt_query'
         });
         
         return `wss://${wsHost}/ws/${user.id}?${params}`;
-    },
-    
-    /**
-     * Send Gateway authentication with Bearer token
-     */
-    _sendGatewayAuth(user, accessToken) {
-        if (this.socket?.readyState === WebSocket.OPEN) {
-            this.socket.send(JSON.stringify({
-                type: 'authenticate',
-                user_id: user.id,
-                email: user.email,
-                session_id: user.sessionId,
-                auth_method: 'jwt_bearer',
-                access_token: accessToken,
-                timestamp: new Date().toISOString()
-            }));
-        }
     },
     
     /**
@@ -394,6 +357,13 @@ const ChatService = {
     
     _handleMessageFast(data) {
         switch (data.type) {
+            case 'session_established':
+            case 'auth_success':
+            case 'authenticated':
+                this._log('Session established:', data);
+                this.sessionId = data.session_id || this.sessionId;
+                break;
+                
             case 'heartbeat':
             case 'ping':
                 this._sendPong();
@@ -436,6 +406,14 @@ const ChatService = {
                 });
                 break;
                 
+            case 'error':
+                this._notifyErrorListeners({
+                    type: 'server_error',
+                    message: data.message || 'Server error',
+                    details: data.error_details
+                });
+                break;
+                
             default:
                 this._notifyMessageListeners(data);
                 break;
@@ -448,6 +426,7 @@ const ChatService = {
         
         const shouldReconnect = event.code !== 1000 && // Normal closure
                               event.code !== 1001 && // Going away
+                              event.code !== 1006 && // Abnormal closure (might be temporary)
                               this.reconnectAttempts < this.options.maxReconnectAttempts &&
                               this.authService?.isAuthenticated();
         
@@ -463,7 +442,7 @@ const ChatService = {
     
     _scheduleReconnectFast() {
         this.reconnectAttempts++;
-        const delay = Math.min(this.options.reconnectInterval * this.reconnectAttempts, 15000);
+        const delay = Math.min(this.options.reconnectInterval * this.reconnectAttempts, 30000);
         
         this._log(`Fast reconnecting in ${delay}ms (attempt ${this.reconnectAttempts})`);
         this._notifyStatusChange('reconnecting');

@@ -531,7 +531,7 @@ const ProjectService = {
         const performSmartSync = async () => {
             // Only sync if page is visible and user is authenticated
             if (document.visibilityState !== 'visible' || 
-                !this._isAuthenticationComplete()) {
+                !this.authService?.isAuthenticated()) {
                 return;
             }
             
