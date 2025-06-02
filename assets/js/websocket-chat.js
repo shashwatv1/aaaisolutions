@@ -95,7 +95,7 @@ const ChatService = {
         const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'wss:'; // Always use secure WebSocket
         
         // Use main domain for NGINX proxy routing (same as your working HTTP requests)
-        const wsHost = window.location.host || 'aaai.solutions';
+        const wsHost = window.location.origin;
         
         // Build query parameters including JWT token
         const params = new URLSearchParams({
