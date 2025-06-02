@@ -30,7 +30,7 @@ const ChatIntegration = {
     },
     
     /**
-     * Initialize chat integration with container
+     * Initialize chat integration with immediate connection option
      */
     init(containerId, options = {}) {
         if (this.isInitialized) {
@@ -53,11 +53,21 @@ const ChatIntegration = {
             // Find UI elements
             this._findUIElements();
             
+            // Initialize ChatService if not done already
+            if (window.ChatService && !window.ChatService.isInitialized) {
+                window.ChatService.init(window.AuthService, {
+                    debug: this.options.debug
+                });
+            }
+            
             // Setup ChatService integration
-            if (window.ChatService && window.ChatService.isInitialized) {
+            if (window.ChatService?.isInitialized) {
                 this._setupChatServiceIntegration();
-            } else {
-                this._log('ChatService not ready, will setup later');
+                
+                // Connect immediately if requested
+                if (this.options.connectImmediately && window.AuthService?.isAuthenticated()) {
+                    this._connectImmediately();
+                }
             }
             
             this.isInitialized = true;
@@ -70,43 +80,71 @@ const ChatIntegration = {
             throw error;
         }
     },
-    
+
     /**
-     * Initialize with project context
+     * Connect immediately without waiting for project context
+     */
+    async _connectImmediately() {
+        try {
+            this._log('Connecting immediately...');
+            
+            // Start connection immediately
+            const connectionPromise = window.ChatService.connect();
+            
+            // Load chat history in parallel (don't wait)
+            this._loadChatHistory().catch(error => {
+                this._log('Chat history load failed (non-critical):', error);
+            });
+            
+            // Wait for connection
+            await connectionPromise;
+            this._log('Immediate connection established');
+            
+        } catch (error) {
+            this._error('Immediate connection failed:', error);
+            // Don't throw - let the app continue
+        }
+    },
+
+    /**
+     * Set project context after initialization
+     */
+    setProjectContext(projectId, projectName) {
+        try {
+            this._log('Setting project context:', { projectId, projectName });
+            
+            this.currentProjectId = projectId;
+            this.currentProjectName = projectName;
+            this.hasProject = true;
+            
+            // Update ChatService context if connected
+            if (window.ChatService?.isConnected) {
+                window.ChatService.setProjectContext(projectId, projectName);
+            }
+            
+            // Reload chat history for this project
+            this._loadChatHistory().catch(error => {
+                this._log('Failed to load project chat history:', error);
+            });
+            
+        } catch (error) {
+            this._error('Failed to set project context:', error);
+        }
+    },
+
+    /**
+     * Initialize with project context (kept for compatibility but simplified)
      */
     async initializeWithProject(projectId, projectName) {
         try {
-            this._log('Initializing with project:', { projectId, projectName });
+            this._log('Setting project context:', { projectId, projectName });
             
             if (!this.isInitialized) {
                 throw new Error('ChatIntegration not initialized');
             }
             
-            // Initialize ChatService if not done already
-            if (window.ChatService && !window.ChatService.isInitialized) {
-                window.ChatService.init(window.AuthService, {
-                    debug: this.options.debug
-                });
-            }
-            
-            // Set project context in ChatService
-            if (window.ChatService) {
-                window.ChatService.setProjectContext(projectId, projectName);
-                
-                // Setup integration now that ChatService is ready
-                this._setupChatServiceIntegration();
-                
-                // Connect to WebSocket
-                try {
-                    await window.ChatService.connect();
-                    this._log('ChatService connected successfully');
-                } catch (error) {
-                    this._error('ChatService connection failed:', error);
-                }
-                
-                // Load chat history
-                await this._loadChatHistory();
-            }
+            // Just set the project context
+            this.setProjectContext(projectId, projectName);
             
             return true;
             

@@ -11,21 +11,26 @@ const getEnvironment = () => {
     }
 };
 
-// Get consistent API base URL for all environments
+// Get consistent API base URL for all environments with proper protocol handling
 const getAPIBaseURL = () => {
-    // Always use Gateway for consistency
-    return 'https://aaai-gateway-754x89jf.uc.gateway.dev';
+    const environment = getEnvironment();
+    
+    if (environment === 'development') {
+        return 'http://localhost:8080'; // Local development
+    } else {
+        // Production and staging - ensure HTTPS
+        return 'https://aaai-gateway-754x89jf.uc.gateway.dev';
+    }
 };
 
 // Get WebSocket base URL for all environments
 const getWebSocketBaseURL = () => {
-    // Use the same domain as the main site for WebSocket (routes through NGINX to Gateway)
     const hostname = window.location.hostname;
     
     if (hostname === 'localhost' || hostname === '127.0.0.1') {
-        return 'localhost:3000'; // Adjust for local development if needed
+        return 'localhost:3000';
     } else {
-        return hostname; // Use the same domain (aaai.solutions)
+        return hostname;
     }
 };
 
@@ -102,7 +107,7 @@ window.AAAI_CONFIG = {
     }
 };
 
-// Initialize Logger
+// Initialize Logger with enhanced error handling
 window.AAAI_LOGGER = {
     debug: function(...args) {
         if (window.AAAI_CONFIG.ENABLE_DEBUG) {
@@ -152,32 +157,42 @@ window.getChatServiceConfig = function() {
     };
 };
 
-// Enhanced URL helpers
+// Enhanced URL helpers with better error handling
 window.getAPIURL = function(endpoint) {
-    const baseURL = window.AAAI_CONFIG.API_BASE_URL;
-    const cleanEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
-    return `${baseURL}${cleanEndpoint}`;
+    try {
+        const baseURL = window.AAAI_CONFIG.API_BASE_URL;
+        const cleanEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
+        return `${baseURL}${cleanEndpoint}`;
+    } catch (error) {
+        console.error('Error constructing API URL:', error);
+        return `https://aaai-gateway-754x89jf.uc.gateway.dev${endpoint}`;
+    }
 };
 
 window.getWebSocketURL = function(endpoint, params = {}) {
-    const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const baseURL = window.AAAI_CONFIG.WEBSOCKET_BASE_URL;
-    const cleanEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
-    
-    const url = new URL(`${wsProtocol}//${baseURL}${cleanEndpoint}`);
-    
-    // Add query parameters
-    Object.keys(params).forEach(key => {
-        if (params[key] !== null && params[key] !== undefined) {
-            url.searchParams.set(key, params[key]);
-        }
-    });
-    
-    return url.toString();
+    try {
+        const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const baseURL = window.AAAI_CONFIG.WEBSOCKET_BASE_URL;
+        const cleanEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
+        
+        const url = new URL(`${wsProtocol}//${baseURL}${cleanEndpoint}`);
+        
+        // Add query parameters
+        Object.keys(params).forEach(key => {
+            if (params[key] !== null && params[key] !== undefined) {
+                url.searchParams.set(key, params[key]);
+            }
+        });
+        
+        return url.toString();
+    } catch (error) {
+        console.error('Error constructing WebSocket URL:', error);
+        return `wss://${window.location.hostname}${endpoint}`;
+    }
 };
 
 // Log configuration loaded
-window.AAAI_LOGGER.info('AAAI Configuration loaded with API Gateway WebSocket routing', {
+window.AAAI_LOGGER.info('AAAI Configuration loaded with enhanced error handling', {
     environment: window.AAAI_CONFIG.ENVIRONMENT,
     version: window.AAAI_CONFIG.VERSION,
     apiBaseURL: window.AAAI_CONFIG.API_BASE_URL,

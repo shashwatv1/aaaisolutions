@@ -1561,6 +1561,31 @@
       // Initialize the application
       await initializeApp();
     });
+    document.addEventListener('aaai:initialized', function(event) {
+      console.log('🚀 AAAI initialized, starting immediate chat connection...');
+      
+      // Get project info from URL
+      const urlParams = new URLSearchParams(window.location.search);
+      const projectId = urlParams.get('project');
+      const projectName = urlParams.get('project_name');
+      
+      if (projectId && window.ChatIntegration?.isInitialized) {
+          // Set project context immediately
+          window.ChatIntegration.setProjectContext(
+              projectId, 
+              projectName ? decodeURIComponent(projectName) : null
+          );
+          
+          // Force connection if not already connected
+          if (window.ChatService && !window.ChatService.isConnected) {
+              window.ChatService.connect().then(() => {
+                  console.log('✅ Chat connection established after AAAI init');
+              }).catch(error => {
+                  console.error('❌ Chat connection failed after AAAI init:', error);
+              });
+          }
+      }
+    });
   </script>
 </body>
 

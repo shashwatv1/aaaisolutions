@@ -310,11 +310,11 @@
     }
     
     /**
-     * Fast chat page initialization
+     * Fast chat page initialization with immediate WebSocket connection
      */
     function initializeChatPageFast() {
         try {
-            console.log('💬 Fast chat page init...');
+            console.log('💬 Fast chat page init with immediate WebSocket...');
             
             const authService = window.AAAI_APP.services.AuthService;
             const projectService = window.AAAI_APP.services.ProjectService;
@@ -334,24 +334,65 @@
                 return;
             }
             
-            // Switch to project context asynchronously
+            // Initialize ChatIntegration immediately
+            if (window.ChatIntegration && !window.ChatIntegration.isInitialized) {
+                try {
+                    window.ChatIntegration.init('chatContainer', {
+                        debug: window.AAAI_APP.debug,
+                        connectImmediately: true  // New flag for immediate connection
+                    });
+                    console.log('✅ ChatIntegration initialized with immediate connection');
+                } catch (error) {
+                    console.error('❌ ChatIntegration initialization failed:', error);
+                }
+            }
+            
+            // Start immediate WebSocket connection (non-blocking)
+            if (window.ChatService && window.ChatService.isInitialized) {
+                // Connect immediately without waiting for project context
+                window.ChatService.connect().then(() => {
+                    console.log('✅ WebSocket connected immediately');
+                    
+                    // Update project context after connection is established
+                    const projectName = urlParams.get('project_name');
+                    if (projectName) {
+                        window.ChatService.setProjectContext(projectId, decodeURIComponent(projectName));
+                    }
+                }).catch(error => {
+                    console.error('❌ Immediate WebSocket connection failed:', error);
+                });
+            }
+            
+            // Switch project context in parallel (non-blocking)
             if (projectService) {
                 const projectName = urlParams.get('project_name');
                 projectService.switchToProject(
                     projectId, 
                     projectName ? decodeURIComponent(projectName) : null
-                ).catch(error => {
+                ).then(() => {
+                    console.log('✅ Project context switched');
+                    
+                    // Update ChatService context after project switch
+                    if (window.ChatService?.isConnected) {
+                        window.ChatService.setProjectContext(projectId, projectName ? decodeURIComponent(projectName) : null);
+                    }
+                    
+                    // Initialize ChatIntegration with project data if not done
+                    if (window.ChatIntegration?.isInitialized && !window.ChatIntegration.hasProject) {
+                        window.ChatIntegration.setProjectContext(projectId, projectName);
+                    }
+                }).catch(error => {
                     console.error('❌ Project context switch failed:', error);
                 });
             }
             
-            console.log('✅ Chat page initialized');
+            console.log('✅ Chat page initialized with immediate connection');
             
         } catch (error) {
             console.error('❌ Chat page init failed:', error);
         }
     }
-    
+
     /**
      * Fast chat page initialization
      */

@@ -62,7 +62,7 @@ const ChatService = {
     },
 
     /**
-     * Fast connection with JWT token in query parameters
+     * Fast connection with optimized authentication check
      */
     async connect() {
         if (this.isConnected && this.isAuthenticated) {
@@ -70,12 +70,26 @@ const ChatService = {
         }
         
         if (this.isConnecting) {
-            return false;
+            // Wait for existing connection attempt
+            return new Promise((resolve, reject) => {
+                const checkConnection = () => {
+                    if (!this.isConnecting) {
+                        if (this.isConnected && this.isAuthenticated) {
+                            resolve(true);
+                        } else {
+                            reject(new Error('Connection failed'));
+                        }
+                    } else {
+                        setTimeout(checkConnection, 100);
+                    }
+                };
+                setTimeout(checkConnection, 100);
+            });
         }
         
         this._log('Fast WebSocket connection starting...');
         
-        // Quick auth check
+        // Quick auth check with cached values
         if (!this.authService?.isAuthenticated()) {
             throw new Error('Authentication required');
         }
@@ -85,22 +99,34 @@ const ChatService = {
             throw new Error('User information not available');
         }
 
-        // Get token quickly
+        // Get token with caching
         const accessToken = this.authService.getToken();
         if (!accessToken) {
-            throw new Error('No access token available');
+            // Try one quick refresh
+            try {
+                const refreshed = await Promise.race([
+                    this.authService.refreshTokenIfNeeded(),
+                    new Promise((_, reject) => setTimeout(() => reject(new Error('Refresh timeout')), 3000))
+                ]);
+                
+                if (!refreshed) {
+                    throw new Error('No access token available');
+                }
+            } catch (error) {
+                throw new Error('Token refresh failed');
+            }
         }
         
         return new Promise((resolve, reject) => {
             this.isConnecting = true;
             this._notifyStatusChange('connecting');
             
-            // Build WebSocket URL with token in query parameters
-            const wsUrl = this._buildGatewayWebSocketURL(user, accessToken);
+            // Build WebSocket URL immediately
+            const wsUrl = this._buildGatewayWebSocketURL(user, this.authService.getToken());
             
             this._log('Connecting to WebSocket URL:', wsUrl.replace(/token=[^&]+/, 'token=***'));
             
-            // Connection timeout
+            // Shorter connection timeout for faster failure detection
             const timeout = setTimeout(() => {
                 if (this.isConnecting) {
                     this._cleanup();
@@ -108,16 +134,19 @@ const ChatService = {
                     this._notifyStatusChange('disconnected');
                     reject(new Error('WebSocket connection timeout'));
                 }
-            }, this.options.connectionTimeout);
+            }, 8000); // Reduced from 15000 to 8000
             
             try {
-                // Create WebSocket with token in URL (no custom headers needed)
+                // Create WebSocket with optimized settings
                 this.socket = new WebSocket(wsUrl);
+                
+                // Set binary type for better performance
+                this.socket.binaryType = 'arraybuffer';
                 
                 this.socket.onopen = () => {
                     this._log('WebSocket opened successfully');
                     this.isConnected = true;
-                    this.isAuthenticated = true; // Token is in URL, so authentication is handled by gateway
+                    this.isAuthenticated = true;
                     this.isConnecting = false;
                     this.reconnectAttempts = 0;
                     this.sessionId = user.sessionId || 'gateway_session';
