@@ -893,11 +893,7 @@
           }
           
           console.log('✅ Authentication confirmed, continuing initialization...');
-          
-          if (window.AuthService) {
-            window.AuthService.debugTokenState();
-        }
-        
+
           // Initialize services with proper dependency injection
           await initializeServices();
           
