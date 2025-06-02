@@ -300,7 +300,7 @@
      */
     function initializeChatPage() {
         try {
-            console.log('💬 Enhanced chat page initialization starting...');
+            console.log('💬 FIXED: Enhanced chat page initialization starting...');
             
             const authService = window.AAAI_APP.services.AuthService;
             const projectService = window.AAAI_APP.services.ProjectService;
@@ -327,10 +327,24 @@
                 projectName: projectName ? decodeURIComponent(projectName) : null
             });
             
-            // Initialize ChatIntegration with direct API approach
+            // FIXED: Initialize ChatService first
+            if (window.ChatService && !window.ChatService.isInitialized) {
+                try {
+                    console.log('🔧 Initializing ChatService...');
+                    window.ChatService.init(authService, {
+                        debug: window.AAAI_APP.debug,
+                        fastMode: true
+                    });
+                    console.log('✅ ChatService initialized');
+                } catch (error) {
+                    console.error('❌ ChatService initialization failed:', error);
+                }
+            }
+            
+            // FIXED: Initialize ChatIntegration with WebSocket enabled
             if (window.ChatIntegration && !window.ChatIntegration.isInitialized) {
                 try {
-                    console.log('🔧 Initializing ChatIntegration...');
+                    console.log('🔧 Initializing ChatIntegration with WebSocket...');
                     
                     // Wait for DOM to be ready
                     setTimeout(() => {
@@ -339,9 +353,10 @@
                                 debug: window.AAAI_APP.debug,
                                 autoScroll: true,
                                 showTimestamps: true,
-                                enableTypingIndicator: true
+                                enableTypingIndicator: true,
+                                connectWebSocket: true  // FIXED: Enable WebSocket connection
                             });
-                            console.log('✅ ChatIntegration initialized successfully');
+                            console.log('✅ ChatIntegration initialized with WebSocket');
                             
                             // Set project context
                             window.ChatIntegration.setProjectContext(projectId, projectName);
@@ -354,7 +369,8 @@
                                 detail: {
                                     projectId,
                                     projectName,
-                                    integration: window.ChatIntegration
+                                    integration: window.ChatIntegration,
+                                    webSocketEnabled: true
                                 }
                             }));
                             
@@ -387,13 +403,12 @@
                 });
             }
             
-            console.log('✅ Chat page initialization completed');
+            console.log('✅ FIXED: Chat page initialization completed with WebSocket integration');
             
         } catch (error) {
             console.error('❌ Chat page init failed:', error);
         }
     }
-    
     /**
      * Fast environment initialization
      */

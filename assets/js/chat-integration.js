@@ -1,6 +1,6 @@
 /**
- * Chat Integration Service for AAAI Solutions
- * Handles direct API communication for chat functionality
+ * Enhanced Chat Integration Service for AAAI Solutions
+ * FIXED: Integrated with WebSocket for real-time responses
  */
 const ChatIntegration = {
     // Core state
@@ -22,6 +22,12 @@ const ChatIntegration = {
     
     // Message management
     messages: [],
+    pendingMessages: new Set(),
+    
+    // WebSocket integration
+    webSocketConnected: false,
+    chatService: null,
+    messageListenerBound: false,
     
     // Configuration
     options: {
@@ -29,11 +35,12 @@ const ChatIntegration = {
         autoScroll: true,
         showTimestamps: true,
         enableTypingIndicator: true,
+        connectWebSocket: true,
         debug: false
     },
     
     /**
-     * Initialize ChatIntegration
+     * FIXED: Initialize ChatIntegration with WebSocket connection
      */
     init(containerId, options = {}) {
         if (this.isInitialized) {
@@ -42,7 +49,7 @@ const ChatIntegration = {
         }
         
         try {
-            this._log('Starting ChatIntegration initialization...');
+            this._log('Starting ChatIntegration initialization with WebSocket...');
             
             this.containerId = containerId;
             this.container = document.getElementById(containerId);
@@ -61,14 +68,266 @@ const ChatIntegration = {
             // Find and validate UI elements
             this._findUIElements();
             
+            // FIXED: Initialize WebSocket connection
+            if (this.options.connectWebSocket) {
+                this._initializeWebSocket();
+            }
+            
             this.isInitialized = true;
-            this._log('ChatIntegration initialized successfully');
+            this._log('ChatIntegration initialized successfully with WebSocket');
             
             return this;
             
         } catch (error) {
             this._error('Failed to initialize ChatIntegration:', error);
             throw error;
+        }
+    },
+    
+    /**
+     * FIXED: Initialize WebSocket connection and message listeners
+     */
+    _initializeWebSocket() {
+        try {
+            this._log('Initializing WebSocket connection...');
+            
+            // Get or initialize ChatService
+            if (window.ChatService) {
+                this.chatService = window.ChatService;
+                
+                // Initialize ChatService if not already done
+                if (!this.chatService.isInitialized) {
+                    this.chatService.init(window.AuthService, {
+                        debug: this.options.debug,
+                        fastMode: true
+                    });
+                }
+                
+                // Connect WebSocket
+                this._connectWebSocket();
+                
+                this._log('WebSocket integration initialized');
+            } else {
+                this._error('ChatService not available - WebSocket integration disabled');
+            }
+            
+        } catch (error) {
+            this._error('Failed to initialize WebSocket:', error);
+        }
+    },
+    
+    /**
+     * FIXED: Connect to WebSocket and setup message listeners
+     */
+    async _connectWebSocket() {
+        try {
+            if (!this.chatService) return;
+            
+            this._log('Connecting to WebSocket...');
+            
+            // Setup message listener BEFORE connecting
+            if (!this.messageListenerBound) {
+                this.chatService.onMessage(this._handleWebSocketMessage.bind(this));
+                this.chatService.onStatusChange(this._handleWebSocketStatus.bind(this));
+                this.chatService.onError(this._handleWebSocketError.bind(this));
+                this.messageListenerBound = true;
+                this._log('WebSocket listeners registered');
+            }
+            
+            // Connect to WebSocket
+            const connected = await this.chatService.connect();
+            if (connected) {
+                this.webSocketConnected = true;
+                this._log('WebSocket connected successfully');
+                this._updateConnectionStatus('connected');
+            } else {
+                this._log('WebSocket connection failed');
+                this._updateConnectionStatus('disconnected');
+            }
+            
+        } catch (error) {
+            this._error('WebSocket connection error:', error);
+            this._updateConnectionStatus('disconnected');
+        }
+    },
+    
+    /**
+     * FIXED: Handle incoming WebSocket messages
+     */
+    _handleWebSocketMessage(message) {
+        try {
+            this._log('FIXED: Received WebSocket message:', {
+                type: message.type,
+                messageId: message.messageId,
+                hasText: !!message.text
+            });
+            
+            switch (message.type) {
+                case 'chat_response':
+                    this._handleChatResponse(message);
+                    break;
+                    
+                case 'message_queued':
+                    this._handleMessageQueued(message);
+                    break;
+                    
+                case 'chat_error':
+                    this._handleChatError(message);
+                    break;
+                    
+                default:
+                    this._log('Unhandled WebSocket message type:', message.type);
+                    break;
+            }
+            
+        } catch (error) {
+            this._error('Error handling WebSocket message:', error);
+        }
+    },
+    
+    /**
+     * FIXED: Handle chat response from WebSocket
+     */
+    _handleChatResponse(message) {
+        try {
+            this._log('FIXED: Processing chat response:', {
+                messageId: message.messageId,
+                textLength: message.text ? message.text.length : 0
+            });
+            
+            // Remove from pending
+            this.pendingMessages.delete(message.messageId);
+            
+            // Hide typing indicator
+            this._hideTypingIndicator();
+            
+            // Add bot response to UI
+            this._addMessageToUI({
+                type: 'bot',
+                text: message.text || 'Response received but could not parse content',
+                timestamp: message.timestamp || Date.now(),
+                id: message.messageId,
+                components: message.components || []
+            });
+            
+            this._log('FIXED: Chat response displayed successfully');
+            
+        } catch (error) {
+            this._error('Error handling chat response:', error);
+            this._hideTypingIndicator();
+        }
+    },
+    
+    /**
+     * FIXED: Handle message queued notification
+     */
+    _handleMessageQueued(message) {
+        try {
+            this._log('FIXED: Message queued:', message.messageId);
+            this.pendingMessages.add(message.messageId);
+            // Keep typing indicator showing
+        } catch (error) {
+            this._error('Error handling message queued:', error);
+        }
+    },
+    
+    /**
+     * FIXED: Handle chat error from WebSocket
+     */
+    _handleChatError(message) {
+        try {
+            this._log('FIXED: Chat error received:', message.error);
+            
+            // Remove from pending
+            this.pendingMessages.delete(message.messageId);
+            
+            // Hide typing indicator
+            this._hideTypingIndicator();
+            
+            // Show error message
+            this._addMessageToUI({
+                type: 'error',
+                text: message.error || 'An error occurred processing your message',
+                timestamp: message.timestamp || Date.now(),
+                id: message.messageId
+            });
+            
+        } catch (error) {
+            this._error('Error handling chat error:', error);
+        }
+    },
+    
+    /**
+     * FIXED: Handle WebSocket status changes
+     */
+    _handleWebSocketStatus(status) {
+        try {
+            this._log('FIXED: WebSocket status changed:', status);
+            
+            this.webSocketConnected = (status === 'connected');
+            this._updateConnectionStatus(status);
+            
+            if (status === 'connected') {
+                // Set project context on reconnection
+                if (this.currentProjectId && this.currentProjectName) {
+                    this.chatService.setProjectContext(this.currentProjectId, this.currentProjectName);
+                }
+            }
+            
+        } catch (error) {
+            this._error('Error handling WebSocket status:', error);
+        }
+    },
+    
+    /**
+     * FIXED: Handle WebSocket errors
+     */
+    _handleWebSocketError(error) {
+        try {
+            this._error('WebSocket error:', error);
+            this._updateConnectionStatus('error');
+        } catch (e) {
+            this._error('Error handling WebSocket error:', e);
+        }
+    },
+    
+    /**
+     * FIXED: Update connection status in UI
+     */
+    _updateConnectionStatus(status) {
+        try {
+            // Update connection indicators if they exist
+            const connectionDot = document.getElementById('connectionDot');
+            const connectionText = document.getElementById('connectionText');
+            
+            if (connectionDot) {
+                connectionDot.className = 'connection-dot';
+                if (status === 'connected') {
+                    connectionDot.classList.add('connected');
+                } else if (status === 'connecting' || status === 'reconnecting') {
+                    connectionDot.classList.add('connecting');
+                }
+            }
+            
+            if (connectionText) {
+                switch (status) {
+                    case 'connected':
+                        connectionText.textContent = 'Connected';
+                        break;
+                    case 'connecting':
+                        connectionText.textContent = 'Connecting...';
+                        break;
+                    case 'reconnecting':
+                        connectionText.textContent = 'Reconnecting...';
+                        break;
+                    default:
+                        connectionText.textContent = 'Disconnected';
+                        break;
+                }
+            }
+            
+        } catch (error) {
+            this._error('Error updating connection status:', error);
         }
     },
     
@@ -82,6 +341,12 @@ const ChatIntegration = {
             this.currentProjectId = projectId;
             this.currentProjectName = projectName;
             
+            // Update WebSocket context if connected
+            if (this.webSocketConnected && this.chatService) {
+                this.chatService.setProjectContext(projectId, projectName);
+                this._log('WebSocket project context updated');
+            }
+            
             // Load chat history for this project
             this._loadChatHistory().catch(error => {
                 this._log('Failed to load project chat history:', error);
@@ -93,7 +358,7 @@ const ChatIntegration = {
     },
     
     /**
-     * Send message via direct API call
+     * FIXED: Send message via WebSocket if connected, fallback to API
      */
     async sendMessage() {
         try {
@@ -106,7 +371,7 @@ const ChatIntegration = {
                 throw new Error('Message cannot be empty');
             }
             
-            this._log('Sending message:', text.substring(0, 30) + '...');
+            this._log('FIXED: Sending message:', text.substring(0, 30) + '...');
             
             // Add user message to UI immediately
             this._addMessageToUI({
@@ -122,58 +387,64 @@ const ChatIntegration = {
             // Show typing indicator
             this._showTypingIndicator();
             
-            // Send via API
-            const authService = window.AuthService;
-            if (!authService) {
-                throw new Error('AuthService not available');
-            }
-            
-            const result = await authService.executeFunction('send_chat_message', {
-                content: text,
-                chat_id: this.currentProjectId,
-                context_data: {
-                    source: 'chat_integration',
-                    timestamp: new Date().toISOString()
-                }
-            });
-            
-            this._log('API response received:', result);
-            
-            // Hide typing indicator
-            this._hideTypingIndicator();
-            
-            if (result?.status === 'success' && result?.data?.success) {
-                // Handle immediate response
-                if (result.data.response) {
-                    this._handleAPIResponse(result.data.response);
-                } else if (result.data.bot_message) {
-                    this._addMessageToUI({
-                        type: 'bot',
-                        text: result.data.bot_message.content,
-                        timestamp: new Date(result.data.bot_message.timestamp).getTime(),
-                        id: result.data.bot_message.id
-                    });
-                } else {
-                    // Poll for response if no immediate response
-                    this._pollForResponse(result.data.message_id);
-                }
+            // FIXED: Send via WebSocket if connected, otherwise use API
+            if (this.webSocketConnected && this.chatService) {
+                this._log('FIXED: Sending via WebSocket...');
+                
+                const messageId = await this.chatService.sendMessage(text);
+                this.pendingMessages.add(messageId);
+                
+                this._log('FIXED: Message sent via WebSocket:', messageId);
+                
             } else {
-                this._addMessageToUI({
-                    type: 'error',
-                    text: 'Failed to send message: ' + (result?.data?.error || 'Unknown error'),
-                    timestamp: Date.now()
+                this._log('FIXED: WebSocket not connected, falling back to API...');
+                
+                // Fallback to direct API call
+                const authService = window.AuthService;
+                if (!authService) {
+                    throw new Error('AuthService not available');
+                }
+                
+                const result = await authService.executeFunction('send_chat_message', {
+                    content: text,
+                    chat_id: this.currentProjectId,
+                    context_data: {
+                        source: 'chat_integration_api_fallback',
+                        timestamp: new Date().toISOString()
+                    }
                 });
+                
+                this._log('FIXED: API response received:', result);
+                
+                // Hide typing indicator
+                this._hideTypingIndicator();
+                
+                if (result?.status === 'success' && result?.data?.success) {
+                    // Handle immediate response
+                    if (result.data.response) {
+                        this._handleAPIResponse(result.data.response);
+                    } else {
+                        // Poll for response if no immediate response
+                        this._pollForResponse(result.data.message_id);
+                    }
+                } else {
+                    this._addMessageToUI({
+                        type: 'error',
+                        text: 'Failed to send message: ' + (result?.data?.error || 'Unknown error'),
+                        timestamp: Date.now()
+                    });
+                }
             }
             
         } catch (error) {
-            this._error('Failed to send message:', error);
+            this._error('FIXED: Failed to send message:', error);
             this._hideTypingIndicator();
             throw error;
         }
     },
     
     /**
-     * Handle API response
+     * Handle API response (fallback method)
      */
     _handleAPIResponse(response) {
         this._log('Handling API response:', response);
@@ -211,7 +482,7 @@ const ChatIntegration = {
     },
     
     /**
-     * Poll for response from API
+     * Poll for response from API (fallback method)
      */
     async _pollForResponse(messageId) {
         this._log('Polling for response to message:', messageId);
@@ -591,6 +862,7 @@ const ChatIntegration = {
      */
     clearMessages() {
         this.messages = [];
+        this.pendingMessages.clear();
         if (this.elements.chatBody) {
             const messages = this.elements.chatBody.querySelectorAll('.message');
             messages.forEach(msg => msg.remove());
@@ -598,17 +870,31 @@ const ChatIntegration = {
     },
     
     /**
-     * Disconnect and cleanup
+     * FIXED: Disconnect and cleanup with WebSocket cleanup
      */
     disconnect() {
         this._log('Disconnecting ChatIntegration...');
+        
+        // Disconnect WebSocket
+        if (this.chatService && this.webSocketConnected) {
+            this.chatService.disconnect();
+            this.webSocketConnected = false;
+        }
+        
+        // Remove listeners
+        if (this.messageListenerBound && this.chatService) {
+            // Note: WebSocket service should provide remove listener methods
+            this.messageListenerBound = false;
+        }
         
         this.isInitialized = false;
         this.container = null;
         this.elements = {};
         this.messages = [];
+        this.pendingMessages.clear();
         this.currentProjectId = null;
         this.currentProjectName = null;
+        this.chatService = null;
         
         this._log('ChatIntegration disconnected');
     },
