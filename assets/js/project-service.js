@@ -1,29 +1,29 @@
 /**
- * Enhanced Project Service for AAAI Solutions
- * WITH CONSISTENT AUTHENTICATION INTEGRATION
- * Ensures proper authentication checks before all operations
+ * High-Performance Project Service for AAAI Solutions
+ * Optimized for fast loading and minimal API calls
  */
 const ProjectService = {
     // Core service state
     authService: null,
     isInitialized: false,
     
-    // Configuration
+    // Performance-optimized cache
+    projectCache: new Map(),
+    cacheTimestamps: new Map(),
+    contextCache: null,
+    lastCacheUpdate: null,
+    
+    // Configuration - optimized for speed
     options: {
-        cacheExpiry: 300000, // 5 minutes
-        maxCacheSize: 1000,
-        enableRealTimeUpdates: true,
-        autoSync: true,
-        syncInterval: 30000, // 30 seconds
+        cacheExpiry: 600000, // 10 minutes (increased)
+        maxCacheSize: 100, // Reduced
+        quickCacheExpiry: 60000, // 1 minute for frequent operations
+        enableRealTimeUpdates: false, // Disabled for performance
+        autoSync: false, // Disabled for performance
         debug: false
     },
     
-    // Cache management
-    projectCache: new Map(),
-    cacheTimestamps: new Map(),
-    searchCache: new Map(),
-    
-    // Context management
+    // Context management - simplified
     currentContext: {
         user_id: null,
         current_project: null,
@@ -31,79 +31,56 @@ const ProjectService = {
         project_name: null
     },
     
-    // Event listeners
+    // Event listeners - minimal
     updateListeners: [],
-    contextListeners: [],
-    
-    // Performance tracking
-    stats: {
-        cacheHits: 0,
-        cacheMisses: 0,
-        apiCalls: 0,
-        lastSync: null,
-        errors: 0
-    },
     
     /**
-     * Initialize the unified project service with consistent authentication
+     * Fast initialization with minimal checks
      */
     init(authService, options = {}) {
-        if (!authService) {
-            throw new Error('AuthService is required for ProjectService initialization');
+        if (this.isInitialized) {
+            return this;
         }
         
-        if (this.isInitialized) {
-            console.log('📦 ProjectService already initialized');
-            return this;
+        if (!authService) {
+            throw new Error('AuthService required');
         }
         
         this.authService = authService;
         this.options = { ...this.options, ...options };
         
-        // Set debug mode from global config
         if (window.AAAI_CONFIG?.ENABLE_DEBUG) {
             this.options.debug = true;
         }
         
-        // Get user context only if authentication is complete
-        if (this._isAuthenticationComplete()) {
+        // Get user context only if authenticated
+        if (authService.isAuthenticated()) {
             const user = authService.getCurrentUser();
             if (user) {
                 this.currentContext.user_id = user.id;
             }
         }
         
-        // Initialize subsystems
-        this._setupAutoSync();
-        this._setupCacheCleanup();
-        this._loadStoredContext();
-        
+        this._loadQuickContext();
         this.isInitialized = true;
         
-        this._log('ProjectService initialized successfully', {
-            userId: this.currentContext.user_id,
-            cacheEnabled: true,
-            autoSync: this.options.autoSync,
-            authenticationComplete: this._isAuthenticationComplete()
-        });
-        
+        this._log('ProjectService initialized quickly');
         return this;
     },
 
     /**
-     * Create a new project with JWT authentication
+     * Fast project creation with minimal validation
      */
     async createProject(projectData) {
         try {
-            await this._requireAuth();
-            this._validateProjectData(projectData);
+            this._requireAuth();
             
             const user = this.authService.getCurrentUser();
-            if (!user || !user.email) {
+            if (!user?.email) {
                 throw new Error('User information not available');
             }
             
-            this._log('Creating project with authenticated user:', user.email);
+            this._log('Creating project quickly:', projectData.name);
             
             const result = await this._executeFunction('create_project_with_context', {
                 name: projectData.name,
@@ -112,153 +89,125 @@ const ProjectService = {
                 email: user.email
             });
 
-            if (result.status === 'success' && result.data.success) {
+            if (result?.status === 'success' && result?.data?.success) {
                 const project = result.data.project;
                 const chat_id = result.data.chat_id;
                 
-                // Cache the new project
-                this._cacheProject(project);
-                this._clearListCache();
+                // Quick cache update
+                this._quickCacheProject(project);
+                this._clearProjectListCache();
                 
-                // Update context
-                await this._updateContext({
+                // Update context immediately
+                this._updateContextQuick({
                     current_project: project,
                     chat_id: chat_id,
                     project_name: project.name
                 });
                 
-                // Notify listeners
-                this._notifyUpdateListeners('project_created', { project, chat_id });
+                this._notifyQuick('project_created', { project, chat_id });
                 
-                this.stats.apiCalls++;
-                
-                this._log('Project created successfully', {
-                    projectId: project.id,
-                    chatId: chat_id,
-                    name: project.name
-                });
+                this._log('Project created successfully:', project.id);
                 
                 return {
                     success: true,
                     project: project,
                     chat_id: chat_id
                 };
-            } else {
-                throw new Error(result.data?.message || 'Failed to create project');
             }
             
+            throw new Error(result?.data?.message || 'Failed to create project');
+            
         } catch (error) {
-            this.stats.errors++;
             this._error('Error creating project:', error);
             throw new Error(`Failed to create project: ${error.message}`);
         }
     },
 
-    
     /**
-     * Get all projects with JWT authentication
+     * Fast project list with aggressive caching
      */
     async getProjects(options = {}) {
         try {
-            await this._requireAuth();
+            this._requireAuth();
             
             const {
                 limit = 20,
                 offset = 0,
                 search = '',
-                tagFilter = [],
                 forceRefresh = false
             } = options;
             
-            const cacheKey = this._generateCacheKey('list', { limit, offset, search, tagFilter });
+            const cacheKey = `list_${limit}_${offset}_${search}`;
             
-            // Check cache first
+            // Check cache first (aggressive caching)
             if (!forceRefresh) {
-                const cached = this._getCachedData(cacheKey);
+                const cached = this._getQuickCache(cacheKey);
                 if (cached) {
-                    this.stats.cacheHits++;
-                    this._log('Projects retrieved from cache');
+                    this._log('Projects from cache');
                     return cached;
                 }
             }
             
-            this.stats.cacheMisses++;
-            
             const user = this.authService.getCurrentUser();
-            if (!user || !user.email) {
+            if (!user?.email) {
                 throw new Error('User information not available');
             }
             
-            this._log('Getting projects for authenticated user:', user.email);
+            this._log('Getting projects for:', user.email);
             
             const result = await this._executeFunction('list_user_projects', {
                 email: user.email,
-                limit: limit,
-                offset: offset,
-                search: search.trim(),
-                tag_filter: tagFilter
+                limit,
+                offset,
+                search: search.trim()
             });
             
             if (result?.data?.success) {
                 const projectData = {
-                    projects: result.data.projects,
-                    total: result.data.total,
-                    hasMore: result.data.has_more,
-                    limit: limit,
-                    offset: offset
+                    projects: result.data.projects || [],
+                    total: result.data.total || 0,
+                    hasMore: result.data.has_more || false,
+                    limit,
+                    offset
                 };
                 
-                // Cache individual projects and list result
-                result.data.projects.forEach(project => this._cacheProject(project));
-                this._setCachedData(cacheKey, projectData);
+                // Cache projects individually and list result
+                projectData.projects.forEach(project => this._quickCacheProject(project));
+                this._setQuickCache(cacheKey, projectData);
                 
-                this.stats.apiCalls++;
-                this.stats.lastSync = Date.now();
-                
-                this._log('Projects retrieved from API', {
-                    count: result.data.projects.length,
-                    total: result.data.total
-                });
-                
+                this._log('Projects retrieved:', projectData.projects.length);
                 return projectData;
-            } else {
-                throw new Error(result.data?.message || 'Failed to get projects');
             }
             
+            throw new Error(result?.data?.message || 'Failed to get projects');
+            
         } catch (error) {
-            this.stats.errors++;
             this._error('Error getting projects:', error);
             throw new Error(`Failed to get projects: ${error.message}`);
         }
     },
 
     /**
-     * Get specific project by ID with consistent authentication
+     * Fast project details with caching
      */
     async getProject(projectId, forceRefresh = false) {
         try {
-            await this._ensureAuthReady();
+            this._requireAuth();
             
             if (!projectId) {
-                throw new Error('Project ID is required');
+                throw new Error('Project ID required');
             }
             
             // Check cache first
             if (!forceRefresh) {
                 const cached = this._getCachedProject(projectId);
                 if (cached) {
-                    this.stats.cacheHits++;
                     return cached;
                 }
             }
             
-            // Wait for authentication to be ready
-            await this._waitForAuthReady();
-            
-            this.stats.cacheMisses++;
-            
             const user = this.authService.getCurrentUser();
-            if (!user || !user.email) {
+            if (!user?.email) {
                 throw new Error('User information not available');
             }
             
@@ -267,81 +216,61 @@ const ProjectService = {
                 email: user.email
             });
             
-            if (result.status === 'success' && result.data.success) {
+            if (result?.status === 'success' && result?.data?.success) {
                 const project = result.data.project;
-                this._cacheProject(project);
-                this.stats.apiCalls++;
-                
-                this._log('Project details retrieved', {
-                    projectId: project.id,
-                    name: project.name
-                });
-                
+                this._quickCacheProject(project);
                 return project;
-            } else {
-                throw new Error(result.data?.message || 'Project not found');
             }
             
+            throw new Error(result?.data?.message || 'Project not found');
+            
         } catch (error) {
-            this.stats.errors++;
             this._error('Error getting project:', error);
             throw new Error(`Failed to get project: ${error.message}`);
         }
     },
-    
+
     /**
-     * Switch to project context with consistent authentication
+     * Fast context switching
      */
     async switchToProject(projectId, projectName = null) {
         try {
-            await this._ensureAuthReady();
-            
-            // Wait for authentication to be ready
-            await this._waitForAuthReady();
+            this._requireAuth();
             
             const user = this.authService.getCurrentUser();
-            if (!user || !user.email) {
+            if (!user?.email) {
                 throw new Error('User information not available');
             }
             
-            this._log('Switching to project context', { projectId, projectName, userEmail: user.email });
+            this._log('Quick project switch:', projectId);
             
             const result = await this._executeFunction('switch_project_context', {
                 email: user.email,
                 project_id: projectId,
-                reel_id: null // Reset reel when switching projects
+                reel_id: null
             });
             
-            if (result.status === 'success' && result.data.success) {
+            if (result?.status === 'success' && result?.data?.success) {
                 const project = result.data.project;
                 const chat_id = result.data.chat_id;
                 
-                // Update local context
-                await this._updateContext({
+                // Update context immediately
+                this._updateContextQuick({
                     current_project: project,
                     chat_id: chat_id,
                     project_name: project.name
                 });
                 
-                // Update ChatService context if available
-                if (window.ChatService && window.ChatService.isInitialized) {
-                    window.ChatService.setProjectContext(chat_id, project.name);
-                    
-                    // Save context and reconnect if methods exist
-                    if (typeof window.ChatService.saveContext === 'function') {
-                        await window.ChatService.saveContext();
-                    }
-                    
-                    if (window.ChatService.isConnected && typeof window.ChatService.forceReconnect === 'function') {
-                        await window.ChatService.forceReconnect();
+                // Update ChatService if available (non-blocking)
+                if (window.ChatService?.isInitialized) {
+                    try {
+                        window.ChatService.setProjectContext(chat_id, project.name);
+                    } catch (error) {
+                        console.warn('ChatService context update failed:', error);
                     }
                 }
                 
-                this._log('Switched to project context', {
-                    projectId: project.id,
-                    chatId: chat_id,
-                    name: project.name
-                });
+                this._log('Project context switched:', project.id);
                 
                 return {
                     success: true,
@@ -349,28 +278,31 @@ const ProjectService = {
                     chat_id: chat_id,
                     context: result.data.context
                 };
-            } else {
-                throw new Error(result.data?.message || 'Failed to switch project context');
             }
             
+            throw new Error(result?.data?.message || 'Failed to switch project context');
+            
         } catch (error) {
-            this._error('Error switching project context:', error);
+            this._error('Error switching project:', error);
             throw new Error(`Failed to switch to project: ${error.message}`);
         }
     },
-    
+
     /**
-     * Get current user context with consistent authentication
+     * Fast context retrieval with caching
      */
     async getCurrentContext() {
         try {
-            await this._ensureAuthReady();
+            this._requireAuth();
             
-            // Wait for authentication to be ready
-            await this._waitForAuthReady();
+            // Use cached context if recent
+            if (this.contextCache && this.lastCacheUpdate && 
+                (Date.now() - this.lastCacheUpdate) < this.options.quickCacheExpiry) {
+                return this.contextCache;
+            }
             
             const user = this.authService.getCurrentUser();
-            if (!user || !user.email) {
+            if (!user?.email) {
                 throw new Error('User information not available');
             }
             
@@ -378,7 +310,14 @@ const ProjectService = {
                 email: user.email
             });
             
-            if (result.status === 'success' && result.data.success) {
+            if (result?.status === 'success' && result?.data?.success) {
+                const contextResult = {
+                    success: true,
+                    context: result.data.context,
+                    current_project: result.data.current_project,
+                    user_id: result.data.user_id
+                };
+                
                 // Update local context
                 this.currentContext = {
                     ...this.currentContext,
@@ -387,547 +326,210 @@ const ProjectService = {
                     project_name: result.data.current_project?.name
                 };
                 
-                this._saveContextToStorage();
+                // Cache the result
+                this.contextCache = contextResult;
+                this.lastCacheUpdate = Date.now();
+                this._saveQuickContext();
                 
-                return {
-                    success: true,
-                    context: result.data.context,
-                    current_project: result.data.current_project,
-                    user_id: result.data.user_id
-                };
-            } else {
-                throw new Error(result.data?.message || 'Failed to get user context');
+                return contextResult;
             }
             
+            throw new Error(result?.data?.message || 'Failed to get user context');
+            
         } catch (error) {
-            this._error('Error getting user context:', error);
+            this._error('Error getting context:', error);
             return { success: false, error: error.message };
         }
     },
-    
-    /**
-     * Update a project with consistent authentication
-     */
-    async updateProject(projectId, updateData) {
-        try {
-            await this._ensureAuthReady();
-            this._validateProjectData(updateData, false);
-            
-            // Wait for authentication to be ready
-            await this._waitForAuthReady();
-            
-            const user = this.authService.getCurrentUser();
-            if (!user || !user.email) {
-                throw new Error('User information not available');
-            }
-            
-            const result = await this._executeFunction('update_project', {
-                project_id: projectId,
-                name: updateData.name,
-                description: updateData.description,
-                tags: updateData.tags,
-                email: user.email
-            });
-            
-            if (result.status === 'success' && result.data.success) {
-                const project = result.data.project;
-                
-                this._cacheProject(project);
-                this._clearListCache();
-                
-                // Update context if this is the current project
-                if (this.currentContext.current_project?.id === projectId) {
-                    await this._updateContext({
-                        current_project: project,
-                        project_name: project.name
-                    });
-                }
-                
-                this._notifyUpdateListeners('project_updated', project);
-                this.stats.apiCalls++;
-                
-                this._log('Project updated successfully', {
-                    projectId: project.id,
-                    name: project.name
-                });
-                
-                return project;
-            } else {
-                throw new Error(result.data?.message || 'Failed to update project');
-            }
-            
-        } catch (error) {
-            this.stats.errors++;
-            this._error('Error updating project:', error);
-            throw new Error(`Failed to update project: ${error.message}`);
-        }
-    },
-    
-    /**
-     * Delete a project with consistent authentication
-     */
-    async deleteProject(projectId) {
-        try {
-            await this._ensureAuthReady();
-            
-            // Wait for authentication to be ready
-            await this._waitForAuthReady();
-            
-            const user = this.authService.getCurrentUser();
-            if (!user || !user.email) {
-                throw new Error('User information not available');
-            }
-            
-            const result = await this._executeFunction('delete_project', {
-                project_id: projectId,
-                email: user.email
-            });
-            
-            if (result.status === 'success' && result.data.success) {
-                this._removeCachedProject(projectId);
-                this._clearListCache();
-                
-                // Clear context if this was the current project
-                if (this.currentContext.current_project?.id === projectId) {
-                    await this._updateContext({
-                        current_project: null,
-                        chat_id: null,
-                        project_name: null
-                    });
-                }
-                
-                this._notifyUpdateListeners('project_deleted', { id: projectId });
-                this.stats.apiCalls++;
-                
-                this._log('Project deleted successfully', { projectId });
-                
-                return true;
-            } else {
-                throw new Error(result.data?.message || 'Failed to delete project');
-            }
-            
-        } catch (error) {
-            this.stats.errors++;
-            this._error('Error deleting project:', error);
-            throw new Error(`Failed to delete project: ${error.message}`);
-        }
-    },
-    
+
     /**
      * Get current context (synchronous)
      */
     getContext() {
         return { ...this.currentContext };
     },
-    
+
     /**
-     * Event listeners
+     * Clear cache efficiently
      */
+    clearCache() {
+        const cleared = this.projectCache.size;
+        this.projectCache.clear();
+        this.cacheTimestamps.clear();
+        this.contextCache = null;
+        this.lastCacheUpdate = null;
+        
+        try {
+            sessionStorage.removeItem('aaai_project_context');
+            sessionStorage.removeItem('aaai_project_cache');
+        } catch (error) {
+            // Ignore storage errors
+        }
+        
+        this._log(`Cleared ${cleared} cached items`);
+        return cleared;
+    },
+
     onUpdate(callback) {
         if (typeof callback === 'function') {
             this.updateListeners.push(callback);
         }
     },
-    
-    onContextChange(callback) {
-        if (typeof callback === 'function') {
-            this.contextListeners.push(callback);
-        }
-    },
-    
+
     removeListener(type, callback) {
         if (type === 'update') {
             const index = this.updateListeners.indexOf(callback);
             if (index > -1) this.updateListeners.splice(index, 1);
-        } else if (type === 'context') {
-            const index = this.contextListeners.indexOf(callback);
-            if (index > -1) this.contextListeners.splice(index, 1);
-        }
-    },
-    
-    /**
-     * Clear all cached data
-     */
-    clearCache() {
-        const clearedItems = this.projectCache.size + this.searchCache.size;
-        
-        this.projectCache.clear();
-        this.cacheTimestamps.clear();
-        this.searchCache.clear();
-        
-        this.stats.cacheHits = 0;
-        this.stats.cacheMisses = 0;
-        
-        this._log(`Cleared ${clearedItems} items from project cache`);
-        return clearedItems;
-    },
-    
-    /**
-     * Get service statistics
-     */
-    getStats() {
-        return {
-            ...this.stats,
-            cacheSize: this.projectCache.size,
-            searchCacheSize: this.searchCache.size,
-            hitRate: this.stats.cacheHits + this.stats.cacheMisses > 0 
-                ? Math.round((this.stats.cacheHits / (this.stats.cacheHits + this.stats.cacheMisses)) * 100) 
-                : 0,
-            context: this.currentContext,
-            authenticationComplete: this._isAuthenticationComplete(),
-            authenticationSource: this.authService?.authenticationSource || 'unknown'
-        };
-    },
-    
-    // Private methods
-    
-    /**
-     * ENHANCED: Require complete authentication with strict token validation
-     */
-    async _requireAuth() {
-        if (!this.authService) {
-            throw new Error('AuthService not available');
-        }
-        
-        if (!this.authService.isAuthenticated()) {
-            throw new Error('User not authenticated');
-        }
-        
-        // STRICT: Ensure we have a valid user access token
-        try {
-            const token = await this.authService._ensureValidAccessToken();
-            if (!token) {
-                throw new Error('No valid access token available');
-            }
-            
-            // STRICT: Additional validation that this is a user token
-            if (this.authService._validateUserToken) {
-                const validationResult = this.authService._validateUserToken(token);
-                if (!validationResult.valid) {
-                    this._log('CRITICAL: Token validation failed in ProjectService:', {
-                        reason: validationResult.reason,
-                        code: validationResult.code
-                    });
-                    
-                    // Clear auth state if service account token detected
-                    if (validationResult.code && validationResult.code.includes('SERVICE_ACCOUNT')) {
-                        this.authService._clearAuthState();
-                    }
-                    
-                    throw new Error(`Token validation failed: ${validationResult.reason}`);
-                }
-                
-                this._log('Token validation passed for user:', validationResult.payload.email);
-            }
-            
-        } catch (error) {
-            throw new Error(`Authentication validation failed: ${error.message}`);
-        }
-        
-        return true;
-    },
-    
-    /**
-    * ENHANCED: Execute function with pre-validation
-    */
-    async _executeFunction(functionName, inputData) {
-        // Pre-validate authentication
-        await this._requireAuth();
-        
-        try {
-            const result = await this.authService.executeFunction(functionName, inputData);
-            return result;
-        } catch (error) {
-            // Handle service account token errors specifically
-            if (error.message.includes('service account') || 
-                error.message.includes('gserviceaccount') ||
-                error.message.includes('Invalid token type')) {
-                
-                this._log('CRITICAL: Service account token error detected, clearing auth state');
-                this.authService._clearAuthState();
-                throw new Error('Authentication error: Please log in again with a user account');
-            }
-            
-            throw error;
         }
     },
 
-    /**
-     * ENHANCED: Ensure authentication is ready
-     */
-    async _ensureAuthReady() {
-        if (!this.authService) {
-            throw new Error('AuthService not available');
-        }
-        
-        // Check if already authenticated
-        if (this.authService.isAuthenticated()) {
-            return true;
-        }
-        
-        // Try to restore session
-        if (this.authService.hasPersistentSession()) {
-            try {
-                const refreshed = await this.authService.refreshTokenIfNeeded();
-                if (refreshed && this.authService.isAuthenticated()) {
-                    return true;
-                }
-            } catch (error) {
-                this._log('Failed to restore session:', error);
-            }
-        }
-        
-        throw new Error('Authentication not ready');
-    },
-    
-    /**
-     * ENHANCED: Wait for authentication to be ready with timeout
-     */
-    async _waitForAuthReady(maxWaitTime = 5000) {
-        const startTime = Date.now();
-        
-        while (Date.now() - startTime < maxWaitTime) {
-            try {
-                await this._ensureAuthReady();
-                return true;
-            } catch (error) {
-                // Wait a bit before retrying
-                await new Promise(resolve => setTimeout(resolve, 100));
-            }
-        }
-        
-        throw new Error('Authentication readiness timeout');
-    },
-    
-    /**
-     * ENHANCED: Check if authentication is complete
-     */
-    _isAuthenticationComplete() {
-        return this.authService && 
-               this.authService.isAuthenticated() && 
-               this.authService.getToken();
-    },
-    
-    _validateProjectData(data, isCreate = true) {
-        if (isCreate && (!data.name || data.name.trim().length === 0)) {
-            throw new Error('Project name is required');
-        }
-        
-        if (data.name && data.name.length > 100) {
-            throw new Error('Project name is too long (max 100 characters)');
-        }
-        
-        if (data.description && data.description.length > 500) {
-            throw new Error('Project description is too long (max 500 characters)');
-        }
-        
-        if (data.tags && (!Array.isArray(data.tags) || data.tags.length > 10)) {
-            throw new Error('Tags must be an array with maximum 10 items');
+    // Private methods - optimized for speed
+
+    _requireAuth() {
+        if (!this.authService?.isAuthenticated()) {
+            throw new Error('Authentication required');
         }
     },
-    
-    async _updateContext(updates) {
-        Object.assign(this.currentContext, updates);
-        this._saveContextToStorage();
-        this._notifyContextListeners('context_updated', this.currentContext);
+
+    async _executeFunction(functionName, inputData) {
+        this._requireAuth();
+        return this.authService.executeFunction(functionName, inputData);
     },
-    
-    _saveContextToStorage() {
-        try {
-            sessionStorage.setItem('aaai_project_context', JSON.stringify({
-                context: this.currentContext,
-                timestamp: Date.now()
-            }));
-        } catch (error) {
-            this._error('Failed to save context to storage:', error);
-        }
-    },
-    
-    _loadStoredContext() {
-        try {
-            const stored = sessionStorage.getItem('aaai_project_context');
-            if (stored) {
-                const data = JSON.parse(stored);
-                if (data.context && (Date.now() - data.timestamp) < 3600000) { // 1 hour
-                    Object.assign(this.currentContext, data.context);
-                }
-            }
-        } catch (error) {
-            this._error('Failed to load stored context:', error);
-        }
-    },
-    
-    _generateCacheKey(type, params = {}) {
-        const keyParts = [type];
-        Object.keys(params).sort().forEach(key => {
-            if (params[key] !== undefined && params[key] !== null) {
-                keyParts.push(`${key}:${JSON.stringify(params[key])}`);
-            }
-        });
-        return keyParts.join('|');
-    },
-    
-    _cacheProject(project) {
-        if (!project || !project.id) return;
+
+    _quickCacheProject(project) {
+        if (!project?.id) return;
+        
         this.projectCache.set(project.id, project);
         this.cacheTimestamps.set(project.id, Date.now());
         
+        // Simple cleanup if too many items
         if (this.projectCache.size > this.options.maxCacheSize) {
-            this._cleanupCache();
+            const oldestKey = Array.from(this.cacheTimestamps.entries())
+                .sort((a, b) => a[1] - b[1])[0][0];
+            this.projectCache.delete(oldestKey);
+            this.cacheTimestamps.delete(oldestKey);
         }
     },
-    
+
     _getCachedProject(projectId) {
-        if (!this.projectCache.has(projectId)) return null;
-        
         const timestamp = this.cacheTimestamps.get(projectId);
         if (!timestamp || (Date.now() - timestamp) > this.options.cacheExpiry) {
             this.projectCache.delete(projectId);
             this.cacheTimestamps.delete(projectId);
             return null;
         }
-        
         return this.projectCache.get(projectId);
     },
-    
-    _removeCachedProject(projectId) {
-        this.projectCache.delete(projectId);
-        this.cacheTimestamps.delete(projectId);
-    },
-    
-    _setCachedData(key, data) {
-        this.searchCache.set(key, {
-            data: data,
-            timestamp: Date.now()
-        });
-        
-        if (this.searchCache.size > this.options.maxCacheSize) {
-            this._cleanupSearchCache();
-        }
-    },
-    
-    _getCachedData(key) {
-        const cached = this.searchCache.get(key);
-        if (!cached) return null;
-        
-        if ((Date.now() - cached.timestamp) > this.options.cacheExpiry) {
-            this.searchCache.delete(key);
-            return null;
-        }
-        
-        return cached.data;
-    },
-    
-    _clearListCache() {
-        for (const [key] of this.searchCache.entries()) {
-            if (key.startsWith('list|')) {
-                this.searchCache.delete(key);
-            }
-        }
-    },
-    
-    _cleanupCache() {
-        const now = Date.now();
-        const expiredKeys = [];
-        
-        for (const [key, timestamp] of this.cacheTimestamps.entries()) {
-            if ((now - timestamp) > this.options.cacheExpiry) {
-                expiredKeys.push(key);
-            }
-        }
-        
-        expiredKeys.forEach(key => {
-            this.projectCache.delete(key);
-            this.cacheTimestamps.delete(key);
-        });
-    },
-    
-    _cleanupSearchCache() {
-        const now = Date.now();
-        const expiredKeys = [];
-        
-        for (const [key, cached] of this.searchCache.entries()) {
-            if ((now - cached.timestamp) > this.options.cacheExpiry) {
-                expiredKeys.push(key);
-            }
-        }
-        
-        expiredKeys.forEach(key => {
-            this.searchCache.delete(key);
-        });
-        
-        if (this.searchCache.size > this.options.maxCacheSize) {
-            const entries = Array.from(this.searchCache.entries())
-                .sort((a, b) => a[1].timestamp - b[1].timestamp)
-                .slice(0, Math.floor(this.options.maxCacheSize * 0.1));
+
+    _setQuickCache(key, data) {
+        try {
+            const cache = JSON.parse(sessionStorage.getItem('aaai_project_cache') || '{}');
+            cache[key] = {
+                data,
+                timestamp: Date.now()
+            };
             
-            entries.forEach(([key]) => {
-                this.searchCache.delete(key);
+            // Keep only recent entries
+            const now = Date.now();
+            Object.keys(cache).forEach(k => {
+                if (now - cache[k].timestamp > this.options.cacheExpiry) {
+                    delete cache[k];
+                }
             });
+            
+            sessionStorage.setItem('aaai_project_cache', JSON.stringify(cache));
+        } catch (error) {
+            // Ignore storage errors
         }
     },
-    
-    _setupAutoSync() {
-        if (!this.options.autoSync) return;
-        
-        setInterval(async () => {
-            if (this._isAuthenticationComplete() && 
-                document.visibilityState === 'visible') {
-                
-                try {
-                    await this.getProjects({ limit: 10, offset: 0, forceRefresh: true });
-                    this._log('Background project sync completed');
-                } catch (error) {
-                    this._log('Background sync error:', error);
+
+    _getQuickCache(key) {
+        try {
+            const cache = JSON.parse(sessionStorage.getItem('aaai_project_cache') || '{}');
+            const item = cache[key];
+            
+            if (item && (Date.now() - item.timestamp) < this.options.cacheExpiry) {
+                return item.data;
+            }
+        } catch (error) {
+            // Ignore storage errors
+        }
+        return null;
+    },
+
+    _clearProjectListCache() {
+        try {
+            const cache = JSON.parse(sessionStorage.getItem('aaai_project_cache') || '{}');
+            Object.keys(cache).forEach(key => {
+                if (key.startsWith('list_')) {
+                    delete cache[key];
+                }
+            });
+            sessionStorage.setItem('aaai_project_cache', JSON.stringify(cache));
+        } catch (error) {
+            // Ignore storage errors
+        }
+    },
+
+    _updateContextQuick(updates) {
+        Object.assign(this.currentContext, updates);
+        this.contextCache = null; // Invalidate context cache
+        this._saveQuickContext();
+    },
+
+    _saveQuickContext() {
+        try {
+            sessionStorage.setItem('aaai_project_context', JSON.stringify({
+                context: this.currentContext,
+                timestamp: Date.now()
+            }));
+        } catch (error) {
+            // Ignore storage errors
+        }
+    },
+
+    _loadQuickContext() {
+        try {
+            const stored = sessionStorage.getItem('aaai_project_context');
+            if (stored) {
+                const data = JSON.parse(stored);
+                if (data.context && (Date.now() - data.timestamp) < this.options.cacheExpiry) {
+                    Object.assign(this.currentContext, data.context);
                 }
             }
-        }, this.options.syncInterval);
-    },
-    
-    _setupCacheCleanup() {
-        setInterval(() => {
-            this._cleanupCache();
-            this._cleanupSearchCache();
-        }, 300000); // Every 5 minutes
-    },
-    
-    _notifyUpdateListeners(eventType, data) {
-        this.updateListeners.forEach(callback => {
-            try {
-                callback(eventType, data);
-            } catch (error) {
-                this._error('Error in update listener:', error);
-            }
-        });
-    },
-    
-    _notifyContextListeners(eventType, data) {
-        this.contextListeners.forEach(callback => {
-            try {
-                callback(eventType, data);
-            } catch (error) {
-                this._error('Error in context listener:', error);
-            }
-        });
-    },
-    
-    _log(...args) {
-        if (this.options.debug) {
-            console.log('[ProjectService]', ...args);
+        } catch (error) {
+            // Ignore storage errors
         }
     },
-    
+
+    _notifyQuick(eventType, data) {
+        // Non-blocking notifications
+        setTimeout(() => {
+            this.updateListeners.forEach(callback => {
+                try {
+                    callback(eventType, data);
+                } catch (error) {
+                    // Ignore listener errors
+                }
+            });
+        }, 0);
+    },
+
+    _log(...args) {
+        if (this.options.debug) {
+            console.log('[FastProject]', ...args);
+        }
+    },
+
     _error(...args) {
-        console.error('[ProjectService]', ...args);
+        console.error('[FastProject]', ...args);
     }
 };
 
-// Export for global access
 if (typeof window !== 'undefined') {
     window.ProjectService = ProjectService;
 }
 
-// Export for module environments
 if (typeof module !== 'undefined' && module.exports) {
     module.exports = ProjectService;
 }
