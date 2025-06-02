@@ -544,6 +544,10 @@ const AuthService = {
         if (this.options.debug) {
             console.log('[FastAuth]', ...args);
         }
+    },
+    
+    _error(...args) {
+        console.error('[FastAuth]', ...args);
     }
 };
 
