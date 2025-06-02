@@ -1,43 +1,37 @@
 swagger: '2.0'
 info:
-  title: AAAI Solutions JWT API with WebSocket Support
-  description: JWT-based API Gateway for AAAI Solutions with Bearer token authentication and WebSocket routing
+  title: AAAI Solutions JWT API
+  description: JWT-based API Gateway for AAAI Solutions with API key authentication
   version: 2.1.0
 host: aaai-gateway-754x89jf.uc.gateway.dev
 schemes:
   - https
-  - wss
 produces:
   - application/json
 securityDefinitions:
-  bearerAuth:
+  api_key:
     type: apiKey
-    name: Authorization
+    name: x-api-key
     in: header
-    description: 'JWT Bearer token in the format: Bearer {jwt_token}'
-  tokenQuery:
-    type: apiKey
-    name: token
-    in: query
-    description: 'JWT token as query parameter for WebSocket connections'
+    description: 'API Key for gateway access'
 x-google-endpoints:
   - name: aaai-gateway-754x89jf.uc.gateway.dev
     allowCors: true
 
-# Enhanced CORS configuration for JWT with development support
+# Enhanced CORS configuration
 responses:
   CorsResponse:
-    description: Enhanced CORS response for JWT API with development support
+    description: Enhanced CORS response for API Gateway
     headers:
       Access-Control-Allow-Origin:
         type: string
-        default: '*'
+        default: 'https://aaai.solutions'
       Access-Control-Allow-Methods:
         type: string
         default: 'GET, POST, PUT, DELETE, OPTIONS, PATCH'
       Access-Control-Allow-Headers:
         type: string
-        default: 'Content-Type, Authorization, X-Requested-With, Accept'
+        default: 'Content-Type, Authorization, X-Requested-With, Accept, x-api-key'
       Access-Control-Allow-Credentials:
         type: string
         default: 'true'
@@ -52,13 +46,15 @@ paths:
       operationId: requestOTP
       x-google-backend:
         address: https://us-central1-aai-solutions-api-021201.cloudfunctions.net/requestOTP
+      security:
+        - api_key: []
       responses:
         '200':
           description: OTP requested successfully
           headers:
             Access-Control-Allow-Origin:
               type: string
-              default: '*'
+              default: 'https://aaai.solutions'
             Access-Control-Allow-Credentials:
               type: string
               default: 'true'
@@ -71,19 +67,21 @@ paths:
       operationId: corsRequestOTP
       x-google-backend:
         address: https://us-central1-aai-solutions-api-021201.cloudfunctions.net/requestOTP
+      security:
+        - api_key: []
       responses:
         '204':
           description: CORS preflight response
           headers:
             Access-Control-Allow-Origin:
               type: string
-              default: '*'
+              default: 'https://aaai.solutions'
             Access-Control-Allow-Methods:
               type: string
               default: 'POST, OPTIONS'
             Access-Control-Allow-Headers:
               type: string
-              default: 'Content-Type'
+              default: 'Content-Type, x-api-key'
             Access-Control-Allow-Credentials:
               type: string
               default: 'true'
@@ -97,13 +95,15 @@ paths:
       operationId: verifyOTP
       x-google-backend:
         address: https://us-central1-aai-solutions-api-021201.cloudfunctions.net/verifyOTP
+      security:
+        - api_key: []
       responses:
         '200':
           description: OTP verified, JWT tokens issued
           headers:
             Access-Control-Allow-Origin:
               type: string
-              default: '*'
+              default: 'https://aaai.solutions'
             Access-Control-Allow-Credentials:
               type: string
               default: 'true'
@@ -118,19 +118,21 @@ paths:
       operationId: corsVerifyOTP
       x-google-backend:
         address: https://us-central1-aai-solutions-api-021201.cloudfunctions.net/verifyOTP
+      security:
+        - api_key: []
       responses:
         '204':
           description: CORS preflight response
           headers:
             Access-Control-Allow-Origin:
               type: string
-              default: '*'
+              default: 'https://aaai.solutions'
             Access-Control-Allow-Methods:
               type: string
               default: 'POST, OPTIONS'
             Access-Control-Allow-Headers:
               type: string
-              default: 'Content-Type'
+              default: 'Content-Type, x-api-key'
             Access-Control-Allow-Credentials:
               type: string
               default: 'true'
@@ -151,14 +153,14 @@ paths:
       x-google-backend:
         address: https://us-central1-aai-solutions-api-021201.cloudfunctions.net/executeFunction
       security:
-        - bearerAuth: []
+        - api_key: []
       responses:
         '200':
           description: Function executed successfully
           headers:
             Access-Control-Allow-Origin:
               type: string
-              default: '*'
+              default: 'https://aaai.solutions'
             Access-Control-Allow-Credentials:
               type: string
               default: 'true'
@@ -180,19 +182,21 @@ paths:
           type: string
       x-google-backend:
         address: https://us-central1-aai-solutions-api-021201.cloudfunctions.net/executeFunction
+      security:
+        - api_key: []
       responses:
         '204':
           description: CORS preflight response
           headers:
             Access-Control-Allow-Origin:
               type: string
-              default: '*'
+              default: 'https://aaai.solutions'
             Access-Control-Allow-Methods:
               type: string
               default: 'POST, OPTIONS'
             Access-Control-Allow-Headers:
               type: string
-              default: 'Content-Type, Authorization'
+              default: 'Content-Type, Authorization, x-api-key'
             Access-Control-Allow-Credentials:
               type: string
               default: 'true'
@@ -206,13 +210,15 @@ paths:
       operationId: refreshToken
       x-google-backend:
         address: https://us-central1-aai-solutions-api-021201.cloudfunctions.net/refreshToken
+      security:
+        - api_key: []
       responses:
         '200':
           description: Token refreshed successfully
           headers:
             Access-Control-Allow-Origin:
               type: string
-              default: '*'
+              default: 'https://aaai.solutions'
             Access-Control-Allow-Credentials:
               type: string
               default: 'true'
@@ -227,19 +233,21 @@ paths:
       operationId: corsRefreshToken
       x-google-backend:
         address: https://us-central1-aai-solutions-api-021201.cloudfunctions.net/refreshToken
+      security:
+        - api_key: []
       responses:
         '204':
           description: CORS preflight response
           headers:
             Access-Control-Allow-Origin:
               type: string
-              default: '*'
+              default: 'https://aaai.solutions'
             Access-Control-Allow-Methods:
               type: string
               default: 'POST, OPTIONS'
             Access-Control-Allow-Headers:
               type: string
-              default: 'Content-Type'
+              default: 'Content-Type, x-api-key'
             Access-Control-Allow-Credentials:
               type: string
               default: 'true'
@@ -254,14 +262,14 @@ paths:
       x-google-backend:
         address: https://us-central1-aai-solutions-api-021201.cloudfunctions.net/logout
       security:
-        - bearerAuth: []
+        - api_key: []
       responses:
         '200':
           description: Logout successful
           headers:
             Access-Control-Allow-Origin:
               type: string
-              default: '*'
+              default: 'https://aaai.solutions'
             Access-Control-Allow-Credentials:
               type: string
               default: 'true'
@@ -276,79 +284,27 @@ paths:
       operationId: corsLogout
       x-google-backend:
         address: https://us-central1-aai-solutions-api-021201.cloudfunctions.net/logout
+      security:
+        - api_key: []
       responses:
         '204':
           description: CORS preflight response
           headers:
             Access-Control-Allow-Origin:
               type: string
-              default: '*'
+              default: 'https://aaai.solutions'
             Access-Control-Allow-Methods:
               type: string
               default: 'POST, OPTIONS'
             Access-Control-Allow-Headers:
               type: string
-              default: 'Content-Type, Authorization'
+              default: 'Content-Type, Authorization, x-api-key'
             Access-Control-Allow-Credentials:
               type: string
               default: 'true'
             Access-Control-Max-Age:
               type: string
               default: '3600'
-
-  /ws/{user_id}:
-    get:
-      summary: WebSocket connection endpoint with JWT authentication via query parameter
-      operationId: websocketConnection
-      parameters:
-        - name: user_id
-          in: path
-          required: true
-          type: string
-          description: User ID for WebSocket connection
-        - name: token
-          in: query
-          required: true
-          type: string
-          description: JWT Bearer token for authentication
-        - name: chat_id
-          in: query
-          required: false
-          type: string
-          description: Chat/Project ID for context
-        - name: email
-          in: query
-          required: true
-          type: string
-          description: User email for validation
-        - name: session_id
-          in: query
-          required: false
-          type: string
-          description: Session ID for tracking
-        - name: auth_method
-          in: query
-          required: false
-          type: string
-          description: Authentication method identifier
-      x-google-backend:
-        address: wss://api-server-559730737995.us-central1.run.app
-        protocol: websocket
-      security:
-        - tokenQuery: []
-      responses:
-        '101':
-          description: WebSocket connection established
-        '400':
-          description: Bad request
-        '401':
-          description: JWT authentication failed
-        '403':
-          description: Access forbidden
-        '404':
-          description: User not found
-        '500':
-          description: Server error
 
   /api/chat:
     post:
@@ -357,14 +313,14 @@ paths:
       x-google-backend:
         address: https://api-server-559730737995.us-central1.run.app
       security:
-        - bearerAuth: []
+        - api_key: []
       responses:
         '200':
           description: Message sent successfully
           headers:
             Access-Control-Allow-Origin:
               type: string
-              default: '*'
+              default: 'https://aaai.solutions'
             Access-Control-Allow-Credentials:
               type: string
               default: 'true'
@@ -379,19 +335,21 @@ paths:
       operationId: corsChatMessage
       x-google-backend:
         address: https://api-server-559730737995.us-central1.run.app
+      security:
+        - api_key: []
       responses:
         '204':
           description: CORS preflight response
           headers:
             Access-Control-Allow-Origin:
               type: string
-              default: '*'
+              default: 'https://aaai.solutions'
             Access-Control-Allow-Methods:
               type: string
               default: 'POST, OPTIONS'
             Access-Control-Allow-Headers:
               type: string
-              default: 'Content-Type, Authorization'
+              default: 'Content-Type, Authorization, x-api-key'
             Access-Control-Allow-Credentials:
               type: string
               default: 'true'
@@ -412,14 +370,14 @@ paths:
       x-google-backend:
         address: https://api-server-559730737995.us-central1.run.app
       security:
-        - bearerAuth: []
+        - api_key: []
       responses:
         '200':
           description: Message status retrieved successfully
           headers:
             Access-Control-Allow-Origin:
               type: string
-              default: '*'
+              default: 'https://aaai.solutions'
             Access-Control-Allow-Credentials:
               type: string
               default: 'true'
@@ -441,19 +399,21 @@ paths:
           type: string
       x-google-backend:
         address: https://api-server-559730737995.us-central1.run.app
+      security:
+        - api_key: []
       responses:
         '204':
           description: CORS preflight response
           headers:
             Access-Control-Allow-Origin:
               type: string
-              default: '*'
+              default: 'https://aaai.solutions'
             Access-Control-Allow-Methods:
               type: string
               default: 'GET, OPTIONS'
             Access-Control-Allow-Headers:
               type: string
-              default: 'Content-Type, Authorization'
+              default: 'Content-Type, Authorization, x-api-key'
             Access-Control-Allow-Credentials:
               type: string
               default: 'true'

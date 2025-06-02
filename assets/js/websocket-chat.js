@@ -178,18 +178,18 @@ const ChatService = {
     },
     
     /**
-     * Build Gateway WebSocket URL with JWT token in query parameters
+     * Build WebSocket URL for direct Cloud Run connection
      */
     _buildGatewayWebSocketURL(user, accessToken) {
         const wsHost = window.AAAI_CONFIG.WEBSOCKET_BASE_URL || 'aaai.solutions';
         
         const params = new URLSearchParams({
-            token: accessToken, // JWT token in query parameter for gateway authentication
+            token: accessToken, // JWT token in query parameter
             user_id: user.id,
             email: encodeURIComponent(user.email),
             chat_id: this._getCurrentChatId() || '',
-            session_id: user.sessionId || 'gateway_session',
-            auth_method: 'jwt_query'
+            session_id: user.sessionId || 'direct_session',
+            auth_method: 'jwt_direct'
         });
         
         return `wss://${wsHost}/ws/${user.id}?${params}`;
