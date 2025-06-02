@@ -41,7 +41,7 @@ const AuthService = {
         }
         
         this.options.debug = window.AAAI_CONFIG?.ENABLE_DEBUG || false;
-        this.AUTH_BASE_URL = window.getAPIURL('');
+        this.AUTH_BASE_URL = '';
         
         // Quick auth state check from cache first
         const cachedState = this._getCachedAuthState();
