@@ -144,12 +144,24 @@ const ChatService = {
                 this.socket.binaryType = 'arraybuffer';
                 
                 this.socket.onopen = () => {
-                    this._log('WebSocket opened successfully');
+                    this._log('🔌 WebSocket opened successfully');
+                    
+                    // Log connection details
+                    console.log('🔌 WebSocket Connection Details:', {
+                        url: this.socket.url,
+                        protocol: this.socket.protocol,
+                        readyState: this.socket.readyState,
+                        user_id: user.id,
+                        session_id: user.sessionId || 'gateway_session'
+                    });
+                    
                     this.isConnected = true;
                     this.isAuthenticated = true;
                     this.isConnecting = false;
                     this.reconnectAttempts = 0;
                     this.sessionId = user.sessionId || 'gateway_session';
+                    
+                    console.log('🔌 Assigned Session ID:', this.sessionId);
                     
                     clearTimeout(timeout);
                     this._notifyStatusChange('connected');
