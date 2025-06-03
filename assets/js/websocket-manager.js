@@ -1,6 +1,6 @@
 /**
  * Production WebSocket Manager for AAAI Solutions
- * Ultra-fast, non-blocking, and self-healing WebSocket implementation
+ * Robust, reliable, and self-healing WebSocket implementation
  */
 class ProductionWebSocketManager {
     constructor() {
@@ -14,27 +14,19 @@ class ProductionWebSocketManager {
         // Message handling
         this.messageHandlers = new Map();
         this.pendingMessages = new Map();
-        this.messageQueue = [];
         
-        // Connection management - optimized for speed
+        // Connection management
         this.connectionAttempts = 0;
-        this.maxConnectionAttempts = 3; // Reduced for faster failover
-        this.reconnectDelay = 1000; // Reduced initial delay
+        this.maxConnectionAttempts = 5;
+        this.reconnectDelay = 2000;
         this.heartbeatInterval = null;
         this.heartbeatTimer = null;
-        this.connectionTimeout = 5000; // Faster timeout
         
         // State management
         this.isAuthenticated = false;
-        self.authService = null;
+        this.authService = null;
         this.currentReelId = null;
         this.currentReelName = null;
-        
-        // Performance optimization
-        this.isConnecting = false;
-        this.connectPromise = null;
-        this.messageBuffer = [];
-        this.lastHeartbeat = 0;
         
         // Bind methods to maintain context
         this.handleOpen = this.handleOpen.bind(this);
@@ -44,7 +36,7 @@ class ProductionWebSocketManager {
     }
     
     /**
-     * Ultra-fast initialization
+     * Initialize with authentication service
      */
     initialize(authService) {
         if (!authService) {
@@ -54,148 +46,80 @@ class ProductionWebSocketManager {
         this.authService = authService;
         this.setState('initialized');
         
-        // Register optimized message handlers in parallel
-        this.registerHandlersParallel();
+        // Register default message handlers
+        this.registerHandler('session_established', this.handleSessionEstablished.bind(this));
+        this.registerHandler('message_queued', this.handleMessageQueued.bind(this));
+        this.registerHandler('chat_response', this.handleChatResponse.bind(this));
+        this.registerHandler('chat_error', this.handleChatError.bind(this));
+        this.registerHandler('ping', this.handlePing.bind(this));
+        this.registerHandler('pong', this.handlePong.bind(this));
         
         return this;
     }
     
     /**
-     * Parallel handler registration
+     * Connect to WebSocket server
      */
-    registerHandlersParallel() {
-        const handlers = [
-            ['session_established', this.handleSessionEstablished.bind(this)],
-            ['message_queued', this.handleMessageQueued.bind(this)],
-            ['chat_response', this.handleChatResponse.bind(this)],
-            ['chat_error', this.handleChatError.bind(this)],
-            ['ping', this.handlePing.bind(this)],
-            ['pong', this.handlePong.bind(this)]
-        ];
-        
-        // Register all handlers at once
-        handlers.forEach(([type, handler]) => {
-            this.registerHandler(type, handler);
-        });
-    }
-    
-    /**
-     * Ultra-fast non-blocking connection
-     */
-    async connectParallel() {
-        // Return existing connection promise if already connecting
-        if (this.isConnecting && this.connectPromise) {
-            return this.connectPromise;
+    async connect() {
+        if (this.state === 'connecting' || this.state === 'connected') {
+            return this.state === 'connected';
         }
         
-        // Return immediately if already connected
-        if (this.state === 'connected') {
-            return Promise.resolve(true);
-        }
-        
-        // Quick auth check
         if (!this.authService?.isAuthenticated()) {
-            return Promise.reject(new Error('Authentication required'));
+            throw new Error('Authentication required');
         }
         
-        this.isConnecting = true;
         this.setState('connecting');
         
-        // Create connection promise for reuse
-        this.connectPromise = this.createConnectionParallel();
-        
-        try {
-            const result = await this.connectPromise;
-            return result;
-        } finally {
-            this.isConnecting = false;
-            this.connectPromise = null;
-        }
-    }
-    
-    /**
-     * Create parallel connection with timeout and fallback
-     */
-    async createConnectionParallel() {
         try {
             const user = this.authService.getCurrentUser();
             this.userId = user.id;
             
             const wsUrl = this.buildWebSocketURL(user);
-            
-            // Create WebSocket with immediate setup
             this.socket = new WebSocket(wsUrl);
             
-            // Set up event handlers immediately
+            // Set up event handlers
             this.socket.onopen = this.handleOpen;
             this.socket.onmessage = this.handleMessage;
             this.socket.onclose = this.handleClose;
             this.socket.onerror = this.handleError;
             
-            // Parallel connection with timeout
-            const connectionResult = await Promise.race([
-                this.waitForConnection(),
-                this.createConnectionTimeout()
-            ]);
-            
-            if (connectionResult === 'timeout') {
-                this.cleanup();
-                throw new Error('Connection timeout');
-            }
-            
-            return true;
+            // Wait for connection
+            return new Promise((resolve, reject) => {
+                const timeout = setTimeout(() => {
+                    this.cleanup();
+                    reject(new Error('Connection timeout'));
+                }, 10000);
+                
+                this.socket.addEventListener('open', () => {
+                    clearTimeout(timeout);
+                    resolve(true);
+                }, { once: true });
+                
+                this.socket.addEventListener('error', () => {
+                    clearTimeout(timeout);
+                    reject(new Error('Connection failed'));
+                }, { once: true });
+            });
             
         } catch (error) {
             this.setState('disconnected');
-            this.cleanup();
             throw error;
         }
     }
     
     /**
-     * Wait for connection with proper event handling
-     */
-    waitForConnection() {
-        return new Promise((resolve, reject) => {
-            const onOpen = () => {
-                this.socket.removeEventListener('error', onError);
-                resolve('connected');
-            };
-            
-            const onError = (error) => {
-                this.socket.removeEventListener('open', onOpen);
-                reject(error);
-            };
-            
-            this.socket.addEventListener('open', onOpen, { once: true });
-            this.socket.addEventListener('error', onError, { once: true });
-        });
-    }
-    
-    /**
-     * Create connection timeout
-     */
-    createConnectionTimeout() {
-        return new Promise((resolve) => {
-            setTimeout(() => resolve('timeout'), this.connectionTimeout);
-        });
-    }
-    
-    /**
-     * Legacy connect method for backward compatibility
-     */
-    async connect() {
-        return this.connectParallel();
-    }
-    
-    /**
-     * Ultra-fast message sending with queue management
+     * Send message through WebSocket with reel context and saved message reference
      */
     async sendMessage(text, context = {}) {
+        if (this.state !== 'connected') {
+            throw new Error('WebSocket not connected');
+        }
+
         if (!text?.trim()) {
             throw new Error('Message cannot be empty');
         }
-        
+
         const messageId = this.generateMessageId();
         const message = {
             type: 'message',
@@ -208,12 +132,11 @@ class ProductionWebSocketManager {
                 project_name: this.projectName,
                 reel_id: context.reel_id || null,
                 reel_name: context.reel_name || null,
-                saved_message_id: context.saved_message_id || null,
+                saved_message_id: context.saved_message_id || null,  // Reference to already saved message
                 ...context
             }
         };
-        
-        // Add to pending messages immediately
+
         this.pendingMessages.set(messageId, {
             text: text.trim(),
             timestamp: Date.now(),
@@ -221,111 +144,79 @@ class ProductionWebSocketManager {
             reel_id: context.reel_id,
             saved_message_id: context.saved_message_id
         });
-        
-        // Send immediately if connected, otherwise queue
-        if (this.state === 'connected') {
-            this.sendRawMessage(message);
-        } else {
-            // Queue message and try to connect in parallel
-            this.messageQueue.push(message);
-            this.connectParallel().then(() => {
-                this.flushMessageQueue();
-            }).catch(error => {
-                console.error('Failed to connect for queued message:', error);
-            });
-        }
-        
+
+        this.sendRawMessage(message);
         return messageId;
     }
-    
+
     /**
-     * Flush queued messages after connection
-     */
-    flushMessageQueue() {
-        if (this.state === 'connected' && this.messageQueue.length > 0) {
-            const queuedMessages = [...this.messageQueue];
-            this.messageQueue = [];
-            
-            // Send all queued messages in batch
-            queuedMessages.forEach(message => {
-                this.sendRawMessage(message);
-            });
-            
-            console.log(`✅ Flushed ${queuedMessages.length} queued messages`);
-        }
-    }
-    
-    /**
-     * Ultra-fast context updates
+     * Set project context
      */
     setProjectContext(projectId, projectName) {
         this.projectId = projectId;
         this.projectName = projectName;
         
-        // Send context update immediately if connected
-        this.sendContextUpdateOptimized({
-            chat_id: projectId,
-            project_name: projectName,
-            user_id: this.userId
-        });
+        if (this.state === 'connected') {
+            this.sendRawMessage({
+                type: 'context_update',
+                context: {
+                    chat_id: projectId,
+                    project_name: projectName,
+                    user_id: this.userId
+                },
+                timestamp: new Date().toISOString()
+            });
+        }
     }
-    
+
     setReelContext(reelId, reelName) {
+        // Update local state
         this.currentReelId = reelId;
         this.currentReelName = reelName;
         
-        // Send optimized context update
-        this.sendContextUpdateOptimized({
-            user_id: this.userId,
-            chat_id: this.projectId,
-            project_name: this.projectName,
-            reel_id: reelId,
-            reel_name: reelName
-        });
+        // Send context update if connected
+        if (this.state === 'connected') {
+            this.sendRawMessage({
+                type: 'context_update',
+                context: {
+                    user_id: this.userId,
+                    chat_id: this.projectId,
+                    project_name: this.projectName,
+                    reel_id: reelId,
+                    reel_name: reelName
+                },
+                timestamp: new Date().toISOString()
+            });
+        }
         
         console.log('🎯 Reel context updated:', { reelId, reelName });
     }
-    
+
     setCompleteContext(projectId, projectName, reelId = null, reelName = null) {
         this.projectId = projectId;
         this.projectName = projectName;
         this.currentReelId = reelId;
         this.currentReelName = reelName;
         
-        // Send complete context update
-        this.sendContextUpdateOptimized({
-            user_id: this.userId,
-            chat_id: projectId,
-            project_name: projectName,
-            reel_id: reelId,
-            reel_name: reelName
-        });
+        if (this.state === 'connected') {
+            this.sendRawMessage({
+                type: 'context_update',
+                context: {
+                    user_id: this.userId,
+                    chat_id: projectId,
+                    project_name: projectName,
+                    reel_id: reelId,
+                    reel_name: reelName
+                },
+                timestamp: new Date().toISOString()
+            });
+        }
         
         console.log('🎯 Complete context updated:', { projectId, projectName, reelId, reelName });
     }
     
     /**
-     * Optimized context update sending
-     */
-    sendContextUpdateOptimized(context) {
-        if (this.state === 'connected') {
-            this.sendRawMessage({
-                type: 'context_update',
-                context: context,
-                timestamp: new Date().toISOString()
-            });
-        } else {
-            // Queue context update for when connected
-            this.messageQueue.push({
-                type: 'context_update',
-                context: context,
-                timestamp: new Date().toISOString()
-            });
-        }
-    }
-    
-    /**
-     * Optimized message handler registration
+     * Register message handler
      */
     registerHandler(messageType, handler) {
         if (typeof handler !== 'function') {
@@ -349,17 +240,15 @@ class ProductionWebSocketManager {
     }
     
     /**
-     * Fast disconnect with cleanup
+     * Disconnect WebSocket
      */
     disconnect() {
         this.cleanup();
         this.setState('disconnected');
-        this.messageQueue = [];
-        this.pendingMessages.clear();
     }
     
     /**
-     * Get current state efficiently
+     * Get current state
      */
     getState() {
         return {
@@ -369,30 +258,23 @@ class ProductionWebSocketManager {
             projectId: this.projectId,
             projectName: this.projectName,
             pendingMessages: this.pendingMessages.size,
-            queuedMessages: this.messageQueue.length,
-            isAuthenticated: this.isAuthenticated,
-            lastHeartbeat: this.lastHeartbeat
+            isAuthenticated: this.isAuthenticated
         };
     }
     
-    // Optimized private methods
+    // Private methods
     
     handleOpen() {
         this.setState('connected');
         this.isAuthenticated = true;
         this.connectionAttempts = 0;
-        this.startOptimizedHeartbeat();
-        
-        // Flush any queued messages
-        setTimeout(() => this.flushMessageQueue(), 0);
+        this.startHeartbeat();
     }
     
     handleMessage(event) {
         try {
             const data = JSON.parse(event.data);
-            
-            // Process message immediately
-            this.processMessageOptimized(data);
+            this.processMessage(data);
         } catch (error) {
             console.error('Failed to parse WebSocket message:', error);
         }
@@ -402,36 +284,27 @@ class ProductionWebSocketManager {
         this.setState('disconnected');
         this.cleanup();
         
-        // Smart auto-reconnect
+        // Auto-reconnect for abnormal closures
         if (event.code !== 1000 && this.connectionAttempts < this.maxConnectionAttempts) {
-            this.scheduleSmartReconnect();
+            this.scheduleReconnect();
         }
     }
     
     handleError(error) {
         console.error('WebSocket error:', error);
-        
-        // Don't change state here, let handleClose deal with it
     }
     
-    /**
-     * Optimized message processing with batching
-     */
-    processMessageOptimized(data) {
+    processMessage(data) {
         const messageType = data.type;
         
         if (this.messageHandlers.has(messageType)) {
             const handlers = this.messageHandlers.get(messageType);
-            
-            // Process handlers in next tick to avoid blocking
-            requestAnimationFrame(() => {
-                handlers.forEach(handler => {
-                    try {
-                        handler(data);
-                    } catch (error) {
-                        console.error(`Handler error for ${messageType}:`, error);
-                    }
-                });
+            handlers.forEach(handler => {
+                try {
+                    handler(data);
+                } catch (error) {
+                    console.error(`Handler error for ${messageType}:`, error);
+                }
             });
         }
     }
@@ -441,9 +314,7 @@ class ProductionWebSocketManager {
         
         // Set project context if available
         if (this.projectId && this.projectName) {
-            setTimeout(() => {
-                this.setProjectContext(this.projectId, this.projectName);
-            }, 0);
+            this.setProjectContext(this.projectId, this.projectName);
         }
     }
     
@@ -458,7 +329,7 @@ class ProductionWebSocketManager {
         const messageId = data.message_id;
         this.pendingMessages.delete(messageId);
         
-        // Extract response text efficiently
+        // Extract response text
         let responseText = data.text;
         if (!responseText && data.response) {
             if (typeof data.response === 'string') {
@@ -469,14 +340,11 @@ class ProductionWebSocketManager {
         }
         
         if (responseText) {
-            this.notifyUIOptimized('chat_response', {
+            this.notifyUI('chat_response', {
                 messageId: messageId,
                 text: responseText,
                 timestamp: data.timestamp || Date.now(),
-                components: data.components || [],
-                saved_bot_message_id: data.saved_bot_message_id,
-                context: data.context,
-                processing_time: data.processing_time
+                components: data.components || []
             });
         }
     }
@@ -485,7 +353,7 @@ class ProductionWebSocketManager {
         const messageId = data.message_id;
         this.pendingMessages.delete(messageId);
         
-        this.notifyUIOptimized('chat_error', {
+        this.notifyUI('chat_error', {
             messageId: messageId,
             error: data.error,
             timestamp: data.timestamp || Date.now()
@@ -493,7 +361,6 @@ class ProductionWebSocketManager {
     }
     
     handlePing() {
-        // Respond immediately
         this.sendRawMessage({
             type: 'pong',
             timestamp: Date.now()
@@ -501,36 +368,19 @@ class ProductionWebSocketManager {
     }
     
     handlePong() {
-        this.lastHeartbeat = Date.now();
+        // Heartbeat acknowledged
     }
     
-    /**
-     * Optimized raw message sending
-     */
     sendRawMessage(message) {
         if (this.state === 'connected' && this.socket?.readyState === WebSocket.OPEN) {
-            try {
-                this.socket.send(JSON.stringify(message));
-            } catch (error) {
-                console.error('Failed to send WebSocket message:', error);
-                // Queue message for retry
-                this.messageQueue.push(message);
-            }
-        } else {
-            // Queue message for when connected
-            this.messageQueue.push(message);
+            this.socket.send(JSON.stringify(message));
         }
     }
     
-    /**
-     * Optimized WebSocket URL building
-     */
     buildWebSocketURL(user) {
         const wsHost = window.AAAI_CONFIG.WEBSOCKET_BASE_URL || 'aaai.solutions';
         const token = this.authService.getToken();
         
-        // Build URL efficiently
-        const baseUrl = `wss://${wsHost}/ws/${user.id}`;
         const params = new URLSearchParams({
             token: token,
             user_id: user.id,
@@ -540,97 +390,52 @@ class ProductionWebSocketManager {
             auth_method: 'jwt_production'
         });
         
-        return `${baseUrl}?${params}`;
+        return `wss://${wsHost}/ws/${user.id}?${params}`;
     }
     
-    /**
-     * Optimized state management
-     */
     setState(newState) {
         if (this.state !== newState) {
-            const oldState = this.state;
             this.state = newState;
-            
-            // Notify UI asynchronously
-            requestAnimationFrame(() => {
-                this.notifyUIOptimized('state_change', { 
-                    state: newState, 
-                    previousState: oldState,
-                    timestamp: Date.now()
-                });
-            });
+            this.notifyUI('state_change', { state: newState });
         }
     }
     
-    /**
-     * Optimized UI notification
-     */
-    notifyUIOptimized(eventType, data) {
-        // Use requestAnimationFrame for non-blocking UI updates
-        requestAnimationFrame(() => {
-            const event = new CustomEvent('websocket_event', {
-                detail: { type: eventType, data: data }
-            });
-            document.dispatchEvent(event);
+    notifyUI(eventType, data) {
+        const event = new CustomEvent('websocket_event', {
+            detail: { type: eventType, data: data }
         });
+        document.dispatchEvent(event);
     }
     
-    /**
-     * Optimized heartbeat with smarter intervals
-     */
-    startOptimizedHeartbeat() {
-        // Clear existing timer
-        if (this.heartbeatTimer) {
-            clearInterval(this.heartbeatTimer);
-        }
-        
-        // Start heartbeat with optimized interval
+    startHeartbeat() {
         this.heartbeatTimer = setInterval(() => {
-            if (this.state === 'connected') {
-                this.sendRawMessage({
-                    type: 'ping',
-                    timestamp: Date.now()
-                });
-            }
-        }, 30000); // Reduced to 30 seconds for more responsive connection monitoring
+            this.sendRawMessage({
+                type: 'ping',
+                timestamp: Date.now()
+            });
+        }, 45000);
     }
     
-    /**
-     * Smart reconnection with exponential backoff
-     */
-    scheduleSmartReconnect() {
+    scheduleReconnect() {
         this.connectionAttempts++;
-        
-        // Exponential backoff with jitter
-        const baseDelay = this.reconnectDelay;
-        const exponentialDelay = baseDelay * Math.pow(1.5, this.connectionAttempts - 1);
-        const jitter = Math.random() * 1000; // Add up to 1 second jitter
-        const delay = Math.min(exponentialDelay + jitter, 10000); // Max 10 seconds
-        
-        console.log(`Scheduling reconnect attempt ${this.connectionAttempts} in ${delay}ms`);
+        const delay = this.reconnectDelay * Math.pow(1.5, this.connectionAttempts - 1);
         
         setTimeout(() => {
             if (this.state !== 'connected') {
-                this.connectParallel().catch(error => {
-                    console.error('Smart reconnection failed:', error);
+                this.connect().catch(error => {
+                    console.error('Reconnection failed:', error);
                 });
             }
-        }, delay);
+        }, Math.min(delay, 30000));
     }
     
-    /**
-     * Optimized cleanup
-     */
     cleanup() {
-        // Clear timers
         if (this.heartbeatTimer) {
             clearInterval(this.heartbeatTimer);
             this.heartbeatTimer = null;
         }
         
-        // Close socket properly
         if (this.socket) {
-            // Remove event listeners to prevent memory leaks
             this.socket.onopen = null;
             this.socket.onmessage = null;
             this.socket.onclose = null;
@@ -643,35 +448,12 @@ class ProductionWebSocketManager {
             this.socket = null;
         }
         
-        // Reset state
         this.isAuthenticated = false;
         this.sessionId = null;
-        this.lastHeartbeat = 0;
     }
     
-    /**
-     * Optimized message ID generation
-     */
     generateMessageId() {
-        // Use performance.now() for better precision
-        const timestamp = Math.floor(performance.now() * 1000);
-        const random = Math.random().toString(36).substr(2, 9);
-        return `msg_${timestamp}_${random}`;
-    }
-    
-    /**
-     * Get connection statistics
-     */
-    getConnectionStats() {
-        return {
-            state: this.state,
-            connectionAttempts: this.connectionAttempts,
-            pendingMessages: this.pendingMessages.size,
-            queuedMessages: this.messageQueue.length,
-            lastHeartbeat: this.lastHeartbeat,
-            uptime: this.sessionId ? Date.now() - this.lastHeartbeat : 0,
-            isConnecting: this.isConnecting
-        };
+        return `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     }
 }
 

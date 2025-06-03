@@ -1,6 +1,6 @@
 /**
- * Production Chat Integration with Parallel Processing and Reel Support for AAAI Solutions
- * Ultra-fast, non-blocking chat interface with optimized resource loading
+ * Production Chat Integration with Reel Support for AAAI Solutions
+ * Robust, reliable chat interface with proper reel management
  */
 class ProductionChatIntegration {
     constructor() {
@@ -19,11 +19,6 @@ class ProductionChatIntegration {
         this.isTypingIndicatorVisible = false;
         this.maxMessages = 100;
         
-        // Performance optimization
-        this.messageFragment = null;
-        this.isLoadingReels = false;
-        this.isLoadingHistory = false;
-        
         // Event handlers (bound to maintain context)
         this.handleWebSocketEvent = this.handleWebSocketEvent.bind(this);
         this.handleSendMessage = this.handleSendMessage.bind(this);
@@ -32,598 +27,142 @@ class ProductionChatIntegration {
     }
     
     /**
-     * Ultra-fast parallel initialization
+     * Initialize the chat integration
      */
     async initialize(containerId, options = {}) {
         if (this.isInitialized) {
             return this;
         }
         
-        const startTime = performance.now();
-        
         this.container = document.getElementById(containerId);
         if (!this.container) {
             throw new Error(`Container element '${containerId}' not found`);
         }
         
-        // Parallel initialization tasks
-        const [elementsFound, wsReady] = await Promise.allSettled([
-            this.findUIElementsParallel(),
-            this.initializeWebSocketParallel()
-        ]);
+        // Find UI elements
+        this.findUIElements();
         
-        if (elementsFound.status === 'rejected') {
-            throw elementsFound.reason;
+        // Initialize WebSocket manager
+        this.webSocketManager = window.ProductionWebSocketManager;
+        if (!this.webSocketManager) {
+            throw new Error('ProductionWebSocketManager not available');
         }
         
-        if (wsReady.status === 'rejected') {
-            console.warn('WebSocket initialization failed, will retry:', wsReady.reason);
+        // Initialize WebSocket if not already done
+        if (!window.AuthService) {
+            throw new Error('AuthService not available');
         }
         
-        // Set up event listeners (non-blocking)
-        requestAnimationFrame(() => this.setupEventListeners());
+        this.webSocketManager.initialize(window.AuthService);
+        
+        // Set up event listeners
+        this.setupEventListeners();
+        
+        // Connect WebSocket
+        await this.webSocketManager.connect();
         
         this.isInitialized = true;
-        
-        const initTime = performance.now() - startTime;
-        console.log(`✅ Chat integration initialized in ${initTime.toFixed(2)}ms`);
-        
         return this;
     }
     
     /**
-     * Parallel UI elements discovery
+     * Set project context and load reels
      */
-    async findUIElementsParallel() {
-        return new Promise((resolve, reject) => {
-            requestAnimationFrame(() => {
-                try {
-                    const selectors = {
-                        chatBody: ['.chat-body', '#chatBody'],
-                        messageInput: ['.chat-input', '#messageInput'],
-                        sendButton: ['.chat-send-btn', '#sendMessageBtn']
-                    };
-                    
-                    // Parallel element finding
-                    const elementPromises = Object.entries(selectors).map(([elementName, selectorList]) => {
-                        return new Promise((resolveElement) => {
-                            for (const selector of selectorList) {
-                                const element = this.container.querySelector(selector);
-                                if (element) {
-                                    this.elements[elementName] = element;
-                                    resolveElement({ name: elementName, found: true });
-                                    return;
-                                }
-                            }
-                            resolveElement({ name: elementName, found: false });
-                        });
-                    });
-                    
-                    Promise.all(elementPromises).then(results => {
-                        // Validate critical elements
-                        const criticalElements = ['chatBody', 'messageInput', 'sendButton'];
-                        const missing = results.filter(r => 
-                            criticalElements.includes(r.name) && !r.found
-                        ).map(r => r.name);
-                        
-                        if (missing.length > 0) {
-                            reject(new Error(`Critical elements not found: ${missing.join(', ')}`));
-                        } else {
-                            resolve(results);
-                        }
-                    });
-                } catch (error) {
-                    reject(error);
-                }
-            });
-        });
-    }
-    
-    /**
-     * Parallel WebSocket initialization
-     */
-    async initializeWebSocketParallel() {
-        return new Promise((resolve, reject) => {
-            try {
-                this.webSocketManager = window.ProductionWebSocketManager;
-                if (!this.webSocketManager) {
-                    reject(new Error('ProductionWebSocketManager not available'));
-                    return;
-                }
-                
-                if (!window.AuthService) {
-                    reject(new Error('AuthService not available'));
-                    return;
-                }
-                
-                // Initialize WebSocket in parallel
-                this.webSocketManager.initialize(window.AuthService);
-                
-                // Connect asynchronously (non-blocking)
-                this.webSocketManager.connect()
-                    .then(() => resolve())
-                    .catch(reject);
-                    
-            } catch (error) {
-                reject(error);
-            }
-        });
-    }
-    
-    /**
-     * Ultra-fast parallel project context setting with resource loading
-     */
-    async setProjectContextParallel(projectId, projectName) {
-        const startTime = performance.now();
-        
+    async setProjectContext(projectId, projectName) {
         this.currentProjectId = projectId;
         this.currentProjectName = projectName;
         
-        // Update WebSocket immediately (non-blocking)
+        // Update WebSocket with project context initially
         if (this.webSocketManager) {
             this.webSocketManager.setProjectContext(projectId, projectName);
         }
         
-        // Parallel resource loading
-        const [reelsLoaded, historyReady] = await Promise.allSettled([
-            this.loadProjectReelsParallel(),
-            this.prepareHistoryLoading()
-        ]);
+        // Load reels for this project
+        await this.loadProjectReels();
         
-        // Handle reel selection (non-blocking)
-        if (reelsLoaded.status === 'fulfilled' && this.reels.length > 0 && !this.currentReelId) {
-            // Select first reel in background
-            requestAnimationFrame(() => {
-                this.switchToReelParallel(this.reels[0].id, this.reels[0].reel_name);
-            });
-        } else if (this.currentReelId && this.webSocketManager) {
-            // Update WebSocket with complete context
-            this.webSocketManager.setCompleteContext(
-                this.currentProjectId,
-                this.currentProjectName,
-                this.currentReelId,
-                this.currentReelName
-            );
+        // If no reel is selected and we have reels, select the first one
+        if (!this.currentReelId && this.reels.length > 0) {
+            await this.switchToReel(this.reels[0].id, this.reels[0].reel_name);
+        } else if (this.currentReelId) {
+            // Update WebSocket with complete context if reel is already selected
+            if (this.webSocketManager) {
+                this.webSocketManager.setCompleteContext(
+                    this.currentProjectId,
+                    this.currentProjectName,
+                    this.currentReelId,
+                    this.currentReelName
+                );
+            }
         }
         
-        // Update UI (non-blocking)
-        requestAnimationFrame(() => this.updateReelSelectorOptimized());
-        
-        const contextTime = performance.now() - startTime;
-        console.log(`✅ Project context set in ${contextTime.toFixed(2)}ms`);
+        // Update UI
+        this.updateReelSelector();
     }
     
     /**
-     * Legacy setProjectContext method for backward compatibility
+     * Load reels for current project
      */
-    async setProjectContext(projectId, projectName) {
-        return this.setProjectContextParallel(projectId, projectName);
-    }
-    
-    /**
-     * Parallel reel loading with caching
-     */
-    async loadProjectReelsParallel() {
-        if (!this.currentProjectId || !window.AuthService?.isAuthenticated() || this.isLoadingReels) {
-            return [];
+    async loadProjectReels() {
+        if (!this.currentProjectId || !window.AuthService?.isAuthenticated()) {
+            return;
         }
-        
-        this.isLoadingReels = true;
         
         try {
-            console.log('⚡ Loading reels in parallel for project:', this.currentProjectId);
+            console.log('Loading reels for project:', this.currentProjectId);
             
             const result = await window.AuthService.executeFunction('list_project_reels', {
                 chat_id: this.currentProjectId,
                 email: window.AuthService.getCurrentUser().email
             });
             
+            console.log('Project reels API response:', result);
+            
             if (result?.status === 'success' && result?.data?.success) {
                 this.reels = result.data.reels || [];
-                console.log(`✅ Loaded ${this.reels.length} reels in parallel`);
-                return this.reels;
+                console.log('✅ Loaded reels:', this.reels.length);
             } else {
                 console.error('Failed to load reels:', result);
                 this.reels = [];
-                return [];
             }
         } catch (error) {
             console.error('Failed to load project reels:', error);
             this.reels = [];
-            return [];
-        } finally {
-            this.isLoadingReels = false;
         }
     }
     
-    /**
-     * Prepare history loading (non-blocking)
-     */
-    async prepareHistoryLoading() {
-        // Just prepare, don't actually load until reel is selected
-        return Promise.resolve();
-    }
-    
-    /**
-     * Ultra-fast parallel reel switching
-     */
-    async switchToReelParallel(reelId, reelName) {
-        if (!this.currentProjectId || !reelId || this.currentReelId === reelId) {
-            return false;
-        }
-        
-        const startTime = performance.now();
-        
-        console.log('⚡ Parallel reel switch:', { reelId, reelName, projectId: this.currentProjectId });
-        
-        // Show loading state (non-blocking)
-        requestAnimationFrame(() => this.showReelSwitchLoadingOptimized());
-        
-        try {
-            // Parallel operations: API call and UI updates
-            const [apiResult, uiReady] = await Promise.allSettled([
-                this.switchReelContextAPI(reelId),
-                this.prepareReelUI(reelId, reelName)
-            ]);
-            
-            if (apiResult.status === 'rejected' || !apiResult.value?.success) {
-                const error = apiResult.reason || apiResult.value?.error || 'Unknown error';
-                throw new Error(error);
-            }
-            
-            // Update context immediately
-            this.currentReelId = reelId;
-            this.currentReelName = reelName;
-            
-            // Update WebSocket context (non-blocking)
-            if (this.webSocketManager) {
-                this.webSocketManager.setCompleteContext(
-                    this.currentProjectId, 
-                    this.currentProjectName,
-                    this.currentReelId,
-                    this.currentReelName
-                );
-            }
-            
-            // Load history in parallel (non-blocking)
-            requestAnimationFrame(() => {
-                this.loadReelHistoryParallel().catch(error => {
-                    console.warn('History loading failed:', error);
-                });
-            });
-            
-            // Update UI (non-blocking)
-            requestAnimationFrame(() => {
-                this.updateReelSelectorOptimized();
-                this.hideWelcomeMessage();
-            });
-            
-            // Dispatch event (non-blocking)
-            setTimeout(() => {
-                document.dispatchEvent(new CustomEvent('reel_switched', {
-                    detail: { reelId: reelId, reelName: reelName }
-                }));
-            }, 0);
-            
-            const switchTime = performance.now() - startTime;
-            console.log(`✅ Reel switched in ${switchTime.toFixed(2)}ms`);
-            
-            return true;
-            
-        } catch (error) {
-            console.error('Error in parallel reel switch:', error);
-            
-            // Show error (non-blocking)
-            requestAnimationFrame(() => {
-                this.showReelErrorOptimized(error.message);
-            });
-            
-            return false;
-            
-        } finally {
-            // Hide loading (non-blocking)
-            requestAnimationFrame(() => {
-                this.hideReelSwitchLoading();
-            });
-        }
-    }
-    
-    /**
-     * API call for reel context switch
-     */
-    async switchReelContextAPI(reelId) {
-        const result = await window.AuthService.executeFunction('switch_reel_context', {
-            chat_id: this.currentProjectId,
-            reel_id: reelId,
-            email: window.AuthService.getCurrentUser().email
-        });
-        
-        if (result?.status === 'success' && result?.data?.success) {
-            return { success: true, data: result.data };
-        } else {
-            throw new Error(result?.data?.message || result?.message || 'API call failed');
-        }
-    }
-    
-    /**
-     * Prepare reel UI (non-blocking)
-     */
-    async prepareReelUI(reelId, reelName) {
-        return new Promise((resolve) => {
-            requestAnimationFrame(() => {
-                // Pre-clear messages for instant feedback
-                this.clearMessagesOptimized();
-                resolve();
-            });
-        });
-    }
-    
-    /**
-     * Ultra-fast parallel history loading with batching
-     */
-    async loadReelHistoryParallel() {
-        if (!this.currentProjectId || !this.currentReelId || !window.AuthService?.isAuthenticated() || this.isLoadingHistory) {
-            return;
-        }
-        
-        this.isLoadingHistory = true;
-        const startTime = performance.now();
-        
-        try {
-            console.log('⚡ Loading reel history in parallel');
-            
-            const result = await window.AuthService.executeFunction('get_reel_messages', {
-                chat_id: this.currentProjectId,
-                reel_id: this.currentReelId,
-                limit: 50,
-                offset: 0
-            });
-            
-            if (result?.status === 'success' && result?.data?.success) {
-                if (result?.data?.messages?.length > 0) {
-                    // Process messages in batches for better performance
-                    await this.renderMessagesInBatches(result.data.messages);
-                    
-                    const historyTime = performance.now() - startTime;
-                    console.log(`✅ Loaded ${result.data.messages.length} messages in ${historyTime.toFixed(2)}ms`);
-                } else {
-                    requestAnimationFrame(() => this.showEmptyReelMessage());
-                }
-            } else {
-                throw new Error('Failed to get reel messages from database');
-            }
-        } catch (error) {
-            console.error('Failed to load reel history:', error);
-            requestAnimationFrame(() => {
-                this.showReelErrorOptimized('Error loading chat history: ' + error.message);
-            });
-        } finally {
-            this.isLoadingHistory = false;
-        }
-    }
-    
-    /**
-     * Render messages in batches for better performance
-     */
-    async renderMessagesInBatches(messages) {
-        // Sort messages first
-        const sortedMessages = messages.sort((a, b) => {
-            return new Date(a.timestamp) - new Date(b.timestamp);
-        });
-        
-        // Clear existing messages first
-        this.clearMessagesOptimized();
-        
-        // Create document fragment for batch DOM operations
-        const fragment = document.createDocumentFragment();
-        const batchSize = 10;
-        
-        for (let i = 0; i < sortedMessages.length; i += batchSize) {
-            const batch = sortedMessages.slice(i, i + batchSize);
-            
-            // Process batch
-            batch.forEach(msg => {
-                const messageElement = this.createMessageElementOptimized({
-                    type: msg.sender === 'user' ? 'user' : (msg.sender === 'bot' ? 'bot' : 'system'),
-                    text: msg.content,
-                    timestamp: new Date(msg.timestamp).getTime(),
-                    id: msg.id,
-                    reel_id: msg.reel_id,
-                    isHistorical: true
-                });
-                fragment.appendChild(messageElement);
-            });
-            
-            // Add batch to DOM in next frame
-            await new Promise(resolve => {
-                requestAnimationFrame(() => {
-                    if (this.elements.chatBody) {
-                        this.elements.chatBody.appendChild(fragment.cloneNode(true));
-                        // Clear fragment for next batch
-                        while (fragment.firstChild) {
-                            fragment.removeChild(fragment.firstChild);
-                        }
-                    }
-                    resolve();
-                });
-            });
-        }
-        
-        // Scroll to bottom after all batches
-        requestAnimationFrame(() => this.scrollToBottom());
-    }
-    
-    /**
-     * Optimized message element creation
-     */
-    createMessageElementOptimized(message) {
-        const messageEl = document.createElement('div');
-        messageEl.className = `message message-${message.type}`;
-        
-        if (message.id) messageEl.setAttribute('data-message-id', message.id);
-        if (message.reel_id) messageEl.setAttribute('data-reel-id', message.reel_id);
-        if (message.isTemporary) messageEl.classList.add('temporary-message');
-        if (message.isHistorical) messageEl.classList.add('historical-message');
-        
-        // Use innerHTML for better performance with simple content
-        messageEl.innerHTML = `
-            <div class="message-content">${this.escapeHtml(message.text)}</div>
-            ${message.timestamp ? `<div class="message-timestamp">${this.formatTimestamp(message.timestamp)}</div>` : ''}
-        `;
-        
-        return messageEl;
-    }
-    
-    /**
-     * Optimized clear messages with fragment
-     */
-    clearMessagesOptimized() {
-        if (!this.elements.chatBody) return;
-        
-        // Use DocumentFragment for efficient DOM manipulation
-        const range = document.createRange();
-        range.selectNodeContents(this.elements.chatBody);
-        
-        // Remove all message elements efficiently
-        const messages = this.elements.chatBody.querySelectorAll('.message, .typing-indicator, .message-system, .message-error');
-        messages.forEach(msg => msg.remove());
-        
-        this.messages = [];
-    }
-    
-    /**
-     * Optimized reel selector update with virtual DOM concepts
-     */
-    updateReelSelectorOptimized() {
+    showReelSwitchLoading(show) {
         const reelList = document.getElementById('reelList');
-        const reelTitle = document.getElementById('currentReelTitle');
+        if (!reelList) return;
         
-        if (reelList) {
-            // Use document fragment for batch DOM operations
-            const fragment = document.createDocumentFragment();
-            
-            if (this.reels.length === 0) {
-                fragment.appendChild(this.createEmptyReelElement());
-            } else {
-                // Create all reel elements in memory first
-                this.reels.forEach(reel => {
-                    const reelButton = this.createReelButtonOptimized(reel);
-                    fragment.appendChild(reelButton);
-                });
-            }
-            
-            // Single DOM operation
-            reelList.innerHTML = '';
-            reelList.appendChild(fragment);
-        }
-        
-        // Update current reel title
-        if (reelTitle) {
-            reelTitle.textContent = this.currentReelName || 'No reel selected';
-        }
-    }
-    
-    /**
-     * Optimized reel button creation
-     */
-    createReelButtonOptimized(reel) {
-        const reelButton = document.createElement('button');
-        reelButton.className = 'reel-item';
-        reelButton.setAttribute('data-reel-id', reel.id);
-        
-        if (reel.id === this.currentReelId) {
-            reelButton.classList.add('active');
-        }
-        
-        const timeAgo = this.formatTimeAgo(new Date(reel.created_at));
-        
-        reelButton.innerHTML = `
-            <div class="reel-item-content">
-                <div class="reel-item-name" title="${this.escapeHtml(reel.reel_name)}">${this.escapeHtml(reel.reel_name)}</div>
-                <div class="reel-item-info">
-                    <div class="reel-item-messages">
-                        <ion-icon name="chatbubble-outline"></ion-icon>
-                        <span>${reel.message_count || 0}</span>
-                    </div>
-                    <span>•</span>
-                    <span>${timeAgo}</span>
-                </div>
-            </div>
-            ${reel.id === this.currentReelId ? '<div class="reel-item-indicator"></div>' : ''}
-        `;
-        
-        // Add optimized click handler
-        reelButton.addEventListener('click', (e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            
-            if (reelButton.disabled || reel.id === this.currentReelId) return;
-            
-            // Debounce clicks
-            reelButton.disabled = true;
-            setTimeout(() => reelButton.disabled = false, 1000);
-            
-            // Switch reel in next frame
-            requestAnimationFrame(() => {
-                this.switchToReelParallel(reel.id, reel.reel_name);
-            });
-        });
-        
-        return reelButton;
-    }
-    
-    /**
-     * Create empty reel element
-     */
-    createEmptyReelElement() {
-        const emptyDiv = document.createElement('div');
-        emptyDiv.className = 'empty-reel-list';
-        emptyDiv.innerHTML = `
-            <ion-icon name="chatbubbles-outline"></ion-icon>
-            <span>No reels available</span>
-        `;
-        return emptyDiv;
-    }
-    
-    /**
-     * Optimized loading states
-     */
-    showReelSwitchLoadingOptimized() {
-        const reelList = document.getElementById('reelList');
-        if (reelList) {
-            reelList.innerHTML = `
+        if (show) {
+            const loadingHTML = `
                 <div class="loading-reels">
                     <div class="loading-spinner"></div>
                     <span>Switching reel...</span>
                 </div>
             `;
+            reelList.innerHTML = loadingHTML;
         }
+        // If hide, updateReelSelector will be called to restore the list
     }
-    
-    hideReelSwitchLoading() {
-        // Will be handled by updateReelSelectorOptimized
-    }
-    
-    showReelErrorOptimized(message) {
+    showReelError(message) {
         if (this.elements.chatBody) {
-            this.addMessageToUIOptimized({
+            this.addMessageToUI({
                 type: 'error',
                 text: message,
                 timestamp: Date.now()
             });
         }
     }
-    
     hideWelcomeMessage() {
         const welcomeMessage = document.getElementById('welcomeMessage');
         if (welcomeMessage) {
             welcomeMessage.style.display = 'none';
         }
     }
-    
     showEmptyReelMessage() {
         if (this.elements.chatBody) {
-            this.addMessageToUIOptimized({
+            this.addMessageToUI({
                 type: 'system',
                 text: `This reel "${this.currentReelName}" is empty. Start a conversation!`,
                 timestamp: Date.now()
@@ -632,92 +171,116 @@ class ProductionChatIntegration {
     }
     
     /**
-     * Optimized message addition to UI
+     * Switch to a specific reel
      */
-    addMessageToUIOptimized(message) {
-        if (!this.elements.chatBody || !message.text) return;
-        
-        const messageElement = this.createMessageElementOptimized(message);
-        this.elements.chatBody.appendChild(messageElement);
-        
-        // Hide welcome message if visible
-        this.hideWelcomeMessage();
-        
-        // Manage message limit efficiently
-        this.enforceMessageLimitOptimized();
-        
-        // Auto scroll (throttled)
-        this.scrollToBottomThrottled();
-        
-        // Store message
-        this.messages.push(message);
-    }
-    
-    /**
-     * Optimized message limit enforcement
-     */
-    enforceMessageLimitOptimized() {
-        if (this.messages.length <= this.maxMessages) return;
-        
-        const messagesToRemove = this.messages.length - this.maxMessages;
-        const messageElements = this.elements.chatBody.querySelectorAll('.message');
-        
-        // Remove in batch
-        for (let i = 0; i < messagesToRemove && i < messageElements.length; i++) {
-            messageElements[i].remove();
+    async switchToReel(reelId, reelName) {
+        if (!this.currentProjectId || !reelId) {
+            console.error('Missing project ID or reel ID for switch');
+            return false;
         }
         
-        this.messages.splice(0, messagesToRemove);
-    }
-    
-    /**
-     * Throttled scroll to bottom
-     */
-    scrollToBottomThrottled = this.throttle(() => {
-        if (this.elements.chatBody) {
-            this.elements.chatBody.scrollTop = this.elements.chatBody.scrollHeight;
+        // Verify authentication
+        if (!window.AuthService?.isAuthenticated()) {
+            console.error('Authentication required for reel switch');
+            return false;
         }
-    }, 100);
-    
-    /**
-     * Throttle utility
-     */
-    throttle(func, limit) {
-        let inThrottle;
-        return function() {
-            const args = arguments;
-            const context = this;
-            if (!inThrottle) {
-                func.apply(context, args);
-                inThrottle = true;
-                setTimeout(() => inThrottle = false, limit);
+        
+        console.log('Switching to reel:', { reelId, reelName, projectId: this.currentProjectId });
+        
+        // Show loading state
+        this.showReelSwitchLoading(true);
+        
+        try {
+            // Call API to switch reel context
+            const result = await window.AuthService.executeFunction('switch_reel_context', {
+                chat_id: this.currentProjectId,
+                reel_id: reelId,
+                email: window.AuthService.getCurrentUser().email
+            });
+            
+            console.log('Switch reel API response:', result);
+            
+            if (result?.status === 'success' && result?.data?.success) {
+                // Update current reel info
+                this.currentReelId = reelId;
+                this.currentReelName = reelName;
+                
+                console.log('✅ Reel context switched successfully, updating WebSocket and loading history...');
+                
+                // Update WebSocket with complete context including reel
+                if (this.webSocketManager) {
+                    this.webSocketManager.setCompleteContext(
+                        this.currentProjectId, 
+                        this.currentProjectName,
+                        this.currentReelId,
+                        this.currentReelName
+                    );
+                }
+                
+                // Load messages for this reel
+                await this.loadReelHistory();
+                
+                // Update UI
+                this.updateReelSelector();
+                
+                // Hide welcome message if visible
+                this.hideWelcomeMessage();
+                
+                document.dispatchEvent(new CustomEvent('reel_switched', {
+                    detail: { reelId: reelId, reelName: reelName }
+                }));
+                
+                return true;
+                
+            } else {
+                const errorMessage = result?.data?.message || result?.message || 'Unknown error';
+                console.error('Failed to switch reel context:', result);
+                this.showReelError(`Failed to switch to reel: ${errorMessage}`);
+                return false;
             }
+            
+        } catch (error) {
+            console.error('Error switching reel:', error);
+            
+            // Handle different types of errors without causing navigation
+            let errorMessage = 'Error switching to reel';
+            if (error.message.includes('authentication') || error.message.includes('token')) {
+                errorMessage = 'Authentication error. Please refresh the page.';
+            } else if (error.message.includes('network') || error.message.includes('fetch')) {
+                errorMessage = 'Network error. Please check your connection.';
+            } else {
+                errorMessage = `Error switching to reel: ${error.message}`;
+            }
+            
+            this.showReelError(errorMessage);
+            return false;
+            
+        } finally {
+            this.showReelSwitchLoading(false);
         }
     }
     
-    scrollToBottom() {
-        this.scrollToBottomThrottled();
-    }
-    
-    // Keep existing methods but optimize them for better performance
-    // (createReel, sendMessage, etc. - similar optimizations applied)
-    
     /**
-     * Ultra-fast reel creation
+     * Create a new reel
      */
     async createReel(reelName, reelDescription = '') {
         if (!this.currentProjectId || !reelName?.trim()) {
+            console.error('Invalid parameters for reel creation');
             throw new Error('Invalid parameters for reel creation');
         }
         
+        // Verify authentication before proceeding
         if (!window.AuthService?.isAuthenticated()) {
+            console.error('Authentication required for reel creation');
             throw new Error('Authentication required');
         }
         
-        const startTime = performance.now();
-        
         try {
-            console.log('⚡ Creating reel in parallel:', { reelName: reelName.trim(), reelDescription: reelDescription.trim() });
+            console.log('Creating new reel:', { 
+                reelName: reelName.trim(), 
+                reelDescription: reelDescription.trim(), 
+                projectId: this.currentProjectId 
+            });
             
             const result = await window.AuthService.executeFunction('create_reel', {
                 chat_id: this.currentProjectId,
@@ -726,43 +289,56 @@ class ProductionChatIntegration {
                 email: window.AuthService.getCurrentUser().email
             });
             
+            console.log('Create reel API response:', result);
+            
             if (result?.status === 'success' && result?.data?.success) {
                 const newReel = result.data.reel;
                 const reelId = result.data.reel_id;
                 
                 if (!newReel || !reelId) {
+                    console.error('Invalid reel data in response:', result.data);
                     throw new Error('Invalid reel data received from server');
                 }
                 
                 // Add new reel to list
                 this.reels.push(newReel);
                 
-                // Switch to new reel in parallel
-                const switchSuccess = await this.switchToReelParallel(reelId, reelName);
+                console.log('✅ Reel created, switching to new reel:', { reelId, reelName });
+                
+                // Switch to new reel (this will update WebSocket context)
+                const switchSuccess = await this.switchToReel(reelId, reelName);
                 
                 if (!switchSuccess) {
                     console.warn('Reel created but failed to switch to it');
-                    // Update selector anyway
-                    requestAnimationFrame(() => this.updateReelSelectorOptimized());
+                    // Still consider it a success since reel was created
+                    this.updateReelSelector();
                 }
                 
-                const createTime = performance.now() - startTime;
-                console.log(`✅ Reel created in ${createTime.toFixed(2)}ms`);
-                
+                console.log('✅ Reel created successfully:', newReel);
                 return true;
                 
             } else {
-                throw new Error(result?.data?.message || result?.message || 'Failed to create reel');
+                const errorMessage = result?.data?.message || result?.message || 'Unknown error occurred';
+                console.error('Reel creation failed:', result);
+                throw new Error(`Failed to create reel: ${errorMessage}`);
             }
             
         } catch (error) {
             console.error('Failed to create reel:', error);
-            throw error;
+            
+            // Don't let errors cause navigation - just throw them for handling
+            if (error.message.includes('authentication') || error.message.includes('token')) {
+                throw new Error('Authentication error. Please refresh the page and try again.');
+            } else if (error.message.includes('network') || error.message.includes('fetch')) {
+                throw new Error('Network error. Please check your connection and try again.');
+            } else {
+                throw new Error(error.message || 'Failed to create reel. Please try again.');
+            }
         }
     }
     
     /**
-     * Ultra-fast message sending with parallel processing
+     * Send a message with reel context
      */
     async sendMessage(text) {
         if (!text?.trim()) {
@@ -774,97 +350,354 @@ class ProductionChatIntegration {
         }
         
         const messageText = text.trim();
-        const tempMessageId = `temp_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-        
-        // Add user message to UI immediately (non-blocking)
-        requestAnimationFrame(() => {
-            this.addMessageToUIOptimized({
-                type: 'user',
-                text: messageText,
-                timestamp: Date.now(),
-                id: tempMessageId,
-                reel_id: this.currentReelId,
-                isTemporary: true
-            });
+        console.log('📤 Sending message with database persistence:', {
+            text: messageText.substring(0, 50) + '...',
+            reelId: this.currentReelId,
+            projectId: this.currentProjectId
         });
         
-        // Clear input immediately
+        // Generate a temporary message ID for UI tracking
+        const tempMessageId = `temp_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+        
+        // Add user message to UI immediately
+        this.addMessageToUI({
+            type: 'user',
+            text: messageText,
+            timestamp: Date.now(),
+            id: tempMessageId,
+            reel_id: this.currentReelId,
+            isTemporary: true  // Mark as temporary until confirmed saved
+        });
+        
+        // Clear input
         if (this.elements.messageInput) {
             this.elements.messageInput.value = '';
             this.resizeInput();
         }
         
-        // Show typing indicator (non-blocking)
-        requestAnimationFrame(() => this.showTypingIndicator());
+        // Show typing indicator
+        this.showTypingIndicator();
         
         try {
-            // Parallel operations: save to database and send via WebSocket
-            const [saveResult, wsReady] = await Promise.allSettled([
-                window.AuthService.executeFunction('send_chat_message', {
-                    chat_id: this.currentProjectId,
-                    content: messageText,
-                    reel_id: this.currentReelId,
-                    context_data: {
-                        source: 'chat_integration',
-                        reel_name: this.currentReelName,
-                        project_name: this.currentProjectName
-                    }
-                }),
-                Promise.resolve(this.webSocketManager) // Ensure WebSocket is ready
-            ]);
+            // First, save the user message to database via API
+            const saveResult = await window.AuthService.executeFunction('send_chat_message', {
+                chat_id: this.currentProjectId,
+                content: messageText,
+                reel_id: this.currentReelId,
+                context_data: {
+                    source: 'chat_integration',
+                    reel_name: this.currentReelName,
+                    project_name: this.currentProjectName
+                }
+            });
             
-            if (saveResult.status === 'fulfilled' && saveResult.value?.status === 'success' && saveResult.value?.data?.success) {
-                console.log('✅ User message saved to database:', saveResult.value.data.message_id);
+            if (saveResult?.status === 'success' && saveResult?.data?.success) {
+                console.log('✅ User message saved to database:', saveResult.data.message_id);
                 
-                // Update temporary message with real database ID (non-blocking)
-                requestAnimationFrame(() => {
-                    const tempMessageElement = document.querySelector(`[data-message-id="${tempMessageId}"]`);
-                    if (tempMessageElement) {
-                        tempMessageElement.setAttribute('data-message-id', saveResult.value.data.message_id);
-                        tempMessageElement.classList.remove('temporary-message');
-                    }
-                });
+                // Update the temporary message with the real database ID
+                const tempMessageElement = document.querySelector(`[data-message-id="${tempMessageId}"]`);
+                if (tempMessageElement) {
+                    tempMessageElement.setAttribute('data-message-id', saveResult.data.message_id);
+                    tempMessageElement.classList.remove('temporary-message');
+                }
                 
-                // Send via WebSocket for processing
+                // Now send via WebSocket for processing (this will create a queue entry)
                 const messageId = await this.webSocketManager.sendMessage(messageText, {
                     reel_id: this.currentReelId,
                     reel_name: this.currentReelName,
-                    saved_message_id: saveResult.value.data.message_id
+                    saved_message_id: saveResult.data.message_id  // Reference to the saved message
                 });
                 
+                console.log('✅ Message sent via WebSocket for processing:', messageId);
                 return messageId;
                 
             } else {
+                console.error('Failed to save user message to database:', saveResult);
                 throw new Error('Failed to save message to database');
             }
             
         } catch (error) {
-            // Hide typing indicator (non-blocking)
-            requestAnimationFrame(() => this.hideTypingIndicator());
+            this.hideTypingIndicator();
             
-            // Remove temporary message (non-blocking)
-            requestAnimationFrame(() => {
-                const tempMessageElement = document.querySelector(`[data-message-id="${tempMessageId}"]`);
-                if (tempMessageElement) {
-                    tempMessageElement.remove();
-                }
+            // Remove the temporary message if save failed
+            const tempMessageElement = document.querySelector(`[data-message-id="${tempMessageId}"]`);
+            if (tempMessageElement) {
+                tempMessageElement.remove();
+            }
+            
+            this.addMessageToUI({
+                type: 'error',
+                text: 'Failed to send message: ' + error.message,
+                timestamp: Date.now()
             });
             
-            // Show error (non-blocking)
-            requestAnimationFrame(() => {
-                this.addMessageToUIOptimized({
-                    type: 'error',
-                    text: 'Failed to send message: ' + error.message,
-                    timestamp: Date.now()
-                });
-            });
-            
+            console.error('❌ Failed to send message with database persistence:', error);
             throw error;
         }
     }
     
-    // Keep all existing event handlers and utility methods...
-    // (They remain the same but now work with the optimized system)
+    
+    /**
+     * Load chat history for current reel
+     */
+/**
+     * Load chat history for current reel with better error handling
+     */
+    async loadReelHistory() {
+        if (!this.currentProjectId || !this.currentReelId || !window.AuthService?.isAuthenticated()) {
+            console.warn('Cannot load reel history - missing requirements');
+            return;
+        }
+        
+        console.log('Loading reel history for:', { 
+            projectId: this.currentProjectId, 
+            reelId: this.currentReelId 
+        });
+        
+        try {
+            // Use the get_reel_messages function to get messages from database
+            const result = await window.AuthService.executeFunction('get_reel_messages', {
+                chat_id: this.currentProjectId,
+                reel_id: this.currentReelId,
+                limit: 50,
+                offset: 0
+            });
+            
+            console.log('Reel messages API response:', result);
+            
+            if (result?.status === 'success' && result?.data?.success) {
+                // Clear existing messages first
+                this.clearMessages();
+                
+                if (result?.data?.messages?.length > 0) {
+                    console.log(`Loading ${result.data.messages.length} messages for reel from database`);
+                    
+                    // Sort messages by timestamp to ensure correct order
+                    const sortedMessages = result.data.messages.sort((a, b) => {
+                        return new Date(a.timestamp) - new Date(b.timestamp);
+                    });
+                    
+                    // Add history messages from database
+                    sortedMessages.forEach(msg => {
+                        this.addMessageToUI({
+                            type: msg.sender === 'user' ? 'user' : (msg.sender === 'bot' ? 'bot' : 'system'),
+                            text: msg.content,
+                            timestamp: new Date(msg.timestamp).getTime(),
+                            id: msg.id,
+                            reel_id: msg.reel_id,
+                            isHistorical: true  // Mark as historical message
+                        });
+                    });
+                    
+                    // Scroll to bottom
+                    this.scrollToBottom();
+                    
+                    console.log(`✅ Loaded ${sortedMessages.length} messages from database for reel ${this.currentReelName}`);
+                } else {
+                    console.log('No messages found for this reel in database');
+                    // Show empty reel message
+                    this.showEmptyReelMessage();
+                }
+            } else {
+                console.error('Failed to get reel messages from database:', result);
+                this.showReelError('Failed to load chat history from database.');
+            }
+        } catch (error) {
+            console.error('Failed to load reel history from database:', error);
+            this.showReelError('Error loading chat history: ' + error.message);
+        }
+    }
+
+    /**
+     * Update reel selector UI
+     */
+    updateReelSelector() {
+        const reelList = document.getElementById('reelList');
+        const reelTitle = document.getElementById('currentReelTitle');
+        
+        if (reelList) {
+            // Clear existing content
+            reelList.innerHTML = '';
+            
+            if (this.reels.length === 0) {
+                // Show empty state
+                reelList.innerHTML = `
+                    <div class="empty-reel-list">
+                        <ion-icon name="chatbubbles-outline"></ion-icon>
+                        <span>No reels available</span>
+                    </div>
+                `;
+            } else {
+                // Create reel buttons
+                this.reels.forEach(reel => {
+                    const reelButton = document.createElement('button');
+                    reelButton.className = 'reel-item';
+                    reelButton.setAttribute('data-reel-id', reel.id);
+                    
+                    if (reel.id === this.currentReelId) {
+                        reelButton.classList.add('active');
+                    }
+                    
+                    // Format creation date
+                    const createdDate = new Date(reel.created_at);
+                    const timeAgo = this.formatTimeAgo(createdDate);
+                    
+                    reelButton.innerHTML = `
+                        <div class="reel-item-content">
+                            <div class="reel-item-name" title="${this.escapeHtml(reel.reel_name)}">${this.escapeHtml(reel.reel_name)}</div>
+                            <div class="reel-item-info">
+                                <div class="reel-item-messages">
+                                    <ion-icon name="chatbubble-outline"></ion-icon>
+                                    <span>${reel.message_count || 0}</span>
+                                </div>
+                                <span>•</span>
+                                <span>${timeAgo}</span>
+                            </div>
+                        </div>
+                        ${reel.id === this.currentReelId ? '<div class="reel-item-indicator"></div>' : ''}
+                    `;
+                    
+                    // Add click handler
+                    reelButton.addEventListener('click', async (e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        
+                        // Prevent multiple clicks
+                        if (reelButton.disabled) return;
+                        
+                        // Disable button temporarily
+                        reelButton.disabled = true;
+                        reelButton.style.opacity = '0.7';
+                        
+                        try {
+                            console.log('Reel button clicked:', { reelId: reel.id, reelName: reel.reel_name });
+                            await this.switchToReel(reel.id, reel.reel_name);
+                        } catch (error) {
+                            console.error('Error in reel button click handler:', error);
+                        } finally {
+                            // Re-enable button
+                            setTimeout(() => {
+                                reelButton.disabled = false;
+                                reelButton.style.opacity = '1';
+                            }, 1000);
+                        }
+                    });
+                    
+                    reelList.appendChild(reelButton);
+                });
+            }
+        }
+        
+        // Update current reel title
+        if (reelTitle) {
+            reelTitle.textContent = this.currentReelName || 'No reel selected';
+        }
+    }
+
+    formatTimeAgo(date) {
+        const now = new Date();
+        const diffInMinutes = Math.floor((now - date) / (1000 * 60));
+        
+        if (diffInMinutes < 1) return 'Just now';
+        if (diffInMinutes < 60) return `${diffInMinutes}m ago`;
+        
+        const diffInHours = Math.floor(diffInMinutes / 60);
+        if (diffInHours < 24) return `${diffInHours}h ago`;
+        
+        const diffInDays = Math.floor(diffInHours / 24);
+        if (diffInDays < 7) return `${diffInDays}d ago`;
+        
+        if (diffInDays < 30) {
+            const weeks = Math.floor(diffInDays / 7);
+            return `${weeks}w ago`;
+        }
+        
+        const diffInMonths = Math.floor(diffInDays / 30);
+        if (diffInMonths < 12) return `${diffInMonths}mo ago`;
+        
+        const years = Math.floor(diffInMonths / 12);
+        return `${years}y ago`;
+    }
+    
+    /**
+     * Escape HTML to prevent XSS
+     */
+    escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+    
+    /**
+     * Clear all messages
+     */
+    clearMessages() {
+        this.messages = [];
+        
+        if (this.elements.chatBody) {
+            // Remove all message elements but keep welcome message hidden
+            const messages = this.elements.chatBody.querySelectorAll('.message, .typing-indicator');
+            messages.forEach(msg => msg.remove());
+            
+            // Also remove any system messages
+            const systemMessages = this.elements.chatBody.querySelectorAll('.message-system, .message-error');
+            systemMessages.forEach(msg => msg.remove());
+        }
+        
+        console.log('Chat messages cleared');
+    }
+    
+    /**
+     * Disconnect and cleanup
+     */
+    disconnect() {
+        this.removeEventListeners();
+        
+        if (this.webSocketManager) {
+            this.webSocketManager.disconnect();
+        }
+        
+        this.isInitialized = false;
+        this.container = null;
+        this.elements = {};
+        this.messages = [];
+        this.reels = [];
+        this.currentReelId = null;
+        this.currentReelName = null;
+    }
+    
+    // Private methods (keeping existing implementation but adding reel support)
+    
+    findUIElements() {
+        const selectors = {
+            chatBody: ['.chat-body', '#chatBody'],
+            messageInput: ['.chat-input', '#messageInput'],
+            sendButton: ['.chat-send-btn', '#sendMessageBtn']
+        };
+        
+        for (const [elementName, selectorList] of Object.entries(selectors)) {
+            for (const selector of selectorList) {
+                const element = this.container.querySelector(selector);
+                if (element) {
+                    this.elements[elementName] = element;
+                    break;
+                }
+            }
+        }
+        
+        // Validate critical elements
+        if (!this.elements.chatBody) {
+            throw new Error('Chat body element not found');
+        }
+        
+        if (!this.elements.messageInput) {
+            throw new Error('Message input element not found');
+        }
+        
+        if (!this.elements.sendButton) {
+            throw new Error('Send button element not found');
+        }
+    }
     
     setupEventListeners() {
         // WebSocket events
@@ -919,45 +752,55 @@ class ProductionChatIntegration {
     }
     
     handleChatResponse(data) {
-        requestAnimationFrame(() => this.hideTypingIndicator());
+        this.hideTypingIndicator();
         
+        console.log('📥 Handling chat response:', {
+            messageId: data.messageId,
+            hasText: !!data.text,
+            hasSavedBotMessageId: !!data.saved_bot_message_id,
+            reelId: this.currentReelId
+        });
+        
+        // Ensure we have response text
         if (!data.text) {
+            console.warn('Chat response missing text content');
             data.text = 'Response received but no content available.';
         }
         
-        requestAnimationFrame(() => {
-            this.addMessageToUIOptimized({
-                type: 'bot',
-                text: data.text,
-                timestamp: data.timestamp || Date.now(),
-                id: data.saved_bot_message_id || data.messageId,
-                components: data.components || [],
-                reel_id: this.currentReelId,
-                metadata: {
-                    originalMessageId: data.messageId,
-                    savedBotMessageId: data.saved_bot_message_id,
-                    parentMessageId: data.context?.parent_message_id,
-                    processingTime: data.processing_time,
-                    isFromDatabase: !!data.saved_bot_message_id
-                }
-            });
+        // Add the bot message to UI
+        this.addMessageToUI({
+            type: 'bot',
+            text: data.text,
+            timestamp: data.timestamp || Date.now(),
+            id: data.saved_bot_message_id || data.messageId, // Use saved database ID if available
+            components: data.components || [],
+            reel_id: this.currentReelId,
+            metadata: {
+                originalMessageId: data.messageId,
+                savedBotMessageId: data.saved_bot_message_id,
+                parentMessageId: data.context?.parent_message_id,
+                processingTime: data.processing_time,
+                isFromDatabase: !!data.saved_bot_message_id
+            }
         });
+        
+        console.log('✅ Bot response added to UI with database persistence');
     }
     
+    
     handleChatError(data) {
-        requestAnimationFrame(() => {
-            this.hideTypingIndicator();
-            this.addMessageToUIOptimized({
-                type: 'error',
-                text: data.error || 'An error occurred',
-                timestamp: data.timestamp,
-                id: data.messageId
-            });
+        this.hideTypingIndicator();
+        
+        this.addMessageToUI({
+            type: 'error',
+            text: data.error || 'An error occurred',
+            timestamp: data.timestamp,
+            id: data.messageId
         });
     }
     
     handleStateChange(data) {
-        requestAnimationFrame(() => this.updateConnectionStatus(data.state));
+        this.updateConnectionStatus(data.state);
     }
     
     handleSendMessage() {
@@ -980,6 +823,76 @@ class ProductionChatIntegration {
     
     handleInput() {
         this.resizeInput();
+    }
+    
+    addMessageToUI(message) {
+        if (!this.elements.chatBody || !message.text) return;
+        
+        const messageElement = this.createMessageElement(message);
+        this.elements.chatBody.appendChild(messageElement);
+        
+        // Hide welcome message
+        const welcomeMessage = this.elements.chatBody.querySelector('.welcome-message');
+        if (welcomeMessage) {
+            welcomeMessage.style.display = 'none';
+        }
+        
+        // Manage message limit
+        this.enforceMessageLimit();
+        
+        // Auto scroll
+        this.scrollToBottom();
+        
+        // Store message
+        this.messages.push(message);
+    }
+    
+    createMessageElement(message) {
+        const messageEl = document.createElement('div');
+        messageEl.className = `message message-${message.type}`;
+        
+        if (message.id) {
+            messageEl.setAttribute('data-message-id', message.id);
+        }
+        
+        if (message.reel_id) {
+            messageEl.setAttribute('data-reel-id', message.reel_id);
+        }
+        
+        // Add temporary class for unsaved messages
+        if (message.isTemporary) {
+            messageEl.classList.add('temporary-message');
+        }
+        
+        // Add historical class for database-loaded messages
+        if (message.isHistorical) {
+            messageEl.classList.add('historical-message');
+        }
+        
+        // Message content
+        const contentEl = document.createElement('div');
+        contentEl.className = 'message-content';
+        contentEl.textContent = message.text;
+        messageEl.appendChild(contentEl);
+        
+        // Timestamp
+        if (message.timestamp) {
+            const timestampEl = document.createElement('div');
+            timestampEl.className = 'message-timestamp';
+            timestampEl.textContent = this.formatTimestamp(message.timestamp);
+            messageEl.appendChild(timestampEl);
+        }
+        
+        // Add database persistence indicator for debugging (can be removed in production)
+        if (message.metadata?.isFromDatabase) {
+            const dbIndicator = document.createElement('div');
+            dbIndicator.className = 'db-indicator';
+            dbIndicator.textContent = '💾';
+            dbIndicator.title = 'Message loaded from database';
+            messageEl.appendChild(dbIndicator);
+        }
+        
+        return messageEl;
     }
     
     showTypingIndicator() {
@@ -1038,6 +951,25 @@ class ProductionChatIntegration {
         }
     }
     
+    scrollToBottom() {
+        if (this.elements.chatBody) {
+            this.elements.chatBody.scrollTop = this.elements.chatBody.scrollHeight;
+        }
+    }
+    
+    enforceMessageLimit() {
+        if (this.messages.length <= this.maxMessages) return;
+        
+        const messagesToRemove = this.messages.length - this.maxMessages;
+        const messageElements = this.elements.chatBody.querySelectorAll('.message');
+        
+        for (let i = 0; i < messagesToRemove && i < messageElements.length; i++) {
+            messageElements[i].remove();
+        }
+        
+        this.messages.splice(0, messagesToRemove);
+    }
+    
     formatTimestamp(timestamp) {
         const date = new Date(timestamp);
         return date.toLocaleTimeString('en-US', { 
@@ -1046,63 +978,12 @@ class ProductionChatIntegration {
         });
     }
     
-    formatTimeAgo(date) {
-        const now = new Date();
-        const diffInMinutes = Math.floor((now - date) / (1000 * 60));
-        
-        if (diffInMinutes < 1) return 'Just now';
-        if (diffInMinutes < 60) return `${diffInMinutes}m ago`;
-        
-        const diffInHours = Math.floor(diffInMinutes / 60);
-        if (diffInHours < 24) return `${diffInHours}h ago`;
-        
-        const diffInDays = Math.floor(diffInHours / 24);
-        if (diffInDays < 7) return `${diffInDays}d ago`;
-        
-        if (diffInDays < 30) {
-            const weeks = Math.floor(diffInDays / 7);
-            return `${weeks}w ago`;
-        }
-        
-        const diffInMonths = Math.floor(diffInDays / 30);
-        if (diffInMonths < 12) return `${diffInMonths}mo ago`;
-        
-        const years = Math.floor(diffInMonths / 12);
-        return `${years}y ago`;
-    }
-    
-    escapeHtml(text) {
-        const div = document.createElement('div');
-        div.textContent = text;
-        return div.innerHTML;
-    }
-    
     showNewReelModal() {
         if (typeof window.showNewReelModal === 'function') {
             window.showNewReelModal();
         } else {
             console.error('New reel modal function not available');
         }
-    }
-    
-    /**
-     * Disconnect and cleanup
-     */
-    disconnect() {
-        this.removeEventListeners();
-        
-        if (this.webSocketManager) {
-            this.webSocketManager.disconnect();
-        }
-        
-        this.isInitialized = false;
-        this.container = null;
-        this.elements = {};
-        this.messages = [];
-        this.reels = [];
-        this.currentReelId = null;
-        this.currentReelName = null;
-        this.messageFragment = null;
     }
 }
 

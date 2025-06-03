@@ -1,6 +1,6 @@
 /**
- * Ultra-fast JWT Authentication Service for AAAI Solutions
- * Optimized with parallel processing, intelligent caching, and non-blocking operations
+ * High-Performance JWT Authentication Service for AAAI Solutions
+ * Optimized for fast loading and minimal API calls
  */
 const AuthService = {
     // Core authentication state
@@ -9,37 +9,32 @@ const AuthService = {
     userId: null,
     sessionId: null,
     
-    // Token management with enhanced caching
+    // Token management with caching
     accessToken: null,
     tokenExpiry: null,
     refreshInProgress: false,
     
-    // Ultra-fast performance optimizations
+    // Performance optimizations
     authCache: new Map(),
     lastValidation: null,
-    validationCache: 15000, // Reduced to 15 seconds for faster response
-    tokenCache: new Map(),
+    validationCache: 30000, // 30 seconds cache
     
-    // Single refresh timer with optimization
+    // Single refresh timer
     refreshTimer: null,
-    refreshPromise: null,
     
-    // Configuration - optimized for speed
+    // Configuration
     options: {
         refreshBufferTime: 2 * 60 * 1000,
-        maxRetryAttempts: 2,
+        maxRetryAttempts: 2, // Reduced from 3
         debug: false,
-        cacheTimeout: 15000, // Reduced for faster updates
-        parallelValidation: true,
-        fastTokenRefresh: true
+        cacheTimeout: 30000 // 30 seconds
     },
 
     /**
-     * Ultra-fast initialization with parallel setup
+     * Fast initialization with minimal checks
      */
     init() {
-        const startTime = performance.now();
-        console.log('🔐 Ultra-fast JWT Authentication initializing...');
+        console.log('🔐 Fast-initializing JWT Authentication...');
         
         if (!window.AAAI_CONFIG) {
             throw new Error('AAAI_CONFIG not available');
@@ -48,95 +43,68 @@ const AuthService = {
         this.options.debug = window.AAAI_CONFIG?.ENABLE_DEBUG || false;
         this.AUTH_BASE_URL = '';
         
-        // Parallel initialization tasks
-        const initTasks = [
-            this._loadCachedAuthStateParallel(),
-            this._checkRefreshTokenParallel(),
-            this._initializeTokenCacheParallel()
-        ];
+        // Quick auth state check from cache first
+        const cachedState = this._getCachedAuthState();
+        if (cachedState) {
+            this._restoreFromCache(cachedState);
+            this._log('Authentication restored from cache');
+            return true;
+        }
         
-        // Execute all tasks in parallel
-        Promise.allSettled(initTasks).then(results => {
-            const authStateResult = results[0];
-            const refreshTokenResult = results[1];
-            
-            if (authStateResult.status === 'fulfilled' && authStateResult.value) {
-                this._restoreFromCache(authStateResult.value);
-                this._log('Authentication restored from cache ultra-fast');
-            } else if (refreshTokenResult.status === 'fulfilled' && refreshTokenResult.value) {
-                this._log('Refresh token available, lazy validation enabled');
-            } else {
-                this._log('No authentication state found');
-            }
-            
-            const initTime = performance.now() - startTime;
-            this._log(`Ultra-fast initialization completed in ${initTime.toFixed(2)}ms`);
-        });
+        // Check for refresh token existence (fast check)
+        const hasRefresh = this._hasRefreshTokenCookie();
+        if (hasRefresh) {
+            // Don't validate immediately, do it lazily
+            this._log('Refresh token available, lazy validation enabled');
+            return true;
+        }
         
-        return true;
+        this._log('No authentication state found');
+        return false;
     },
-
     /**
-     * Ultra-fast cached authentication check with parallel validation
+     * Fast cached authentication check
      */
     isAuthenticated() {
-        // Ultra-fast cache check
+        // Use cache if recent
         if (this.lastValidation && (Date.now() - this.lastValidation) < this.validationCache) {
             return this.authenticated;
         }
         
-        // Quick basic auth check
         const hasBasicAuth = this.authenticated && this.userEmail && this.userId && this.accessToken;
         
-        if (hasBasicAuth && this._isAccessTokenValidFast()) {
+        if (hasBasicAuth && this._isAccessTokenValid()) {
             this.lastValidation = Date.now();
             return true;
         }
         
-        // Parallel token restoration
-        if (this.options.parallelValidation) {
-            this._restoreTokenParallel().then(restored => {
-                if (restored) {
-                    this.lastValidation = Date.now();
-                    this.authenticated = true;
-                }
-            }).catch(() => {
-                this.authenticated = false;
-            });
+        // Try quick restore from storage
+        const stored = this._getStoredAccessToken();
+        if (stored && this._isTokenValid(stored)) {
+            this._setAccessToken(stored.token, stored.expiresIn);
+            this._setUserInfo(stored.user);
+            this.lastValidation = Date.now();
+            return true;
         }
         
-        // Return current state immediately
-        return this.authenticated;
+        this.authenticated = false;
+        return false;
     },
 
     /**
-     * Ultra-fast token retrieval with intelligent caching
+     * Get token with caching
      */
     getToken() {
         // Return cached token if valid
-        if (this.accessToken && this._isAccessTokenValidFast()) {
+        if (this.accessToken && this._isAccessTokenValid()) {
             return this.accessToken;
         }
         
-        // Quick storage check with caching
-        const cacheKey = 'current_token';
-        const cached = this.tokenCache.get(cacheKey);
-        
-        if (cached && this._isTokenValidFast(cached)) {
-            this._setAccessTokenFast(cached.token, cached.expiresIn);
-            this._setUserInfoFast(cached.user);
-            return this.accessToken;
-        }
-        
-        // Storage fallback
-        const stored = this._getStoredAccessTokenFast();
-        if (stored && this._isTokenValidFast(stored)) {
-            this._setAccessTokenFast(stored.token, stored.expiresIn);
-            this._setUserInfoFast(stored.user);
-            
-            // Cache for next time
-            this.tokenCache.set(cacheKey, stored);
-            
+        // Quick storage check
+        const stored = this._getStoredAccessToken();
+        if (stored && this._isTokenValid(stored)) {
+            this._setAccessToken(stored.token, stored.expiresIn);
+            this._setUserInfo(stored.user);
             return this.accessToken;
         }
         
@@ -144,26 +112,14 @@ const AuthService = {
     },
 
     /**
-     * Ultra-fast OTP request with parallel processing
+     * Optimized OTP request with reduced validation
      */
     async requestOTP(email) {
-        const startTime = performance.now();
-        
         try {
-            this._log(`Ultra-fast OTP request for: ${email}`);
-            
-            // Parallel request preparation and validation
-            const [requestReady, validationDone] = await Promise.allSettled([
-                this._prepareOTPRequest(email),
-                this._validateEmail(email)
-            ]);
-            
-            if (validationDone.status === 'rejected') {
-                throw validationDone.reason;
-            }
+            this._log(`Fast OTP request for: ${email}`);
             
             const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 8000); // Reduced timeout
+            const timeoutId = setTimeout(() => controller.abort(), 10000); // 10s timeout
             
             const response = await fetch(`${this.AUTH_BASE_URL}/auth/request-otp`, {
                 method: 'POST',
@@ -180,12 +136,7 @@ const AuthService = {
                 throw new Error(data.error || 'Failed to request OTP');
             }
             
-            const result = await response.json();
-            
-            const otpTime = performance.now() - startTime;
-            this._log(`OTP request completed ultra-fast in ${otpTime.toFixed(2)}ms`);
-            
-            return result;
+            return await response.json();
             
         } catch (error) {
             throw new Error(`OTP request failed: ${error.message}`);
@@ -193,22 +144,16 @@ const AuthService = {
     },
 
     /**
-     * Ultra-fast OTP verification with parallel operations
+     * Fast OTP verification with minimal validation
      */
     async verifyOTP(email, otp) {
-        const startTime = performance.now();
-        
         try {
-            this._log(`Ultra-fast OTP verification for: ${email}`);
+            this._log(`Fast OTP verification for: ${email}`);
             
-            // Quick clear and parallel preparation
-            const clearTask = this._clearAuthStateFast();
-            const prepTask = this._prepareOTPVerification(email, otp);
-            
-            await Promise.allSettled([clearTask, prepTask]);
+            this._clearAuthState(); // Quick clear
             
             const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 12000); // Slightly increased for verification
+            const timeoutId = setTimeout(() => controller.abort(), 15000);
             
             const response = await fetch(`${this.AUTH_BASE_URL}/auth/verify-otp`, {
                 method: 'POST',
@@ -228,83 +173,67 @@ const AuthService = {
             const data = await response.json();
             const { user, tokens } = data;
             
-            // Parallel validation and setup
-            const [validationResult, setupResult] = await Promise.allSettled([
-                this._validateAuthResponseParallel(user, tokens),
-                this._prepareAuthSetupParallel()
-            ]);
-            
-            if (validationResult.status === 'rejected') {
-                throw validationResult.reason;
+            // Quick validation and setup
+            if (!user?.id || !user?.email || !tokens?.access_token) {
+                throw new Error('Invalid authentication response');
             }
             
-            // Ultra-fast authentication setup
-            const setupTasks = [
-                this._setAccessTokenFast(tokens.access_token, tokens.expires_in),
-                this._setUserInfoFast(user),
-                this._cacheAuthStateParallel({
-                    user,
-                    token: tokens.access_token,
-                    expiresIn: tokens.expires_in,
-                    timestamp: Date.now()
-                }),
-                this._storeAccessTokenParallel(tokens.access_token, tokens.expires_in, user)
-            ];
+            // Set authentication state immediately
+            this._setAccessToken(tokens.access_token, tokens.expires_in);
+            this._setUserInfo(user);
             
-            await Promise.allSettled(setupTasks);
+            // Cache the auth state
+            this._cacheAuthState({
+                user,
+                token: tokens.access_token,
+                expiresIn: tokens.expires_in,
+                timestamp: Date.now()
+            });
             
-            // Start refresh timer (non-blocking)
-            requestAnimationFrame(() => this._scheduleRefreshOptimized());
+            // Store for persistence
+            this._storeAccessToken(tokens.access_token, tokens.expires_in, user);
             
-            const verifyTime = performance.now() - startTime;
-            this._log(`Ultra-fast authentication completed in ${verifyTime.toFixed(2)}ms`);
+            // Start refresh timer
+            this._scheduleRefresh();
             
+            this._log('Fast authentication successful');
             return data;
             
         } catch (error) {
-            await this._clearAuthStateFast();
+            this._clearAuthState();
             throw new Error(`OTP verification failed: ${error.message}`);
         }
     },
 
     /**
-     * Ultra-fast function execution with parallel processing and enhanced error handling
+     * Optimized func execution with enhanced logging
      */
     async executeFunction(functionName, inputData) {
-        const startTime = performance.now();
-        
         if (!this.isAuthenticated()) {
             throw new Error('Authentication required');
         }
         
-        // Ultra-fast token acquisition with parallel refresh
-        let accessToken = this.getToken();
+        // Get token (cached if available)
+        const accessToken = this.getToken();
         if (!accessToken) {
-            const [refreshResult, tokenResult] = await Promise.allSettled([
-                this._ultraFastRefresh(),
-                this._getTokenFromStorage()
-            ]);
-            
-            if (refreshResult.status === 'fulfilled' && refreshResult.value) {
-                accessToken = this.getToken();
-            } else if (tokenResult.status === 'fulfilled' && tokenResult.value) {
-                accessToken = tokenResult.value;
-            } else {
+            // Try refresh once
+            const refreshed = await this._quickRefresh();
+            if (!refreshed) {
                 throw new Error('No valid access token available');
             }
         }
         
-        this._log('Executing function ultra-fast:', functionName);
+        this._log('Executing function:', functionName, 'with input:', inputData);
         
         try {
             const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 25000); // Reduced timeout
+            const timeoutId = setTimeout(() => controller.abort(), 30000); // 30s timeout
             
             const response = await fetch(`${this.AUTH_BASE_URL}/api/function/${functionName}`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${accessToken}`
+                    'Authorization': `Bearer ${this.accessToken}`
                 },
                 body: JSON.stringify(inputData),
                 credentials: 'include',
@@ -313,25 +242,26 @@ const AuthService = {
             
             clearTimeout(timeoutId);
             
+            this._log('Response status:', response.status, response.statusText);
+            
             if (!response.ok) {
                 if (response.status === 401) {
-                    // Ultra-fast retry with token refresh
-                    const refreshed = await this._ultraFastRefresh();
+                    // Try refresh once
+                    const refreshed = await this._quickRefresh();
                     if (refreshed) {
                         return this.executeFunction(functionName, inputData);
                     }
-                    await this._clearAuthStateFast();
+                    this._clearAuthState();
                     throw new Error('Session expired');
                 }
                 
                 const errorData = await response.json().catch(() => ({}));
+                this._error('API error response:', errorData);
                 throw new Error(errorData.error || errorData.detail || `Function execution failed with status ${response.status}`);
             }
             
             const result = await response.json();
-            
-            const execTime = performance.now() - startTime;
-            this._log(`Function ${functionName} executed ultra-fast in ${execTime.toFixed(2)}ms`);
+            this._log('Function response:', functionName, JSON.stringify(result, null, 2));
             
             return result;
             
@@ -342,32 +272,18 @@ const AuthService = {
     },
 
     /**
-     * Ultra-fast token refresh with parallel processing
+     * Quick token refresh without complex validation
      */
-    async _ultraFastRefresh() {
-        // Return existing refresh promise if in progress
-        if (this.refreshInProgress && this.refreshPromise) {
-            return this.refreshPromise;
+    async _quickRefresh() {
+        if (this.refreshInProgress) {
+            return false; // Don't wait, just fail fast
         }
         
         this.refreshInProgress = true;
         
-        // Create refresh promise for reuse
-        this.refreshPromise = this._performUltraFastRefresh();
-        
-        try {
-            const result = await this.refreshPromise;
-            return result;
-        } finally {
-            this.refreshInProgress = false;
-            this.refreshPromise = null;
-        }
-    },
-
-    async _performUltraFastRefresh() {
         try {
             const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 8000);
+            const timeoutId = setTimeout(() => controller.abort(), 10000);
             
             const response = await fetch(`${this.AUTH_BASE_URL}/auth/refresh`, {
                 method: 'POST',
@@ -379,7 +295,7 @@ const AuthService = {
             clearTimeout(timeoutId);
             
             if (!response.ok) {
-                await this._clearAuthStateFast();
+                this._clearAuthState();
                 return false;
             }
             
@@ -395,58 +311,61 @@ const AuthService = {
             }
             
             if (accessToken) {
-                // Parallel token updates
-                const updateTasks = [
-                    this._setAccessTokenFast(accessToken, expiresIn),
-                    this._updateStoredTokenParallel(accessToken, expiresIn),
-                    Promise.resolve().then(() => this._scheduleRefreshOptimized())
-                ];
-                
-                await Promise.allSettled(updateTasks);
+                this._setAccessToken(accessToken, expiresIn);
+                this._updateStoredToken(accessToken, expiresIn);
+                this._scheduleRefresh();
                 return true;
             }
             
             return false;
             
         } catch (error) {
-            await this._clearAuthStateFast();
+            this._clearAuthState();
             return false;
+        } finally {
+            this.refreshInProgress = false;
         }
     },
 
     /**
-     * Ultra-fast refresh if needed
+     * Lazy refresh - only when needed
      */
     async refreshTokenIfNeeded() {
-        if (this.accessToken && this._isAccessTokenValidFast()) {
+        if (this.accessToken && this._isAccessTokenValid()) {
             return true;
         }
-        return this._ultraFastRefresh();
+        return this._quickRefresh();
     },
 
     /**
-     * Ultra-fast logout with parallel cleanup
+     * Fast logout with minimal API calls
      */
     async logout() {
-        const startTime = performance.now();
-        
         try {
             this._clearRefreshTimer();
             
-            // Parallel logout call and cleanup
-            const logoutTasks = [
-                this._performLogoutRequest(),
-                this._clearAuthStateFast()
-            ];
-            
-            await Promise.allSettled(logoutTasks);
-            
-            const logoutTime = performance.now() - startTime;
-            this._log(`Ultra-fast logout completed in ${logoutTime.toFixed(2)}ms`);
+            // Call logout endpoint with short timeout
+            if (this.accessToken) {
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 5000);
+                
+                fetch(`${this.AUTH_BASE_URL}/auth/logout`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${this.accessToken}`
+                    },
+                    credentials: 'include',
+                    signal: controller.signal
+                }).catch(() => {}); // Ignore errors
+                
+                clearTimeout(timeoutId);
+            }
             
         } catch (error) {
-            // Always clear auth state even if logout fails
-            await this._clearAuthStateFast();
+            // Ignore logout errors
+        } finally {
+            this._clearAuthState();
         }
     },
 
@@ -462,48 +381,17 @@ const AuthService = {
     },
 
     hasPersistentSession() {
-        return this._hasRefreshTokenCookieFast();
+        return this._hasRefreshTokenCookie();
     },
 
-    // Ultra-fast private methods with parallel processing
+    // Private methods - optimized for performance
 
-    async _performLogoutRequest() {
-        if (!this.accessToken) return;
-        
-        try {
-            const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 3000);
-            
-            await fetch(`${this.AUTH_BASE_URL}/auth/logout`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${this.accessToken}`
-                },
-                credentials: 'include',
-                signal: controller.signal
-            });
-            
-            clearTimeout(timeoutId);
-        } catch (error) {
-            // Ignore logout errors
-        }
-    },
-
-    _setAccessTokenFast(token, expiresIn) {
+    _setAccessToken(token, expiresIn) {
         this.accessToken = token;
         this.tokenExpiry = Date.now() + (expiresIn * 1000);
-        
-        // Update token cache
-        this.tokenCache.set('current_token', {
-            token,
-            expiresIn,
-            expiry: this.tokenExpiry,
-            cached: Date.now()
-        });
     },
 
-    _setUserInfoFast(user) {
+    _setUserInfo(user) {
         this.authenticated = true;
         this.userEmail = user.email;
         this.userId = user.id;
@@ -511,71 +399,54 @@ const AuthService = {
         this.lastValidation = Date.now();
     },
 
-    async _clearAuthStateFast() {
-        return new Promise((resolve) => {
-            this.authenticated = false;
-            this.userEmail = null;
-            this.userId = null;
-            this.sessionId = null;
-            this.accessToken = null;
-            this.tokenExpiry = null;
-            this.lastValidation = null;
-            
-            this._clearRefreshTimer();
-            
-            // Parallel cache clearing
-            requestAnimationFrame(() => {
-                try {
-                    sessionStorage.removeItem('aaai_access_token');
-                    this.authCache.clear();
-                    this.tokenCache.clear();
-                } catch (error) {
-                    // Ignore storage errors
-                }
-                resolve();
-            });
-        });
+    _clearAuthState() {
+        this.authenticated = false;
+        this.userEmail = null;
+        this.userId = null;
+        this.sessionId = null;
+        this.accessToken = null;
+        this.tokenExpiry = null;
+        this.lastValidation = null;
+        
+        this._clearRefreshTimer();
+        sessionStorage.removeItem('aaai_access_token');
+        this.authCache.clear();
     },
 
-    _isAccessTokenValidFast() {
+    _isAccessTokenValid() {
         return this.accessToken && 
                this.tokenExpiry && 
                Date.now() < (this.tokenExpiry - this.options.refreshBufferTime);
     },
 
-    _isTokenValidFast(storedToken) {
+    _isTokenValid(storedToken) {
         return storedToken && 
                storedToken.token && 
                storedToken.expiry && 
                Date.now() < storedToken.expiry;
     },
 
-    async _storeAccessTokenParallel(token, expiresIn, user) {
-        return new Promise((resolve) => {
-            requestAnimationFrame(() => {
-                try {
-                    const tokenData = {
-                        token,
-                        expiry: Date.now() + (expiresIn * 1000),
-                        expiresIn,
-                        user: {
-                            id: user.id,
-                            email: user.email,
-                            session_id: user.session_id
-                        },
-                        stored: Date.now()
-                    };
-                    
-                    sessionStorage.setItem('aaai_access_token', JSON.stringify(tokenData));
-                } catch (error) {
-                    console.warn('Failed to store access token:', error);
-                }
-                resolve();
-            });
-        });
+    _storeAccessToken(token, expiresIn, user) {
+        try {
+            const tokenData = {
+                token,
+                expiry: Date.now() + (expiresIn * 1000),
+                expiresIn,
+                user: {
+                    id: user.id,
+                    email: user.email,
+                    session_id: user.session_id
+                },
+                stored: Date.now()
+            };
+            
+            sessionStorage.setItem('aaai_access_token', JSON.stringify(tokenData));
+        } catch (error) {
+            console.warn('Failed to store access token:', error);
+        }
     },
 
-    _getStoredAccessTokenFast() {
+    _getStoredAccessToken() {
         try {
             const stored = sessionStorage.getItem('aaai_access_token');
             if (!stored) return null;
@@ -594,30 +465,25 @@ const AuthService = {
         }
     },
 
-    async _updateStoredTokenParallel(token, expiresIn) {
-        return new Promise((resolve) => {
-            requestAnimationFrame(() => {
-                try {
-                    const stored = this._getStoredAccessTokenFast();
-                    if (stored) {
-                        stored.token = token;
-                        stored.expiry = Date.now() + (expiresIn * 1000);
-                        stored.expiresIn = expiresIn;
-                        sessionStorage.setItem('aaai_access_token', JSON.stringify(stored));
-                    }
-                } catch (error) {
-                    console.warn('Failed to update stored token:', error);
-                }
-                resolve();
-            });
-        });
+    _updateStoredToken(token, expiresIn) {
+        try {
+            const stored = this._getStoredAccessToken();
+            if (stored) {
+                stored.token = token;
+                stored.expiry = Date.now() + (expiresIn * 1000);
+                stored.expiresIn = expiresIn;
+                sessionStorage.setItem('aaai_access_token', JSON.stringify(stored));
+            }
+        } catch (error) {
+            console.warn('Failed to update stored token:', error);
+        }
     },
 
-    _hasRefreshTokenCookieFast() {
+    _hasRefreshTokenCookie() {
         return document.cookie.includes('authenticated=true');
     },
 
-    _scheduleRefreshOptimized() {
+    _scheduleRefresh() {
         this._clearRefreshTimer();
         
         if (!this.tokenExpiry) return;
@@ -626,19 +492,19 @@ const AuthService = {
         
         if (refreshTime > 0) {
             this.refreshTimer = setTimeout(() => {
-                // Smart refresh with visibility check
+                // Smart refresh: only refresh if page is visible or about to expire
                 const timeToExpiry = this.tokenExpiry - Date.now();
                 const shouldRefresh = document.visibilityState === 'visible' || 
                                     timeToExpiry < (this.options.refreshBufferTime / 2);
                 
                 if (shouldRefresh) {
-                    this._ultraFastRefresh().catch(() => {});
+                    this._quickRefresh().catch(() => {});
                 } else {
                     // Defer refresh until page becomes visible
                     const handleVisibilityChange = () => {
                         if (document.visibilityState === 'visible') {
                             document.removeEventListener('visibilitychange', handleVisibilityChange);
-                            this._ultraFastRefresh().catch(() => {});
+                            this._quickRefresh().catch(() => {});
                         }
                     };
                     document.addEventListener('visibilitychange', handleVisibilityChange);
@@ -654,9 +520,14 @@ const AuthService = {
         }
     },
 
-    // Parallel initialization helpers
+    _cacheAuthState(state) {
+        this.authCache.set('auth_state', {
+            ...state,
+            cached: Date.now()
+        });
+    },
 
-    async _loadCachedAuthStateParallel() {
+    _getCachedAuthState() {
         const cached = this.authCache.get('auth_state');
         if (cached && (Date.now() - cached.cached) < this.options.cacheTimeout) {
             return cached;
@@ -664,83 +535,19 @@ const AuthService = {
         return null;
     },
 
-    async _checkRefreshTokenParallel() {
-        return this._hasRefreshTokenCookieFast();
-    },
-
-    async _initializeTokenCacheParallel() {
-        this.tokenCache.clear();
-        return Promise.resolve();
-    },
-
-    async _restoreTokenParallel() {
-        const stored = this._getStoredAccessTokenFast();
-        if (stored && this._isTokenValidFast(stored)) {
-            this._setAccessTokenFast(stored.token, stored.expiresIn);
-            this._setUserInfoFast(stored.user);
-            return true;
-        }
-        return false;
-    },
-
-    async _prepareOTPRequest(email) {
-        // Placeholder for request preparation
-        return Promise.resolve();
-    },
-
-    async _validateEmail(email) {
-        if (!email || !email.includes('@')) {
-            throw new Error('Invalid email format');
-        }
-        return Promise.resolve();
-    },
-
-    async _prepareOTPVerification(email, otp) {
-        if (!otp || otp.length !== 6) {
-            throw new Error('Invalid OTP format');
-        }
-        return Promise.resolve();
-    },
-
-    async _validateAuthResponseParallel(user, tokens) {
-        if (!user?.id || !user?.email || !tokens?.access_token) {
-            throw new Error('Invalid authentication response');
-        }
-        return Promise.resolve();
-    },
-
-    async _prepareAuthSetupParallel() {
-        return Promise.resolve();
-    },
-
-    async _cacheAuthStateParallel(state) {
-        return new Promise((resolve) => {
-            this.authCache.set('auth_state', {
-                ...state,
-                cached: Date.now()
-            });
-            resolve();
-        });
-    },
-
-    async _getTokenFromStorage() {
-        const stored = this._getStoredAccessTokenFast();
-        return stored?.token || null;
-    },
-
     _restoreFromCache(cached) {
-        this._setAccessTokenFast(cached.token, cached.expiresIn);
-        this._setUserInfoFast(cached.user);
+        this._setAccessToken(cached.token, cached.expiresIn);
+        this._setUserInfo(cached.user);
     },
 
     _log(...args) {
         if (this.options.debug) {
-            console.log('[UltraFastAuth]', ...args);
+            console.log('[FastAuth]', ...args);
         }
     },
     
     _error(...args) {
-        console.error('[UltraFastAuth]', ...args);
+        console.error('[FastAuth]', ...args);
     }
 };
 

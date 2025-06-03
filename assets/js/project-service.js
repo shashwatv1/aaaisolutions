@@ -1,33 +1,31 @@
 /**
- * Ultra-fast Project Service for AAAI Solutions
- * Optimized with parallel processing, aggressive caching, and non-blocking operations
+ * High-Performance Project Service for AAAI Solutions
+ * Optimized for fast loading and minimal API calls
  */
 const ProjectService = {
     // Core service state
     authService: null,
     isInitialized: false,
     
-    // Performance-optimized cache with faster access
+    // Performance-optimized cache
     projectCache: new Map(),
     cacheTimestamps: new Map(),
     contextCache: null,
     lastCacheUpdate: null,
     
-    // Optimized configuration
+    // Configuration - optimized with efficient real-time updates
     options: {
-        cacheExpiry: 180000, // Reduced to 3 minutes for fresher data
-        maxCacheSize: 50, // Reduced for better memory management
-        quickCacheExpiry: 15000, // Reduced to 15 seconds
-        enableRealTimeUpdates: true,
-        autoSync: true,
-        syncInterval: 90000, // Increased to 1.5 minutes to reduce load
-        smartSync: true,
-        batchOperations: true, // New: Enable batch operations
-        parallelLoading: true, // New: Enable parallel loading
+        cacheExpiry: 300000, // 5 minutes 
+        maxCacheSize: 100, // Reduced
+        quickCacheExpiry: 30000, // 30 seconds for frequent operations
+        enableRealTimeUpdates: true, // Efficient real-time updates
+        autoSync: true, // Smart auto-sync enabled
+        syncInterval: 60000, // 1 minute (increased from 30s)
+        smartSync: true, // Only sync when page is visible
         debug: false
     },
     
-    // Context management - streamlined
+    // Context management - simplified
     currentContext: {
         user_id: null,
         current_project: null,
@@ -35,15 +33,11 @@ const ProjectService = {
         project_name: null
     },
     
-    // Performance monitoring
-    operationTimes: new Map(),
-    requestQueue: new Map(),
-    
     // Event listeners - minimal
     updateListeners: [],
     
     /**
-     * Ultra-fast initialization with parallel setup
+     * Fast initialization with minimal checks
      */
     init(authService, options = {}) {
         if (this.isInitialized) {
@@ -54,8 +48,6 @@ const ProjectService = {
             throw new Error('AuthService required');
         }
         
-        const startTime = performance.now();
-        
         this.authService = authService;
         this.options = { ...this.options, ...options };
         
@@ -63,36 +55,27 @@ const ProjectService = {
             this.options.debug = true;
         }
         
-        // Parallel initialization tasks
-        const initTasks = [
-            this._initializeUserContext(),
-            this._loadQuickContextParallel(),
-            this._setupOptimizedAutoSync(),
-            this._setupCacheCleanupOptimized()
-        ];
-        
-        // Execute all initialization tasks in parallel
-        Promise.allSettled(initTasks).then(results => {
-            const failed = results.filter(r => r.status === 'rejected');
-            if (failed.length > 0) {
-                console.warn('Some initialization tasks failed:', failed);
+        // Get user context only if authenticated
+        if (authService.isAuthenticated()) {
+            const user = authService.getCurrentUser();
+            if (user) {
+                this.currentContext.user_id = user.id;
             }
-        });
+        }
         
+        this._loadQuickContext();
+        this._setupEfficientAutoSync(); // Smart auto-sync
+        this._setupCacheCleanup();
         this.isInitialized = true;
         
-        const initTime = performance.now() - startTime;
-        this._log(`ProjectService initialized ultra-fast in ${initTime.toFixed(2)}ms`);
-        
+        this._log('ProjectService initialized quickly');
         return this;
     },
 
     /**
-     * Ultra-fast project creation with parallel processing
+     * Fast project creation with post-creation recovery
      */
     async createProject(projectData) {
-        const startTime = performance.now();
-        
         try {
             this._requireAuth();
             
@@ -101,7 +84,7 @@ const ProjectService = {
                 throw new Error('User information not available');
             }
             
-            this._log('Creating project with parallel processing:', projectData.name);
+            this._log('Creating project:', projectData.name);
             
             const functionInput = {
                 name: projectData.name,
@@ -110,61 +93,69 @@ const ProjectService = {
                 email: user.email
             };
             
-            // Execute creation with timeout and parallel recovery
-            const [result, recoveryReady] = await Promise.allSettled([
-                this._executeFunction('create_project_with_context', functionInput),
-                this._prepareRecoveryContext(projectData.name, user.email)
-            ]);
+            const result = await this._executeFunction('create_project_with_context', functionInput);
             
-            if (result.status === 'rejected') {
-                throw result.reason;
-            }
+            this._log('API response:', result);
             
-            const apiResult = result.value;
-            this._log('API response:', apiResult);
-            
-            // Parallel processing of different response types
-            let finalResult;
-            
-            if (apiResult?.status === 'success' && apiResult?.data?.success === false) {
-                this._log('Project creation function failed, attempting ultra-fast recovery...');
+            // Handle the case where project was created but function failed
+            if (result?.status === 'success' && result?.data?.success === false) {
+                this._log('Project creation function failed, attempting recovery...');
                 
-                // Ultra-fast recovery with parallel checks
-                finalResult = await this._recoverCreatedProjectParallel(projectData.name, user.email);
+                // Wait a moment for the project to be fully committed to database
+                await new Promise(resolve => setTimeout(resolve, 1000));
                 
-                if (!finalResult) {
-                    throw new Error('Project creation failed and recovery unsuccessful');
+                // Try to find the project that was just created
+                const recoveredProject = await this._recoverCreatedProject(projectData.name, user.email);
+                
+                if (recoveredProject) {
+                    this._log('Successfully recovered created project:', recoveredProject);
+                    return recoveredProject;
                 }
-            } else {
-                // Standard success path with parallel validation
-                finalResult = await this._processSuccessfulCreation(apiResult);
+                
+                throw new Error('Project creation failed and recovery unsuccessful');
             }
             
-            // Parallel cache and context updates
-            const updateTasks = [
-                this._quickCacheProject(finalResult.project),
-                this._clearProjectListCacheParallel(),
-                this._updateContextQuickParallel({
-                    current_project: finalResult.project,
-                    chat_id: finalResult.chat_id,
-                    project_name: finalResult.project.name
-                })
-            ];
+            // Standard success path
+            if (result?.status !== 'success' || !result?.data) {
+                throw new Error('Invalid API response');
+            }
             
-            await Promise.allSettled(updateTasks);
+            // Parse successful response
+            let project = null;
+            let chat_id = null;
             
-            // Non-blocking notification
-            requestAnimationFrame(() => {
-                this._notifyQuick('project_created', { 
-                    project: finalResult.project, 
-                    chat_id: finalResult.chat_id 
-                });
+            if (result.data.success && result.data.project) {
+                project = result.data.project;
+                chat_id = result.data.chat_id;
+            } else if (result.data.project && result.data.chat_id) {
+                project = result.data.project;
+                chat_id = result.data.chat_id;
+            }
+            
+            if (!project?.id || !chat_id) {
+                throw new Error('Invalid project data in response');
+            }
+            
+            // Quick cache update
+            this._quickCacheProject(project);
+            this._clearProjectListCache();
+            
+            // Update context immediately
+            this._updateContextQuick({
+                current_project: project,
+                chat_id: chat_id,
+                project_name: project.name
             });
             
-            const createTime = performance.now() - startTime;
-            this._log(`Project created ultra-fast in ${createTime.toFixed(2)}ms`);
+            this._notifyQuick('project_created', { project, chat_id });
             
-            return finalResult;
+            this._log('Project created successfully:', project.id);
+            
+            return {
+                success: true,
+                project: project,
+                chat_id: chat_id
+            };
             
         } catch (error) {
             this._error('Error creating project:', error);
@@ -173,11 +164,9 @@ const ProjectService = {
     },
 
     /**
-     * Ultra-fast project list with parallel loading and aggressive caching
+     * Fast project list with aggressive caching
      */
     async getProjects(options = {}) {
-        const startTime = performance.now();
-        
         try {
             this._requireAuth();
             
@@ -190,12 +179,11 @@ const ProjectService = {
             
             const cacheKey = `list_${limit}_${offset}_${search}`;
             
-            // Ultra-aggressive cache check
+            // Check cache first (aggressive caching)
             if (!forceRefresh) {
-                const cached = this._getQuickCacheParallel(cacheKey);
+                const cached = this._getQuickCache(cacheKey);
                 if (cached) {
-                    const cacheTime = performance.now() - startTime;
-                    this._log(`Projects from cache in ${cacheTime.toFixed(2)}ms`);
+                    this._log('Projects from cache');
                     return cached;
                 }
             }
@@ -205,24 +193,14 @@ const ProjectService = {
                 throw new Error('User information not available');
             }
             
-            this._log('Getting projects with parallel processing for:', user.email);
+            this._log('Getting projects for:', user.email);
             
-            // Parallel API call with context preparation
-            const [apiResult, cacheReady] = await Promise.allSettled([
-                this._executeFunction('list_user_projects', {
-                    email: user.email,
-                    limit,
-                    offset,
-                    search: search.trim()
-                }),
-                this._prepareCacheSpace()
-            ]);
-            
-            if (apiResult.status === 'rejected') {
-                throw apiResult.reason;
-            }
-            
-            const result = apiResult.value;
+            const result = await this._executeFunction('list_user_projects', {
+                email: user.email,
+                limit,
+                offset,
+                search: search.trim()
+            });
             
             if (result?.data?.success) {
                 const projectData = {
@@ -230,21 +208,14 @@ const ProjectService = {
                     total: result.data.total || 0,
                     hasMore: result.data.has_more || false,
                     limit,
-                    offset,
-                    timestamp: Date.now()
+                    offset
                 };
                 
-                // Parallel caching operations
-                const cachingTasks = [
-                    this._cacheProjectsBatch(projectData.projects),
-                    this._setQuickCacheParallel(cacheKey, projectData)
-                ];
+                // Cache projects individually and list result
+                projectData.projects.forEach(project => this._quickCacheProject(project));
+                this._setQuickCache(cacheKey, projectData);
                 
-                await Promise.allSettled(cachingTasks);
-                
-                const loadTime = performance.now() - startTime;
-                this._log(`Projects retrieved ultra-fast in ${loadTime.toFixed(2)}ms:`, projectData.projects.length);
-                
+                this._log('Projects retrieved:', projectData.projects.length);
                 return projectData;
             }
             
@@ -257,11 +228,9 @@ const ProjectService = {
     },
 
     /**
-     * Ultra-fast project details with intelligent caching
+     * Fast project details with caching
      */
     async getProject(projectId, forceRefresh = false) {
-        const startTime = performance.now();
-        
         try {
             this._requireAuth();
             
@@ -269,17 +238,11 @@ const ProjectService = {
                 throw new Error('Project ID required');
             }
             
-            // Intelligent cache check with parallel validation
+            // Check cache first
             if (!forceRefresh) {
-                const [cached, isValid] = await Promise.allSettled([
-                    Promise.resolve(this._getCachedProjectParallel(projectId)),
-                    this._validateCacheEntry(projectId)
-                ]);
-                
-                if (cached.status === 'fulfilled' && cached.value && isValid.status === 'fulfilled' && isValid.value) {
-                    const cacheTime = performance.now() - startTime;
-                    this._log(`Project details from cache in ${cacheTime.toFixed(2)}ms`);
-                    return cached.value;
+                const cached = this._getCachedProject(projectId);
+                if (cached) {
+                    return cached;
                 }
             }
             
@@ -288,36 +251,18 @@ const ProjectService = {
                 throw new Error('User information not available');
             }
             
-            // Parallel API call and cache preparation
-            const [result, cacheReady] = await Promise.allSettled([
-                this._executeFunction('get_project_details', {
-                    project_id: projectId,
-                    email: user.email
-                }),
-                this._prepareCacheForProject(projectId)
-            ]);
+            const result = await this._executeFunction('get_project_details', {
+                project_id: projectId,
+                email: user.email
+            });
             
-            if (result.status === 'rejected') {
-                throw result.reason;
-            }
-            
-            const apiResult = result.value;
-            
-            if (apiResult?.status === 'success' && apiResult?.data?.success) {
-                const project = apiResult.data.project;
-                
-                // Quick cache update (non-blocking)
-                requestAnimationFrame(() => {
-                    this._quickCacheProject(project);
-                });
-                
-                const detailTime = performance.now() - startTime;
-                this._log(`Project details retrieved ultra-fast in ${detailTime.toFixed(2)}ms`);
-                
+            if (result?.status === 'success' && result?.data?.success) {
+                const project = result.data.project;
+                this._quickCacheProject(project);
                 return project;
             }
             
-            throw new Error(apiResult?.data?.message || 'Project not found');
+            throw new Error(result?.data?.message || 'Project not found');
             
         } catch (error) {
             this._error('Error getting project:', error);
@@ -326,11 +271,9 @@ const ProjectService = {
     },
 
     /**
-     * Ultra-fast context switching with parallel operations
+     * Fast context switching with retry logic
      */
     async switchToProject(projectId, projectName = null) {
-        const startTime = performance.now();
-        
         try {
             this._requireAuth();
             
@@ -339,38 +282,47 @@ const ProjectService = {
                 throw new Error('User information not available');
             }
             
-            this._log('Ultra-fast project switch:', projectId);
+            this._log('Quick project switch:', projectId);
             
-            // Parallel context switch and preparation
-            const [switchResult, prepReady] = await Promise.allSettled([
-                this._executeSwitchWithRetry(user.email, projectId),
-                this._prepareContextSwitch(projectId, projectName)
-            ]);
+            let result = await this._executeFunction('switch_project_context', {
+                email: user.email,
+                project_id: projectId,
+                reel_id: null
+            });
             
-            if (switchResult.status === 'rejected') {
-                throw switchResult.reason;
+            // Retry once if failed
+            if (result?.status === 'success' && result?.data?.success === false) {
+                this._log('Context switch failed, retrying...');
+                await new Promise(resolve => setTimeout(resolve, 1000));
+                
+                result = await this._executeFunction('switch_project_context', {
+                    email: user.email,
+                    project_id: projectId,
+                    reel_id: null
+                });
             }
-            
-            const result = switchResult.value;
             
             if (result?.status === 'success' && result?.data?.success) {
                 const project = result.data.project;
                 const chat_id = result.data.chat_id;
                 
-                // Parallel context and service updates
-                const updateTasks = [
-                    this._updateContextQuickParallel({
-                        current_project: project,
-                        chat_id: chat_id,
-                        project_name: project.name
-                    }),
-                    this._updateChatServiceContext(chat_id, project.name)
-                ];
+                // Update context immediately
+                this._updateContextQuick({
+                    current_project: project,
+                    chat_id: chat_id,
+                    project_name: project.name
+                });
                 
-                await Promise.allSettled(updateTasks);
+                // Update ChatService if available (non-blocking)
+                if (window.ChatService?.isInitialized) {
+                    try {
+                        window.ChatService.setProjectContext(chat_id, project.name);
+                    } catch (error) {
+                        console.warn('ChatService context update failed:', error);
+                    }
+                }
                 
-                const switchTime = performance.now() - startTime;
-                this._log(`Project context switched ultra-fast in ${switchTime.toFixed(2)}ms`);
+                this._log('Project context switched:', project.id);
                 
                 return {
                     success: true,
@@ -389,19 +341,15 @@ const ProjectService = {
     },
 
     /**
-     * Ultra-fast context retrieval with intelligent caching
+     * Fast context retrieval with caching
      */
     async getCurrentContext() {
-        const startTime = performance.now();
-        
         try {
             this._requireAuth();
             
-            // Intelligent cache check
-            const cacheAge = this.lastCacheUpdate ? Date.now() - this.lastCacheUpdate : Infinity;
-            if (this.contextCache && cacheAge < this.options.quickCacheExpiry) {
-                const cacheTime = performance.now() - startTime;
-                this._log(`Context from cache in ${cacheTime.toFixed(2)}ms`);
+            // Use cached context if recent
+            if (this.contextCache && this.lastCacheUpdate && 
+                (Date.now() - this.lastCacheUpdate) < this.options.quickCacheExpiry) {
                 return this.contextCache;
             }
             
@@ -410,44 +358,35 @@ const ProjectService = {
                 throw new Error('User information not available');
             }
             
-            // Parallel context fetch and cache preparation
-            const [result, cacheReady] = await Promise.allSettled([
-                this._executeFunction('get_user_context', {
-                    email: user.email
-                }),
-                this._prepareContextCache()
-            ]);
+            const result = await this._executeFunction('get_user_context', {
+                email: user.email
+            });
             
-            if (result.status === 'rejected') {
-                throw result.reason;
-            }
-            
-            const apiResult = result.value;
-            
-            if (apiResult?.status === 'success' && apiResult?.data?.success) {
+            if (result?.status === 'success' && result?.data?.success) {
                 const contextResult = {
                     success: true,
-                    context: apiResult.data.context,
-                    current_project: apiResult.data.current_project,
-                    user_id: apiResult.data.user_id
+                    context: result.data.context,
+                    current_project: result.data.current_project,
+                    user_id: result.data.user_id
                 };
                 
-                // Parallel context updates
-                const updateTasks = [
-                    this._updateLocalContext(apiResult.data),
-                    this._cacheContextResult(contextResult),
-                    this._saveQuickContextParallel()
-                ];
+                // Update local context
+                this.currentContext = {
+                    ...this.currentContext,
+                    current_project: result.data.current_project,
+                    chat_id: result.data.context?.current_chat_id,
+                    project_name: result.data.current_project?.name
+                };
                 
-                await Promise.allSettled(updateTasks);
-                
-                const contextTime = performance.now() - startTime;
-                this._log(`Context retrieved ultra-fast in ${contextTime.toFixed(2)}ms`);
+                // Cache the result
+                this.contextCache = contextResult;
+                this.lastCacheUpdate = Date.now();
+                this._saveQuickContext();
                 
                 return contextResult;
             }
             
-            throw new Error(apiResult?.data?.message || 'Failed to get user context');
+            throw new Error(result?.data?.message || 'Failed to get user context');
             
         } catch (error) {
             this._error('Error getting context:', error);
@@ -463,31 +402,23 @@ const ProjectService = {
     },
 
     /**
-     * Ultra-fast cache clearing with parallel operations
+     * Clear cache efficiently
      */
     clearCache() {
-        const startTime = performance.now();
-        
         const cleared = this.projectCache.size;
+        this.projectCache.clear();
+        this.cacheTimestamps.clear();
+        this.contextCache = null;
+        this.lastCacheUpdate = null;
         
-        // Parallel cache clearing
-        const clearTasks = [
-            Promise.resolve().then(() => {
-                this.projectCache.clear();
-                this.cacheTimestamps.clear();
-            }),
-            Promise.resolve().then(() => {
-                this.contextCache = null;
-                this.lastCacheUpdate = null;
-            }),
-            this._clearSessionStorageParallel()
-        ];
+        try {
+            sessionStorage.removeItem('aaai_project_context');
+            sessionStorage.removeItem('aaai_project_cache');
+        } catch (error) {
+            // Ignore storage errors
+        }
         
-        Promise.allSettled(clearTasks).then(() => {
-            const clearTime = performance.now() - startTime;
-            this._log(`Cleared ${cleared} cached items ultra-fast in ${clearTime.toFixed(2)}ms`);
-        });
-        
+        this._log(`Cleared ${cleared} cached items`);
         return cleared;
     },
 
@@ -504,7 +435,7 @@ const ProjectService = {
         }
     },
 
-    // Ultra-fast private methods with parallel processing
+    // Private methods - optimized for speed
 
     _requireAuth() {
         if (!this.authService?.isAuthenticated()) {
@@ -515,21 +446,19 @@ const ProjectService = {
     async _executeFunction(functionName, inputData) {
         this._requireAuth();
         
-        const startTime = performance.now();
-        this._log('Executing function:', functionName);
+        this._log('Executing function:', functionName, 'with input:', inputData);
         
         try {
             const result = await this.authService.executeFunction(functionName, inputData);
             
-            const execTime = performance.now() - startTime;
-            this.operationTimes.set(functionName, execTime);
-            
-            this._logAPIResponseOptimized(functionName, result, execTime);
+            // Log detailed response structure
+            this._logAPIResponse(functionName, result);
             
             return result;
         } catch (error) {
             this._error('Function execution failed:', functionName, {
                 error: error.message,
+                stack: error.stack,
                 inputData: inputData
             });
             throw error;
@@ -537,99 +466,70 @@ const ProjectService = {
     },
 
     /**
-     * Optimized API response logging
+     * Enhanced error logging with response details
      */
-    _logAPIResponseOptimized(functionName, result, execTime) {
-        this._log(`API Response for ${functionName} (${execTime.toFixed(2)}ms):`, {
+    _logAPIResponse(functionName, result) {
+        this._log(`API Response for ${functionName}:`, {
             hasStatus: !!result?.status,
             status: result?.status,
             hasData: !!result?.data,
+            dataType: typeof result?.data,
             hasSuccess: !!result?.success,
             hasProject: !!(result?.project || result?.data?.project),
-            hasChatId: !!(result?.chat_id || result?.data?.chat_id)
+            hasChatId: !!(result?.chat_id || result?.data?.chat_id),
+            keys: result ? Object.keys(result) : [],
+            dataKeys: result?.data ? Object.keys(result.data) : []
         });
     },
 
-    /**
-     * Ultra-fast project caching with batch operations
-     */
     _quickCacheProject(project) {
         if (!project?.id) return;
         
         this.projectCache.set(project.id, project);
         this.cacheTimestamps.set(project.id, Date.now());
         
-        // Efficient cache size management
+        // Simple cleanup if too many items
         if (this.projectCache.size > this.options.maxCacheSize) {
-            this._cleanupCacheEfficient();
+            const oldestKey = Array.from(this.cacheTimestamps.entries())
+                .sort((a, b) => a[1] - b[1])[0][0];
+            this.projectCache.delete(oldestKey);
+            this.cacheTimestamps.delete(oldestKey);
         }
     },
 
-    /**
-     * Parallel project caching
-     */
-    async _cacheProjectsBatch(projects) {
-        if (!Array.isArray(projects)) return;
-        
-        return new Promise((resolve) => {
-            requestAnimationFrame(() => {
-                projects.forEach(project => this._quickCacheProject(project));
-                resolve();
-            });
-        });
+    _getCachedProject(projectId) {
+        const timestamp = this.cacheTimestamps.get(projectId);
+        if (!timestamp || (Date.now() - timestamp) > this.options.cacheExpiry) {
+            this.projectCache.delete(projectId);
+            this.cacheTimestamps.delete(projectId);
+            return null;
+        }
+        return this.projectCache.get(projectId);
     },
 
-    /**
-     * Parallel cached project retrieval
-     */
-    _getCachedProjectParallel(projectId) {
-        return new Promise((resolve) => {
-            requestAnimationFrame(() => {
-                const timestamp = this.cacheTimestamps.get(projectId);
-                if (!timestamp || (Date.now() - timestamp) > this.options.cacheExpiry) {
-                    this.projectCache.delete(projectId);
-                    this.cacheTimestamps.delete(projectId);
-                    resolve(null);
-                } else {
-                    resolve(this.projectCache.get(projectId));
+    _setQuickCache(key, data) {
+        try {
+            const cache = JSON.parse(sessionStorage.getItem('aaai_project_cache') || '{}');
+            cache[key] = {
+                data,
+                timestamp: Date.now()
+            };
+            
+            // Keep only recent entries
+            const now = Date.now();
+            Object.keys(cache).forEach(k => {
+                if (now - cache[k].timestamp > this.options.cacheExpiry) {
+                    delete cache[k];
                 }
             });
-        });
+            
+            sessionStorage.setItem('aaai_project_cache', JSON.stringify(cache));
+        } catch (error) {
+            // Ignore storage errors
+        }
     },
 
-    /**
-     * Parallel cache validation
-     */
-    async _validateCacheEntry(projectId) {
-        return new Promise((resolve) => {
-            const timestamp = this.cacheTimestamps.get(projectId);
-            resolve(timestamp && (Date.now() - timestamp) < this.options.cacheExpiry);
-        });
-    },
-
-    /**
-     * Parallel quick cache operations
-     */
-    _setQuickCacheParallel(key, data) {
-        return new Promise((resolve) => {
-            requestAnimationFrame(() => {
-                try {
-                    const cache = JSON.parse(sessionStorage.getItem('aaai_project_cache') || '{}');
-                    cache[key] = {
-                        data,
-                        timestamp: Date.now()
-                    };
-                    
-                    sessionStorage.setItem('aaai_project_cache', JSON.stringify(cache));
-                    resolve();
-                } catch (error) {
-                    resolve(); // Ignore storage errors
-                }
-            });
-        });
-    },
-
-    _getQuickCacheParallel(key) {
+    _getQuickCache(key) {
         try {
             const cache = JSON.parse(sessionStorage.getItem('aaai_project_cache') || '{}');
             const item = cache[key];
@@ -644,75 +544,129 @@ const ProjectService = {
     },
 
     /**
-     * Parallel context switching operations
+     * Clean up expired cache entries
      */
-    async _executeSwitchWithRetry(email, projectId) {
-        let result = await this._executeFunction('switch_project_context', {
-            email: email,
-            project_id: projectId,
-            reel_id: null
-        });
+    _cleanupCache() {
+        const now = Date.now();
+        let cleanedCount = 0;
         
-        // Single retry with delay
-        if (result?.status === 'success' && result?.data?.success === false) {
-            this._log('Context switch failed, retrying with delay...');
-            await new Promise(resolve => setTimeout(resolve, 500));
-            
-            result = await this._executeFunction('switch_project_context', {
-                email: email,
-                project_id: projectId,
-                reel_id: null
-            });
+        // Clean up project cache
+        for (const [projectId, timestamp] of this.cacheTimestamps.entries()) {
+            if (now - timestamp > this.options.cacheExpiry) {
+                this.projectCache.delete(projectId);
+                this.cacheTimestamps.delete(projectId);
+                cleanedCount++;
+            }
         }
         
-        return result;
+        // Clean up context cache if expired
+        if (this.lastCacheUpdate && (now - this.lastCacheUpdate) > this.options.cacheExpiry) {
+            this.contextCache = null;
+            this.lastCacheUpdate = null;
+        }
+        
+        if (cleanedCount > 0) {
+            this._log(`Cleaned up ${cleanedCount} expired cache entries`);
+        }
     },
 
     /**
-     * Parallel context preparation
+     * Clean up expired search cache from session storage
      */
-    async _prepareContextSwitch(projectId, projectName) {
-        return Promise.resolve(); // Placeholder for future optimizations
-    },
-
-    /**
-     * Parallel context updates
-     */
-    async _updateContextQuickParallel(updates) {
-        return new Promise((resolve) => {
-            requestAnimationFrame(() => {
-                Object.assign(this.currentContext, updates);
-                this.contextCache = null;
-                resolve();
-            });
-        });
-    },
-
-    /**
-     * Non-blocking chat service update
-     */
-    async _updateChatServiceContext(chat_id, project_name) {
-        return new Promise((resolve) => {
-            setTimeout(() => {
-                try {
-                    if (window.ChatService?.isInitialized) {
-                        window.ChatService.setProjectContext(chat_id, project_name);
-                    }
-                } catch (error) {
-                    console.warn('ChatService context update failed:', error);
-                }
-                resolve();
-            }, 0);
-        });
-    },
-
-    /**
-     * Ultra-fast project recovery with parallel checks
-     */
-    async _recoverCreatedProjectParallel(projectName, userEmail) {
+    _cleanupSearchCache() {
         try {
-            this._log('Attempting ultra-fast project recovery:', projectName);
+            const cache = JSON.parse(sessionStorage.getItem('aaai_project_cache') || '{}');
+            const now = Date.now();
+            let cleanedCount = 0;
             
+            Object.keys(cache).forEach(key => {
+                if (cache[key].timestamp && (now - cache[key].timestamp) > this.options.cacheExpiry) {
+                    delete cache[key];
+                    cleanedCount++;
+                }
+            });
+            
+            if (cleanedCount > 0) {
+                sessionStorage.setItem('aaai_project_cache', JSON.stringify(cache));
+                this._log(`Cleaned up ${cleanedCount} expired search cache entries`);
+            }
+        } catch (error) {
+            // Ignore storage errors but clear the cache if corrupted
+            try {
+                sessionStorage.removeItem('aaai_project_cache');
+                this._log('Cleared corrupted search cache');
+            } catch (e) {
+                // Ignore if we can't even clear it
+            }
+        }
+    },
+    
+    _clearProjectListCache() {
+        try {
+            const cache = JSON.parse(sessionStorage.getItem('aaai_project_cache') || '{}');
+            Object.keys(cache).forEach(key => {
+                if (key.startsWith('list_')) {
+                    delete cache[key];
+                }
+            });
+            sessionStorage.setItem('aaai_project_cache', JSON.stringify(cache));
+        } catch (error) {
+            // Ignore storage errors
+        }
+    },
+
+    _updateContextQuick(updates) {
+        Object.assign(this.currentContext, updates);
+        this.contextCache = null; // Invalidate context cache
+        this._saveQuickContext();
+    },
+
+    _saveQuickContext() {
+        try {
+            sessionStorage.setItem('aaai_project_context', JSON.stringify({
+                context: this.currentContext,
+                timestamp: Date.now()
+            }));
+        } catch (error) {
+            // Ignore storage errors
+        }
+    },
+
+    _loadQuickContext() {
+        try {
+            const stored = sessionStorage.getItem('aaai_project_context');
+            if (stored) {
+                const data = JSON.parse(stored);
+                if (data.context && (Date.now() - data.timestamp) < this.options.cacheExpiry) {
+                    Object.assign(this.currentContext, data.context);
+                }
+            }
+        } catch (error) {
+            // Ignore storage errors
+        }
+    },
+
+    _notifyQuick(eventType, data) {
+        // Non-blocking notifications
+        setTimeout(() => {
+            this.updateListeners.forEach(callback => {
+                try {
+                    callback(eventType, data);
+                } catch (error) {
+                    // Ignore listener errors
+                }
+            });
+        }, 0);
+    },
+
+    /**
+     * Recover a project that was created but function failed
+     */
+    async _recoverCreatedProject(projectName, userEmail) {
+        try {
+            this._log('Attempting to recover project:', projectName);
+            
+            // Get recent projects to find the one we just created
             const projectsResult = await this._executeFunction('list_user_projects', {
                 email: userEmail,
                 limit: 10,
@@ -723,6 +677,7 @@ const ProjectService = {
             if (projectsResult?.status === 'success' && projectsResult?.data?.success && projectsResult?.data?.projects) {
                 const projects = projectsResult.data.projects;
                 
+                // Find project with exact name match that was created recently (within last 2 minutes)
                 const recentProject = projects.find(p => {
                     if (p.name !== projectName) return false;
                     
@@ -730,12 +685,14 @@ const ProjectService = {
                     const now = new Date();
                     const timeDiff = now - createdAt;
                     
-                    return timeDiff < 120000; // 2 minutes
+                    // Project created within last 2 minutes
+                    return timeDiff < 120000;
                 });
                 
                 if (recentProject) {
-                    this._log('Found recently created project, switching context...');
+                    this._log('Found recently created project:', recentProject.id);
                     
+                    // Now get the context for this project to get chat_id
                     const contextResult = await this._executeFunction('switch_project_context', {
                         email: userEmail,
                         project_id: recentProject.id,
@@ -746,23 +703,17 @@ const ProjectService = {
                         const project = contextResult.data.project;
                         const chat_id = contextResult.data.chat_id;
                         
-                        // Parallel updates
-                        const updateTasks = [
-                            this._quickCacheProject(project),
-                            this._clearProjectListCacheParallel(),
-                            this._updateContextQuickParallel({
-                                current_project: project,
-                                chat_id: chat_id,
-                                project_name: project.name
-                            })
-                        ];
+                        // Cache and update context
+                        this._quickCacheProject(project);
+                        this._clearProjectListCache();
                         
-                        await Promise.allSettled(updateTasks);
-                        
-                        // Non-blocking notification
-                        requestAnimationFrame(() => {
-                            this._notifyQuick('project_created', { project, chat_id });
+                        this._updateContextQuick({
+                            current_project: project,
+                            chat_id: chat_id,
+                            project_name: project.name
                         });
+                        
+                        this._notifyQuick('project_created', { project, chat_id });
                         
                         return {
                             success: true,
@@ -782,112 +733,22 @@ const ProjectService = {
     },
 
     /**
-     * Parallel initialization helpers
+     * Efficient auto-sync that respects page visibility and network conditions
      */
-    async _initializeUserContext() {
-        if (this.authService.isAuthenticated()) {
-            const user = this.authService.getCurrentUser();
-            if (user) {
-                this.currentContext.user_id = user.id;
-            }
-        }
-    },
-
-    async _loadQuickContextParallel() {
-        return new Promise((resolve) => {
-            try {
-                const stored = sessionStorage.getItem('aaai_project_context');
-                if (stored) {
-                    const data = JSON.parse(stored);
-                    if (data.context && (Date.now() - data.timestamp) < this.options.cacheExpiry) {
-                        Object.assign(this.currentContext, data.context);
-                    }
-                }
-                resolve();
-            } catch (error) {
-                resolve(); // Ignore storage errors
-            }
-        });
-    },
-
-    async _saveQuickContextParallel() {
-        return new Promise((resolve) => {
-            requestAnimationFrame(() => {
-                try {
-                    sessionStorage.setItem('aaai_project_context', JSON.stringify({
-                        context: this.currentContext,
-                        timestamp: Date.now()
-                    }));
-                } catch (error) {
-                    // Ignore storage errors
-                }
-                resolve();
-            });
-        });
-    },
-
-    async _clearProjectListCacheParallel() {
-        return new Promise((resolve) => {
-            requestAnimationFrame(() => {
-                try {
-                    const cache = JSON.parse(sessionStorage.getItem('aaai_project_cache') || '{}');
-                    Object.keys(cache).forEach(key => {
-                        if (key.startsWith('list_')) {
-                            delete cache[key];
-                        }
-                    });
-                    sessionStorage.setItem('aaai_project_cache', JSON.stringify(cache));
-                } catch (error) {
-                    // Ignore storage errors
-                }
-                resolve();
-            });
-        });
-    },
-
-    async _clearSessionStorageParallel() {
-        return new Promise((resolve) => {
-            requestAnimationFrame(() => {
-                try {
-                    sessionStorage.removeItem('aaai_project_context');
-                    sessionStorage.removeItem('aaai_project_cache');
-                } catch (error) {
-                    // Ignore storage errors
-                }
-                resolve();
-            });
-        });
-    },
-
-    /**
-     * Efficient cache cleanup
-     */
-    _cleanupCacheEfficient() {
-        const entries = Array.from(this.cacheTimestamps.entries());
-        entries.sort((a, b) => a[1] - b[1]); // Sort by timestamp
-        
-        const toRemove = entries.slice(0, Math.floor(this.options.maxCacheSize * 0.2)); // Remove oldest 20%
-        toRemove.forEach(([projectId]) => {
-            this.projectCache.delete(projectId);
-            this.cacheTimestamps.delete(projectId);
-        });
-    },
-
-    /**
-     * Ultra-fast auto-sync setup
-     */
-    _setupOptimizedAutoSync() {
+    _setupEfficientAutoSync() {
         if (!this.options.autoSync) return;
         
         let syncInterval = null;
         let lastSyncTime = 0;
         
-        const performOptimizedSync = async () => {
+        const performSmartSync = async () => {
+            // Only sync if page is visible and user is authenticated
             if (document.visibilityState !== 'visible' || 
                 !this.authService?.isAuthenticated()) {
                 return;
             }
             
+            // Throttle sync requests
             const now = Date.now();
             if (now - lastSyncTime < this.options.syncInterval) {
                 return;
@@ -896,181 +757,90 @@ const ProjectService = {
             try {
                 lastSyncTime = now;
                 
-                // Only sync if we have projects in cache
+                // Smart sync: only fetch if we have existing projects
                 if (this.projectCache.size > 0) {
                     await this.getProjects({ 
                         limit: 20, 
                         offset: 0, 
                         forceRefresh: true 
                     });
+                    this._log('Smart background sync completed');
                 }
                 
-                // Quick context check
+                // Check for context updates
                 if (this.currentContext.current_project) {
                     await this.getCurrentContext();
+                    this._log('Context sync completed');
                 }
                 
             } catch (error) {
-                // Ignore sync errors
+                this._log('Background sync error (non-critical):', error);
             }
         };
         
+        // Start efficient sync interval
         const startSync = () => {
             if (syncInterval) return;
-            syncInterval = setInterval(performOptimizedSync, this.options.syncInterval);
+            
+            syncInterval = setInterval(performSmartSync, this.options.syncInterval);
+            this._log('Efficient auto-sync started');
         };
         
         const stopSync = () => {
             if (syncInterval) {
                 clearInterval(syncInterval);
                 syncInterval = null;
+                this._log('Auto-sync paused');
             }
         };
         
-        // Visibility change handlers
+        // Listen for page visibility changes
         document.addEventListener('visibilitychange', () => {
             if (document.visibilityState === 'visible') {
                 startSync();
-                setTimeout(performOptimizedSync, 1000);
+                // Immediate sync when page becomes visible
+                setTimeout(performSmartSync, 1000);
             } else {
                 stopSync();
             }
         });
         
-        // Network state handlers
+        // Listen for online/offline events
         window.addEventListener('online', () => {
+            this._log('Network restored, resuming sync');
             startSync();
-            setTimeout(performOptimizedSync, 2000);
+            setTimeout(performSmartSync, 2000);
         });
         
-        window.addEventListener('offline', stopSync);
+        window.addEventListener('offline', () => {
+            this._log('Network lost, pausing sync');
+            stopSync();
+        });
         
+        // Start initial sync if page is visible
         if (document.visibilityState === 'visible') {
             startSync();
         }
     },
 
     /**
-     * Optimized cache cleanup setup
+     * Setup efficient cache cleanup
      */
-    _setupCacheCleanupOptimized() {
+    _setupCacheCleanup() {
         setInterval(() => {
-            this._cleanupCacheEfficient();
-            this._cleanupSessionCacheOptimized();
+            this._cleanupCache();
+            this._cleanupSearchCache();
         }, 300000); // Every 5 minutes
-    },
-
-    _cleanupSessionCacheOptimized() {
-        try {
-            const cache = JSON.parse(sessionStorage.getItem('aaai_project_cache') || '{}');
-            const now = Date.now();
-            let cleanedCount = 0;
-            
-            Object.keys(cache).forEach(key => {
-                if (cache[key].timestamp && (now - cache[key].timestamp) > this.options.cacheExpiry) {
-                    delete cache[key];
-                    cleanedCount++;
-                }
-            });
-            
-            if (cleanedCount > 0) {
-                sessionStorage.setItem('aaai_project_cache', JSON.stringify(cache));
-            }
-        } catch (error) {
-            try {
-                sessionStorage.removeItem('aaai_project_cache');
-            } catch (e) {
-                // Ignore
-            }
-        }
-    },
-
-    // Additional helper methods for parallel processing
-
-    async _processSuccessfulCreation(apiResult) {
-        if (apiResult?.status !== 'success' || !apiResult?.data) {
-            throw new Error('Invalid API response');
-        }
-        
-        let project = null;
-        let chat_id = null;
-        
-        if (apiResult.data.success && apiResult.data.project) {
-            project = apiResult.data.project;
-            chat_id = apiResult.data.chat_id;
-        } else if (apiResult.data.project && apiResult.data.chat_id) {
-            project = apiResult.data.project;
-            chat_id = apiResult.data.chat_id;
-        }
-        
-        if (!project?.id || !chat_id) {
-            throw new Error('Invalid project data in response');
-        }
-        
-        return {
-            success: true,
-            project: project,
-            chat_id: chat_id
-        };
-    },
-
-    async _prepareRecoveryContext(projectName, userEmail) {
-        // Placeholder for future recovery optimizations
-        return Promise.resolve();
-    },
-
-    async _prepareCacheSpace() {
-        if (this.projectCache.size > this.options.maxCacheSize * 0.8) {
-            this._cleanupCacheEfficient();
-        }
-        return Promise.resolve();
-    },
-
-    async _prepareCacheForProject(projectId) {
-        // Pre-warm cache entry
-        return Promise.resolve();
-    },
-
-    async _prepareContextCache() {
-        return Promise.resolve();
-    },
-
-    async _updateLocalContext(data) {
-        this.currentContext = {
-            ...this.currentContext,
-            current_project: data.current_project,
-            chat_id: data.context?.current_chat_id,
-            project_name: data.current_project?.name
-        };
-        return Promise.resolve();
-    },
-
-    async _cacheContextResult(contextResult) {
-        this.contextCache = contextResult;
-        this.lastCacheUpdate = Date.now();
-        return Promise.resolve();
-    },
-
-    _notifyQuick(eventType, data) {
-        requestAnimationFrame(() => {
-            this.updateListeners.forEach(callback => {
-                try {
-                    callback(eventType, data);
-                } catch (error) {
-                    // Ignore listener errors
-                }
-            });
-        });
     },
 
     _log(...args) {
         if (this.options.debug) {
-            console.log('[UltraFastProject]', ...args);
+            console.log('[FastProject]', ...args);
         }
     },
 
     _error(...args) {
-        console.error('[UltraFastProject]', ...args);
+        console.error('[FastProject]', ...args);
     }
 };
 
