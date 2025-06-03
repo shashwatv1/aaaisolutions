@@ -188,7 +188,7 @@ class ProductionChatIntegration {
             return false;
         }
     }
-    
+
     /**
      * Send a message with reel context
      */
@@ -276,27 +276,99 @@ class ProductionChatIntegration {
      * Update reel selector UI
      */
     updateReelSelector() {
-        // Find reel selector elements
-        const reelSelector = document.getElementById('reelSelector');
+        const reelList = document.getElementById('reelList');
         const reelTitle = document.getElementById('currentReelTitle');
         
-        if (reelSelector) {
-            // Clear existing options
-            reelSelector.innerHTML = '<option value="">Select a reel...</option>';
+        if (reelList) {
+            // Clear existing content
+            reelList.innerHTML = '';
             
-            // Add reel options
-            this.reels.forEach(reel => {
-                const option = document.createElement('option');
-                option.value = reel.id;
-                option.textContent = reel.reel_name;
-                option.selected = reel.id === this.currentReelId;
-                reelSelector.appendChild(option);
-            });
+            if (this.reels.length === 0) {
+                // Show empty state
+                reelList.innerHTML = `
+                    <div class="empty-reel-list">
+                        <ion-icon name="chatbubbles-outline"></ion-icon>
+                        <span>No reels available</span>
+                    </div>
+                `;
+            } else {
+                // Create reel buttons
+                this.reels.forEach(reel => {
+                    const reelButton = document.createElement('button');
+                    reelButton.className = 'reel-item';
+                    reelButton.setAttribute('data-reel-id', reel.id);
+                    
+                    if (reel.id === this.currentReelId) {
+                        reelButton.classList.add('active');
+                    }
+                    
+                    // Format creation date
+                    const createdDate = new Date(reel.created_at);
+                    const timeAgo = this.formatTimeAgo(createdDate);
+                    
+                    reelButton.innerHTML = `
+                        <div class="reel-item-content">
+                            <div class="reel-item-name" title="${this.escapeHtml(reel.reel_name)}">${this.escapeHtml(reel.reel_name)}</div>
+                            <div class="reel-item-info">
+                                <div class="reel-item-messages">
+                                    <ion-icon name="chatbubble-outline"></ion-icon>
+                                    <span>${reel.message_count || 0}</span>
+                                </div>
+                                <span>•</span>
+                                <span>${timeAgo}</span>
+                            </div>
+                        </div>
+                        ${reel.id === this.currentReelId ? '<div class="reel-item-indicator"></div>' : ''}
+                    `;
+                    
+                    // Add click handler
+                    reelButton.addEventListener('click', () => {
+                        this.switchToReel(reel.id, reel.reel_name);
+                    });
+                    
+                    reelList.appendChild(reelButton);
+                });
+            }
         }
         
-        if (reelTitle && this.currentReelName) {
-            reelTitle.textContent = this.currentReelName;
+        // Update current reel title
+        if (reelTitle) {
+            reelTitle.textContent = this.currentReelName || 'No reel selected';
         }
+    }
+
+    formatTimeAgo(date) {
+        const now = new Date();
+        const diffInMinutes = Math.floor((now - date) / (1000 * 60));
+        
+        if (diffInMinutes < 1) return 'Just now';
+        if (diffInMinutes < 60) return `${diffInMinutes}m ago`;
+        
+        const diffInHours = Math.floor(diffInMinutes / 60);
+        if (diffInHours < 24) return `${diffInHours}h ago`;
+        
+        const diffInDays = Math.floor(diffInHours / 24);
+        if (diffInDays < 7) return `${diffInDays}d ago`;
+        
+        if (diffInDays < 30) {
+            const weeks = Math.floor(diffInDays / 7);
+            return `${weeks}w ago`;
+        }
+        
+        const diffInMonths = Math.floor(diffInDays / 30);
+        if (diffInMonths < 12) return `${diffInMonths}mo ago`;
+        
+        const years = Math.floor(diffInMonths / 12);
+        return `${years}y ago`;
+    }
+    
+    /**
+     * Escape HTML to prevent XSS
+     */
+    escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
     }
     
     /**
@@ -374,18 +446,6 @@ class ProductionChatIntegration {
         if (this.elements.messageInput) {
             this.elements.messageInput.addEventListener('keydown', this.handleKeyDown);
             this.elements.messageInput.addEventListener('input', this.handleInput);
-        }
-        
-        // Reel selector events
-        const reelSelector = document.getElementById('reelSelector');
-        if (reelSelector) {
-            reelSelector.addEventListener('change', (e) => {
-                const reelId = e.target.value;
-                const reel = this.reels.find(r => r.id === reelId);
-                if (reel) {
-                    this.switchToReel(reel.id, reel.reel_name);
-                }
-            });
         }
         
         // New reel button

@@ -149,6 +149,10 @@
     .reel-management-container {
       padding: 15px 20px;
       border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
     }
 
     .reel-header {
@@ -163,6 +167,215 @@
       margin: 0;
       font-size: 1rem;
       font-weight: 600;
+    }
+
+    .new-reel-btn {
+      background: var(--primary-gradient);
+      color: white;
+      border: none;
+      width: 24px;
+      height: 24px;
+      border-radius: 50%;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.3s ease;
+      font-size: 0.9rem;
+    }
+
+    .new-reel-btn:hover {
+      transform: scale(1.1);
+      box-shadow: 0 2px 8px rgba(255, 126, 95, 0.4);
+    }
+
+    .current-reel-display {
+      background: rgba(255, 255, 255, 0.05);
+      padding: 12px;
+      border-radius: 8px;
+      margin-bottom: 15px;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+    }
+
+    .current-reel-label {
+      color: rgba(255, 255, 255, 0.6);
+      font-size: 0.75rem;
+      margin-bottom: 4px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .current-reel-name {
+      color: var(--white);
+      font-weight: 600;
+      font-size: 0.9rem;
+      word-wrap: break-word;
+    }
+
+    .reel-list-container {
+      flex: 1;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .reel-list {
+      flex: 1;
+      overflow-y: auto;
+      padding-right: 2px;
+      scrollbar-width: thin;
+      scrollbar-color: var(--orange-soda) transparent;
+    }
+
+    .reel-list::-webkit-scrollbar {
+      width: 4px;
+    }
+
+    .reel-list::-webkit-scrollbar-track {
+      background: transparent;
+    }
+
+    .reel-list::-webkit-scrollbar-thumb {
+      background: var(--orange-soda);
+      border-radius: 2px;
+    }
+
+    .reel-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 12px;
+      margin-bottom: 6px;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 8px;
+      cursor: pointer;
+      transition: all 0.3s ease;
+      width: 100%;
+      text-align: left;
+      color: rgba(255, 255, 255, 0.8);
+      font-size: 0.85rem;
+      position: relative;
+    }
+
+    .reel-item:hover {
+      background: rgba(255, 255, 255, 0.1);
+      border-color: rgba(255, 255, 255, 0.2);
+      color: var(--white);
+      transform: translateX(2px);
+    }
+
+    .reel-item.active {
+      background: var(--primary-gradient);
+      border-color: var(--orange-soda);
+      color: var(--white);
+      box-shadow: 0 2px 8px rgba(255, 126, 95, 0.3);
+    }
+
+    .reel-item.active::before {
+      content: '';
+      position: absolute;
+      left: 0;
+      top: 0;
+      bottom: 0;
+      width: 3px;
+      background: var(--orange-soda);
+      border-radius: 0 2px 2px 0;
+    }
+
+    .reel-item-content {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .reel-item-name {
+      font-weight: 600;
+      margin-bottom: 2px;
+      word-wrap: break-word;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .reel-item-info {
+      font-size: 0.75rem;
+      opacity: 0.8;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .reel-item-messages {
+      display: flex;
+      align-items: center;
+      gap: 3px;
+    }
+
+    .reel-item-indicator {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--success-color);
+      opacity: 0.7;
+    }
+
+    .empty-reel-list {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 30px 20px;
+      color: rgba(255, 255, 255, 0.5);
+      text-align: center;
+      min-height: 120px;
+    }
+
+    .empty-reel-list ion-icon {
+      font-size: 2rem;
+      margin-bottom: 10px;
+      opacity: 0.5;
+    }
+
+    .empty-reel-list span {
+      font-size: 0.85rem;
+      font-style: italic;
+    }
+
+    /* Loading state for reels */
+    .loading-reels {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 30px 20px;
+      color: rgba(255, 255, 255, 0.6);
+      text-align: center;
+    }
+
+    .loading-reels .loading-spinner {
+      width: 20px;
+      height: 20px;
+      margin-bottom: 10px;
+    }
+
+    /* Responsive adjustments */
+    @media (max-width: 768px) {
+      .reel-management-container {
+        padding: 12px 15px;
+      }
+
+      .reel-item {
+        padding: 8px 10px;
+        font-size: 0.8rem;
+      }
+
+      .reel-item-name {
+        font-size: 0.85rem;
+      }
+
+      .reel-item-info {
+        font-size: 0.7rem;
+      }
     }
 
     /* Modal styles for reel creation */
@@ -349,92 +562,7 @@
         gap: 10px;
       }
     }
-    .new-reel-btn {
-      background: var(--primary-gradient);
-      color: white;
-      border: none;
-      width: 24px;
-      height: 24px;
-      border-radius: 50%;
-      cursor: pointer;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      transition: all 0.3s ease;
-    }
 
-    .new-reel-btn:hover {
-      transform: scale(1.1);
-    }
-
-    .current-reel-display {
-      background: rgba(255, 255, 255, 0.05);
-      padding: 10px;
-      border-radius: 6px;
-      margin-bottom: 15px;
-    }
-
-    .current-reel-label {
-      color: rgba(255, 255, 255, 0.6);
-      font-size: 0.8rem;
-      margin-bottom: 4px;
-    }
-
-    .current-reel-name {
-      color: var(--white);
-      font-weight: 600;
-      font-size: 0.9rem;
-    }
-
-    .reel-selector-container {
-      margin-bottom: 15px;
-    }
-
-    .reel-selector {
-      width: 100%;
-      background: rgba(255, 255, 255, 0.1);
-      border: 1px solid rgba(255, 255, 255, 0.2);
-      color: var(--white);
-      padding: 8px 12px;
-      border-radius: 6px;
-      font-size: 0.9rem;
-      cursor: pointer;
-    }
-
-    .reel-selector:focus {
-      outline: none;
-      border-color: var(--orange-soda);
-      background: rgba(255, 255, 255, 0.15);
-    }
-
-    .reel-list-container {
-      max-height: 200px;
-      overflow-y: auto;
-    }
-
-    .reel-item {
-      padding: 8px 10px;
-      margin-bottom: 4px;
-      background: transparent;
-      border: none;
-      border-radius: 6px;
-      cursor: pointer;
-      transition: all 0.3s ease;
-      text-align: left;
-      width: 100%;
-      color: rgba(255, 255, 255, 0.8);
-      font-size: 0.85rem;
-    }
-
-    .reel-item:hover {
-      background: rgba(255, 255, 255, 0.1);
-      color: var(--white);
-    }
-
-    .reel-item.active {
-      background: var(--primary-gradient);
-      color: var(--white);
-    }
     /* New Chat Button */
     .new-chat-container {
       padding: 15px 20px;
@@ -1129,15 +1257,13 @@
                   <div class="current-reel-name" id="currentReelTitle">No reel selected</div>
               </div>
               
-              <div class="reel-selector-container">
-                  <select class="reel-selector" id="reelSelector">
-                      <option value="">Select a reel...</option>
-                  </select>
-              </div>
-              
               <div class="reel-list-container">
                   <div class="reel-list" id="reelList">
-                      <!-- Reels will be populated here -->
+                      <!-- Reel buttons will be populated here -->
+                      <div class="empty-reel-list">
+                          <ion-icon name="chatbubbles-outline"></ion-icon>
+                          <span>No reels available</span>
+                      </div>
                   </div>
               </div>
             </div>
