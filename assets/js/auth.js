@@ -206,7 +206,7 @@ const AuthService = {
     },
 
     /**
-     * Optimized function execution with enhanced logging
+     * Optimized func execution with enhanced logging
      */
     async executeFunction(functionName, inputData) {
         if (!this.isAuthenticated()) {
