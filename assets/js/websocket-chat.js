@@ -162,7 +162,7 @@ const ChatService = {
                     try {
                         const data = JSON.parse(event.data);
                         this._handleMessageFixed(data);
-                        
+
                     } catch (e) {
                         this._error('🔥 Message parse error:', e, 'Raw data:', event.data);
                     }
@@ -421,7 +421,7 @@ const ChatService = {
     /**
      * FIXED: Enhanced message handling with comprehensive logging and error handling
      */
-    _handleMessageFixed(data) {
+    _handleMessageFixed: async function(data) {
         this._log('FIXED: Received WebSocket message:', {
             type: data.type,
             messageId: data.message_id,
@@ -481,10 +481,7 @@ const ChatService = {
                         messageId: data.message_id,
                         hasResponse: !!data.response,
                         responseType: typeof data.response,
-                        hasText: !!data.text,
-                        responseKeys: data.response ? Object.keys(data.response) : [],
-                        directText: data.text,
-                        fullResponseData: data.response
+                        hasText: !!data.text
                     });
                     
                     this.pendingMessages.delete(data.message_id);
@@ -510,16 +507,11 @@ const ChatService = {
                                     responseText = data.response.text;
                                     components = data.response.components || [];
                                     this._log('FIXED: Using response.text');
-                                } else if (data.response.message) {
-                                    responseText = data.response.message;
-                                    this._log('FIXED: Using response.message');
-                                } else if (data.response.content) {
-                                    responseText = data.response.content;
-                                    this._log('FIXED: Using response.content');
                                 } else {
-                                    // Try to extract any text-like fields
-                                    responseText = JSON.stringify(data.response);
-                                    this._log('FIXED: Using stringified response object');
+                                    responseText = data.response.message || 
+                                                data.response.content || 
+                                                JSON.stringify(data.response);
+                                    this._log('FIXED: Using fallback response parsing');
                                 }
                             }
                         }
@@ -538,6 +530,32 @@ const ChatService = {
                         if (!responseText || responseText.trim() === '') {
                             responseText = 'Empty response received';
                             this._log('FIXED: Response was empty, using fallback');
+                        }
+                        
+                        // Save bot response to database
+                        try {
+                            if (this.authService && this._getCurrentChatId()) {
+                                await this.authService.executeFunction('save_bot_response', {
+                                    chat_id: this._getCurrentChatId(),
+                                    content: responseText,
+                                    parent_message_id: data.message_id,
+                                    context_data: {
+                                        components: components,
+                                        websocket_data: data,
+                                        processing_time: data.processing_time || 0
+                                    },
+                                    metadata: {
+                                        source: 'websocket_response',
+                                        delivered_via: 'websocket',
+                                        original_message_id: data.message_id,
+                                        saved_at: new Date().toISOString()
+                                    }
+                                });
+                                this._log('FIXED: Bot response saved to database via WebSocket');
+                            }
+                        } catch (dbError) {
+                            this._error('FIXED: Failed to save bot response to database via WebSocket:', dbError);
+                            // Continue with UI display even if database save fails
                         }
                         
                     } catch (parseError) {
@@ -570,7 +588,6 @@ const ChatService = {
                     
                     this._notifyMessageListeners(messageData);
                     break;
-                    
                 case 'chat_error':
                     this._log('FIXED: Chat error received:', data);
                     this.pendingMessages.delete(data.message_id);

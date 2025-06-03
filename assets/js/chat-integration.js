@@ -421,13 +421,17 @@ const ChatIntegration = {
                 throw new Error('Message cannot be empty');
             }
             
-            this._log('FIXED: Sending message:', text.substring(0, 30) + '...');
+            this._log('Sending message:', text.substring(0, 30) + '...');
+            
+            // Generate message ID for tracking
+            const userMessageId = `user_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
             
             // Add user message to UI immediately
             this._addMessageToUI({
                 type: 'user',
                 text: text,
-                timestamp: Date.now()
+                timestamp: Date.now(),
+                id: userMessageId
             });
             
             // Clear input
@@ -437,66 +441,60 @@ const ChatIntegration = {
             // Show typing indicator
             this._showTypingIndicator();
             
-            // FIXED: Send via WebSocket if connected, otherwise use API
-            if (this.webSocketConnected && this.chatService) {
-                this._log('FIXED: Sending via WebSocket...');
-                
-                const messageId = await this.chatService.sendMessage(text);
-                this.pendingMessages.add(messageId);
-                
-                this._log('FIXED: Message sent via WebSocket:', messageId);
-                
-            } else {
-                this._log('FIXED: WebSocket not connected, falling back to API...');
-                
-                // Fallback to direct API call
-                const authService = window.AuthService;
-                if (!authService) {
-                    throw new Error('AuthService not available');
+            // Send via API
+            const authService = window.AuthService;
+            if (!authService) {
+                throw new Error('AuthService not available');
+            }
+            
+            const result = await authService.executeFunction('send_chat_message', {
+                content: text,
+                chat_id: this.currentProjectId,
+                context_data: {
+                    source: 'chat_integration',
+                    timestamp: new Date().toISOString()
                 }
-                
-                const result = await authService.executeFunction('send_chat_message', {
-                    content: text,
-                    chat_id: this.currentProjectId,
-                    context_data: {
-                        source: 'chat_integration_api_fallback',
-                        timestamp: new Date().toISOString()
-                    }
-                });
-                
-                this._log('FIXED: API response received:', result);
-                
-                // Hide typing indicator
-                this._hideTypingIndicator();
-                
-                if (result?.status === 'success' && result?.data?.success) {
-                    // Handle immediate response
-                    if (result.data.response) {
-                        this._handleAPIResponse(result.data.response);
-                    } else {
-                        // Poll for response if no immediate response
-                        this._pollForResponse(result.data.message_id);
-                    }
+            });
+            
+            this._log('API response received:', result);
+            
+            // Hide typing indicator
+            this._hideTypingIndicator();
+            
+            if (result?.status === 'success' && result?.data?.success) {
+                // Handle immediate response
+                if (result.data.response) {
+                    await this._handleAPIResponse(result.data.response, userMessageId);
+                } else if (result.data.bot_message) {
+                    await this._handleAPIResponse({
+                        text: result.data.bot_message.content,
+                        message_id: result.data.bot_message.id,
+                        timestamp: result.data.bot_message.timestamp
+                    }, userMessageId);
                 } else {
-                    this._addMessageToUI({
-                        type: 'error',
-                        text: 'Failed to send message: ' + (result?.data?.error || 'Unknown error'),
-                        timestamp: Date.now()
-                    });
+                    // Poll for response if no immediate response
+                    this._pollForResponse(result.data.message_id, userMessageId);
                 }
+            } else {
+                this._addMessageToUI({
+                    type: 'error',
+                    text: 'Failed to send message: ' + (result?.data?.error || 'Unknown error'),
+                    timestamp: Date.now()
+                });
             }
             
         } catch (error) {
-            this._error('FIXED: Failed to send message:', error);
+            this._error('Failed to send message:', error);
             this._hideTypingIndicator();
             throw error;
         }
     },
     
+    
     /**
      * Handle API response (fallback method)
      */
-    _handleAPIResponse(response) {
+    async _handleAPIResponse(response, originalMessageId = null) {
         this._log('Handling API response:', response);
         
         let responseText = '';
@@ -513,6 +511,32 @@ const ChatIntegration = {
         } else {
             responseText = 'Response received but could not parse content';
             this._error('Could not parse response:', response);
+        }
+        
+        // Save bot response to database
+        try {
+            const authService = window.AuthService;
+            if (authService && this.currentProjectId) {
+                await authService.executeFunction('save_bot_response', {
+                    chat_id: this.currentProjectId,
+                    content: responseText,
+                    parent_message_id: originalMessageId,
+                    context_data: {
+                        components: response.components || [],
+                        response_metadata: response.metadata || {},
+                        api_response: true
+                    },
+                    metadata: {
+                        source: 'chat_integration_api',
+                        original_response: response,
+                        saved_at: new Date().toISOString()
+                    }
+                });
+                this._log('Bot response saved to database');
+            }
+        } catch (dbError) {
+            this._error('Failed to save bot response to database:', dbError);
+            // Continue with UI display even if database save fails
         }
         
         // Add bot message to UI
@@ -534,7 +558,7 @@ const ChatIntegration = {
     /**
      * Poll for response from API (fallback method)
      */
-    async _pollForResponse(messageId) {
+    async _pollForResponse(messageId, originalUserMessageId) {
         this._log('Polling for response to message:', messageId);
         
         const maxAttempts = 30;
@@ -559,6 +583,7 @@ const ChatIntegration = {
                             this._log('Found response:', msg.id);
                             this._hideTypingIndicator();
                             
+                            // Message is already saved in database, just display it
                             this._addMessageToUI({
                                 type: 'bot',
                                 text: msg.content,
@@ -596,7 +621,7 @@ const ChatIntegration = {
         
         poll();
     },
-    
+
     /**
      * Add message to UI
      */
