@@ -268,7 +268,7 @@ const AuthService = {
     },
 
     /**
-     * Ultra-fast function execution with parallel processing and enhanced error handling
+     * Optimized func execution with enhanced logging
      */
     async executeFunction(functionName, inputData) {
         const startTime = performance.now();
