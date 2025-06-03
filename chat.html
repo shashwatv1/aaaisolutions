@@ -1612,6 +1612,18 @@
             createBtn.classList.remove('loading');
         }
     };
+    console.log('Chat application debug info:', {
+      authService: !!window.AuthService,
+      authAuthenticated: window.AuthService?.isAuthenticated(),
+      chatIntegration: !!window.ProductionChatIntegration,
+      projectId: projectId,
+      projectName: projectName
+    });
+    
+    // Listen for custom events to debug reel switching
+    document.addEventListener('reel_switched', (e) => {
+        console.log('Reel switched event:', e.detail);
+    });
 
     </script>
 </body>

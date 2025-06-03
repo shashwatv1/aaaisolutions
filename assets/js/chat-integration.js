@@ -113,23 +113,75 @@ class ProductionChatIntegration {
         }
     }
     
+    showReelSwitchLoading(show) {
+        const reelList = document.getElementById('reelList');
+        if (!reelList) return;
+        
+        if (show) {
+            const loadingHTML = `
+                <div class="loading-reels">
+                    <div class="loading-spinner"></div>
+                    <span>Switching reel...</span>
+                </div>
+            `;
+            reelList.innerHTML = loadingHTML;
+        }
+        // If hide, updateReelSelector will be called to restore the list
+    }
+    showReelError(message) {
+        if (this.elements.chatBody) {
+            this.addMessageToUI({
+                type: 'error',
+                text: message,
+                timestamp: Date.now()
+            });
+        }
+    }
+    hideWelcomeMessage() {
+        const welcomeMessage = document.getElementById('welcomeMessage');
+        if (welcomeMessage) {
+            welcomeMessage.style.display = 'none';
+        }
+    }
+    showEmptyReelMessage() {
+        if (this.elements.chatBody) {
+            this.addMessageToUI({
+                type: 'system',
+                text: `This reel "${this.currentReelName}" is empty. Start a conversation!`,
+                timestamp: Date.now()
+            });
+        }
+    }
+    
     /**
      * Switch to a specific reel
      */
     async switchToReel(reelId, reelName) {
         if (!this.currentProjectId || !reelId) {
-            return;
+            console.error('Missing project ID or reel ID for switch');
+            return false;
         }
         
+        console.log('Switching to reel:', { reelId, reelName, projectId: this.currentProjectId });
+        
+        // Show loading state
+        this.showReelSwitchLoading(true);
+        
         try {
+            // Call API to switch reel context
             const result = await window.AuthService.executeFunction('switch_reel_context', {
                 chat_id: this.currentProjectId,
                 reel_id: reelId
             });
             
+            console.log('Switch reel API response:', result);
+            
             if (result?.status === 'success' && result?.data?.success) {
+                // Update current reel info
                 this.currentReelId = reelId;
                 this.currentReelName = reelName;
+                
+                console.log('Reel context switched successfully, loading history...');
                 
                 // Update WebSocket context
                 if (this.webSocketManager) {
@@ -142,10 +194,23 @@ class ProductionChatIntegration {
                 // Update UI
                 this.updateReelSelector();
                 
-                console.log('Switched to reel:', reelName);
+                // Hide welcome message if visible
+                this.hideWelcomeMessage();
+                
+                document.dispatchEvent(new CustomEvent('reel_switched', {
+                    detail: { reelId: reelId, reelName: reelName }
+                }));
+            } else {
+                console.error('Failed to switch reel context:', result);
+                this.showReelError('Failed to switch to reel. Please try again.');
+                return false;
             }
         } catch (error) {
-            console.error('Failed to switch reel:', error);
+            console.error('Error switching reel:', error);
+            this.showReelError('Error switching to reel: ' + error.message);
+            return false;
+        } finally {
+            this.showReelSwitchLoading(false);
         }
     }
     
@@ -239,10 +304,19 @@ class ProductionChatIntegration {
     /**
      * Load chat history for current reel
      */
+/**
+     * Load chat history for current reel with better error handling
+     */
     async loadReelHistory() {
         if (!this.currentProjectId || !this.currentReelId || !window.AuthService?.isAuthenticated()) {
+            console.warn('Cannot load reel history - missing requirements');
             return;
         }
+        
+        console.log('Loading reel history for:', { 
+            projectId: this.currentProjectId, 
+            reelId: this.currentReelId 
+        });
         
         try {
             const result = await window.AuthService.executeFunction('get_reel_messages', {
@@ -252,26 +326,42 @@ class ProductionChatIntegration {
                 offset: 0
             });
             
-            if (result?.status === 'success' && result?.data?.messages?.length > 0) {
-                // Clear existing messages
+            console.log('Reel messages API response:', result);
+            
+            if (result?.status === 'success') {
+                // Clear existing messages first
                 this.clearMessages();
                 
-                // Add history messages
-                result.data.messages.reverse().forEach(msg => {
-                    this.addMessageToUI({
-                        type: msg.sender === 'user' ? 'user' : 'bot',
-                        text: msg.content,
-                        timestamp: new Date(msg.timestamp).getTime(),
-                        id: msg.id,
-                        reel_id: msg.reel_id
+                if (result?.data?.messages?.length > 0) {
+                    console.log(`Loading ${result.data.messages.length} messages for reel`);
+                    
+                    // Add history messages (reverse to show oldest first)
+                    result.data.messages.reverse().forEach(msg => {
+                        this.addMessageToUI({
+                            type: msg.sender === 'user' ? 'user' : 'bot',
+                            text: msg.content,
+                            timestamp: new Date(msg.timestamp).getTime(),
+                            id: msg.id,
+                            reel_id: msg.reel_id
+                        });
                     });
-                });
+                    
+                    // Scroll to bottom
+                    this.scrollToBottom();
+                } else {
+                    console.log('No messages found for this reel');
+                    // Show empty reel message
+                    this.showEmptyReelMessage();
+                }
+            } else {
+                console.error('Failed to get reel messages:', result);
+                this.showReelError('Failed to load chat history.');
             }
         } catch (error) {
             console.error('Failed to load reel history:', error);
+            this.showReelError('Error loading chat history: ' + error.message);
         }
     }
-    
     /**
      * Update reel selector UI
      */
@@ -322,8 +412,29 @@ class ProductionChatIntegration {
                     `;
                     
                     // Add click handler
-                    reelButton.addEventListener('click', () => {
-                        this.switchToReel(reel.id, reel.reel_name);
+                    reelButton.addEventListener('click', async (e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        
+                        // Prevent multiple clicks
+                        if (reelButton.disabled) return;
+                        
+                        // Disable button temporarily
+                        reelButton.disabled = true;
+                        reelButton.style.opacity = '0.7';
+                        
+                        try {
+                            console.log('Reel button clicked:', { reelId: reel.id, reelName: reel.reel_name });
+                            await this.switchToReel(reel.id, reel.reel_name);
+                        } catch (error) {
+                            console.error('Error in reel button click handler:', error);
+                        } finally {
+                            // Re-enable button
+                            setTimeout(() => {
+                                reelButton.disabled = false;
+                                reelButton.style.opacity = '1';
+                            }, 1000);
+                        }
                     });
                     
                     reelList.appendChild(reelButton);
@@ -376,10 +487,18 @@ class ProductionChatIntegration {
      */
     clearMessages() {
         this.messages = [];
+        
         if (this.elements.chatBody) {
-            const messages = this.elements.chatBody.querySelectorAll('.message');
+            // Remove all message elements but keep welcome message hidden
+            const messages = this.elements.chatBody.querySelectorAll('.message, .typing-indicator');
             messages.forEach(msg => msg.remove());
+            
+            // Also remove any system messages
+            const systemMessages = this.elements.chatBody.querySelectorAll('.message-system, .message-error');
+            systemMessages.forEach(msg => msg.remove());
         }
+        
+        console.log('Chat messages cleared');
     }
     
     /**
