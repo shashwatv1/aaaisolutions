@@ -1298,26 +1298,6 @@
   
   <!-- Simplified Chat Application Script -->
   <script>
-    const newReelForm = document.getElementById('newReelForm');
-    const newReelModal = document.getElementById('newReelModal');
-    
-    if (newReelForm) {
-        newReelForm.addEventListener('submit', window.handleCreateReel);
-    }
-    
-    if (newReelModal) {
-        newReelModal.addEventListener('click', function(e) {
-            if (e.target === newReelModal) {
-                window.hideNewReelModal();
-            }
-        });
-    }
-    
-    // Listen for custom events to debug reel switching
-    document.addEventListener('reel_switched', (e) => {
-        console.log('Reel switched event:', e.detail);
-    });
-
     document.addEventListener('DOMContentLoaded', async function() {
         console.log('🚀 Production Chat Application Starting...');
         
@@ -1489,8 +1469,12 @@
         }
     };
 
-    window.handleCreateReel = async function(e) {
-        e.preventDefault();
+    window.handleCreateReel = async function(event) {
+        // Prevent form submission and page navigation
+        if (event) {
+            event.preventDefault();
+            event.stopPropagation();
+        }
         
         const nameInput = document.getElementById('reelName');
         const descriptionInput = document.getElementById('reelDescription');
@@ -1498,7 +1482,7 @@
         
         if (!nameInput || !nameInput.value.trim()) {
             alert('Reel name is required');
-            return;
+            return false;
         }
         
         const reelName = nameInput.value.trim();
@@ -1506,33 +1490,73 @@
         
         try {
             // Set button loading state
-            createBtn.disabled = true;
-            createBtn.classList.add('loading');
+            if (createBtn) {
+                createBtn.disabled = true;
+                createBtn.classList.add('loading');
+            }
+            
+            // Verify chat integration is available
+            if (!window.ProductionChatIntegration) {
+                throw new Error('Chat service not available. Please refresh the page.');
+            }
+            
+            // Verify we still have project context
+            if (!window.ProductionChatIntegration.currentProjectId) {
+                throw new Error('Project context lost. Please refresh the page.');
+            }
+            
+            console.log('Creating new reel:', { reelName, reelDescription });
             
             // Create reel using the chat integration
-            if (window.ProductionChatIntegration) {
-                const success = await window.ProductionChatIntegration.createReel(reelName, reelDescription);
-                
-                if (success) {
-                    window.hideNewReelModal();
-                    console.log('✅ Reel created successfully:', reelName);
-                } else {
-                    alert('Failed to create reel. Please try again.');
-                }
+            const success = await window.ProductionChatIntegration.createReel(reelName, reelDescription);
+            
+            if (success) {
+                window.hideNewReelModal();
+                console.log('✅ Reel created successfully:', reelName);
+                return true;
             } else {
-                alert('Chat service not available. Please refresh the page.');
+                throw new Error('Failed to create reel. Please try again.');
             }
+            
         } catch (error) {
             console.error('Error creating reel:', error);
             alert('Failed to create reel: ' + error.message);
+            return false;
         } finally {
             // Reset button state
-            createBtn.disabled = false;
-            createBtn.classList.remove('loading');
+            if (createBtn) {
+                createBtn.disabled = false;
+                createBtn.classList.remove('loading');
+            }
         }
     };
 
+    // Set up form submission handling when DOM is ready
     document.addEventListener('DOMContentLoaded', function() {
+        const newReelForm = document.getElementById('newReelForm');
+        const newReelModal = document.getElementById('newReelModal');
+        
+        if (newReelForm) {
+            // Remove any existing listeners first
+            newReelForm.removeEventListener('submit', window.handleCreateReel);
+            // Add proper event listener with preventDefault
+            newReelForm.addEventListener('submit', function(e) {
+                e.preventDefault();
+                e.stopPropagation();
+                window.handleCreateReel(e);
+                return false;
+            });
+        }
+        
+        if (newReelModal) {
+            newReelModal.addEventListener('click', function(e) {
+                if (e.target === newReelModal) {
+                    window.hideNewReelModal();
+                }
+            });
+        }
+        
+        // Set up sidebar collapse functionality
         const sidebarCollapseBtn = document.getElementById('sidebarCollapseBtn');
         const chatSidebar = document.getElementById('chatSidebar');
         const chatContainer = document.getElementById('chatContainer');
@@ -1556,7 +1580,12 @@
             });
         }
     });
-  </script>
+    
+    // Listen for custom events to debug reel switching
+    document.addEventListener('reel_switched', (e) => {
+        console.log('Reel switched event:', e.detail);
+    });
+</script>
 </body>
 
 </html>

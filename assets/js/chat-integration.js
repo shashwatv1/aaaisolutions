@@ -168,6 +168,12 @@ class ProductionChatIntegration {
             return false;
         }
         
+        // Verify authentication
+        if (!window.AuthService?.isAuthenticated()) {
+            console.error('Authentication required for reel switch');
+            return false;
+        }
+        
         console.log('Switching to reel:', { reelId, reelName, projectId: this.currentProjectId });
         
         // Show loading state
@@ -209,15 +215,30 @@ class ProductionChatIntegration {
                 }));
                 
                 return true;
+                
             } else {
+                const errorMessage = result?.data?.message || result?.message || 'Unknown error';
                 console.error('Failed to switch reel context:', result);
-                this.showReelError('Failed to switch to reel. Please try again.');
+                this.showReelError(`Failed to switch to reel: ${errorMessage}`);
                 return false;
             }
+            
         } catch (error) {
             console.error('Error switching reel:', error);
-            this.showReelError('Error switching to reel: ' + error.message);
+            
+            // Handle different types of errors without causing navigation
+            let errorMessage = 'Error switching to reel';
+            if (error.message.includes('authentication') || error.message.includes('token')) {
+                errorMessage = 'Authentication error. Please refresh the page.';
+            } else if (error.message.includes('network') || error.message.includes('fetch')) {
+                errorMessage = 'Network error. Please check your connection.';
+            } else {
+                errorMessage = `Error switching to reel: ${error.message}`;
+            }
+            
+            this.showReelError(errorMessage);
             return false;
+            
         } finally {
             this.showReelSwitchLoading(false);
         }
@@ -229,11 +250,21 @@ class ProductionChatIntegration {
     async createReel(reelName, reelDescription = '') {
         if (!this.currentProjectId || !reelName?.trim()) {
             console.error('Invalid parameters for reel creation');
-            return false;
+            throw new Error('Invalid parameters for reel creation');
+        }
+        
+        // Verify authentication before proceeding
+        if (!window.AuthService?.isAuthenticated()) {
+            console.error('Authentication required for reel creation');
+            throw new Error('Authentication required');
         }
         
         try {
-            console.log('Creating new reel:', { reelName, reelDescription, projectId: this.currentProjectId });
+            console.log('Creating new reel:', { 
+                reelName: reelName.trim(), 
+                reelDescription: reelDescription.trim(), 
+                projectId: this.currentProjectId 
+            });
             
             const result = await window.AuthService.executeFunction('create_reel', {
                 chat_id: this.currentProjectId,
@@ -248,21 +279,45 @@ class ProductionChatIntegration {
                 const newReel = result.data.reel;
                 const reelId = result.data.reel_id;
                 
+                if (!newReel || !reelId) {
+                    console.error('Invalid reel data in response:', result.data);
+                    throw new Error('Invalid reel data received from server');
+                }
+                
                 // Add new reel to list
                 this.reels.push(newReel);
                 
+                console.log('✅ Reel created, switching to new reel:', { reelId, reelName });
+                
                 // Switch to new reel
-                await this.switchToReel(reelId, reelName);
+                const switchSuccess = await this.switchToReel(reelId, reelName);
+                
+                if (!switchSuccess) {
+                    console.warn('Reel created but failed to switch to it');
+                    // Still consider it a success since reel was created
+                    this.updateReelSelector();
+                }
                 
                 console.log('✅ Reel created successfully:', newReel);
                 return true;
+                
             } else {
+                const errorMessage = result?.data?.message || result?.message || 'Unknown error occurred';
                 console.error('Reel creation failed:', result);
-                return false;
+                throw new Error(`Failed to create reel: ${errorMessage}`);
             }
+            
         } catch (error) {
             console.error('Failed to create reel:', error);
-            return false;
+            
+            // Don't let errors cause navigation - just throw them for handling
+            if (error.message.includes('authentication') || error.message.includes('token')) {
+                throw new Error('Authentication error. Please refresh the page and try again.');
+            } else if (error.message.includes('network') || error.message.includes('fetch')) {
+                throw new Error('Network error. Please check your connection and try again.');
+            } else {
+                throw new Error(error.message || 'Failed to create reel. Please try again.');
+            }
         }
     }
 
