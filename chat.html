@@ -58,28 +58,25 @@
       min-height: 100vh;
       background: linear-gradient(180deg, var(--rich-black-fogra-29) 0%, var(--space-cadet) 100%);
       padding-top: 80px;
-      display: flex;
-      flex-direction: column;
-      width: 100%;
     }
 
-    /* Chat Layout Container */
+    /* Chat Layout Container - FORCE HORIZONTAL LAYOUT */
     .chat-layout {
       margin: 20px auto;
-      display: flex;
-      flex-direction: row;
+      display: flex !important;
+      flex-direction: row !important;
       height: calc(100vh - 140px);
       gap: 0;
       position: relative;
       width: 100%;
       max-width: 1400px;
       padding: 0 20px;
-      flex: 1;
     }
 
-    /* Chat Sidebar */
+    /* Chat Sidebar - LEFT SIDE */
     .chat-sidebar {
-      width: 300px;
+      width: 300px !important;
+      min-width: 300px;
       background: var(--card-gradient);
       border-radius: var(--radius-15) 0 0 var(--radius-15);
       border: 1px solid rgba(255, 255, 255, 0.1);
@@ -92,22 +89,90 @@
     }
 
     .chat-sidebar.collapsed {
-      width: 60px;
-      overflow: hidden;
+      width: 60px !important;
+      min-width: 60px;
     }
 
     .chat-sidebar.collapsed .sidebar-content {
       opacity: 0;
       pointer-events: none;
-      transform: translateX(-100%);
-      transition: all 0.3s ease;
     }
 
-    .chat-sidebar:not(.collapsed) .sidebar-content {
-      opacity: 1;
-      pointer-events: auto;
-      transform: translateX(0);
-      transition: all 0.3s ease;
+    /* Chat Container - RIGHT SIDE */
+    .chat-container {
+      flex: 1;
+      min-width: 400px;
+      background-color: var(--independence);
+      border-radius: 0 var(--radius-15) var(--radius-15) 0;
+      overflow: hidden;
+      box-shadow: 0 15px 35px rgba(0, 0, 0, 0.3);
+      position: relative;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-left: none;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .chat-container.sidebar-collapsed {
+      border-radius: var(--radius-15);
+      border-left: 1px solid rgba(255, 255, 255, 0.1);
+    }
+
+    /* Responsive design - ONLY for very small screens */
+    @media (max-width: 768px) {
+      .main-content {
+        padding-top: 60px;
+      }
+      
+      /* Override for mobile only */
+      .chat-layout {
+        margin: 10px auto !important;
+        height: calc(100vh - 80px) !important;
+        flex-direction: column !important;
+        padding: 0 10px !important;
+      }
+
+      .chat-sidebar {
+        width: 100% !important;
+        min-width: 100% !important;
+        height: 200px;
+        border-radius: var(--radius-10) var(--radius-10) 0 0;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        border-right: 1px solid rgba(255, 255, 255, 0.1);
+      }
+
+      .chat-sidebar.collapsed {
+        height: 60px !important;
+      }
+
+      .chat-container {
+        min-width: 100% !important;
+        border-radius: 0 0 var(--radius-10) var(--radius-10);
+        border-left: 1px solid rgba(255, 255, 255, 0.1);
+        border-top: none;
+      }
+
+      .chat-container.sidebar-collapsed {
+        border-radius: 0 0 var(--radius-10) var(--radius-10);
+        border-top: 1px solid rgba(255, 255, 255, 0.1);
+      }
+    }
+
+    /* Ensure horizontal layout for larger screens */
+    @media (min-width: 769px) {
+      .chat-layout {
+        flex-direction: row !important;
+      }
+      
+      .chat-sidebar {
+        width: 300px !important;
+        height: auto !important;
+      }
+      
+      .chat-container {
+        width: auto !important;
+        height: auto !important;
+      }
     }
 
     /* Sidebar Header */
@@ -688,26 +753,6 @@
       opacity: 0.5;
     }
 
-    /* Chat Container */
-    .chat-container {
-      flex: 1;
-      background-color: var(--independence);
-      border-radius: 0 var(--radius-15) var(--radius-15) 0;
-      overflow: hidden;
-      box-shadow: 0 15px 35px rgba(0, 0, 0, 0.3);
-      position: relative;
-      border: 1px solid rgba(255, 255, 255, 0.1);
-      border-left: none;
-      display: flex;
-      flex-direction: column;
-      min-width: 0;
-    }
-
-    .chat-container.sidebar-collapsed {
-      border-radius: var(--radius-15);
-      border-left: 1px solid rgba(255, 255, 255, 0.1);
-    }
-    
     /* Status indicators */
     .status-indicator {
       position: absolute;
