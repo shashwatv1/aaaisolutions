@@ -109,17 +109,17 @@ class ProductionWebSocketManager {
     }
     
     /**
-     * Send message through WebSocket with reel context
+     * Send message through WebSocket with reel context and saved message reference
      */
     async sendMessage(text, context = {}) {
         if (this.state !== 'connected') {
             throw new Error('WebSocket not connected');
         }
-        
+
         if (!text?.trim()) {
             throw new Error('Message cannot be empty');
         }
-        
+
         const messageId = this.generateMessageId();
         const message = {
             type: 'message',
@@ -130,28 +130,21 @@ class ProductionWebSocketManager {
                 user_id: this.userId,
                 chat_id: this.projectId,
                 project_name: this.projectName,
-                reel_id: this.currentReelId || context.reel_id || null,
-                reel_name: this.currentReelName || context.reel_name || null,
-                saved_message_id: context.saved_message_id || null,
+                reel_id: context.reel_id || null,
+                reel_name: context.reel_name || null,
+                saved_message_id: context.saved_message_id || null,  // Reference to already saved message
                 ...context
             }
         };
-        
-        console.log('📤 Sending message with complete context:', {
-            messageId,
-            reelId: message.context.reel_id,
-            reelName: message.context.reel_name,
-            projectId: message.context.chat_id
-        });
-        
+
         this.pendingMessages.set(messageId, {
             text: text.trim(),
             timestamp: Date.now(),
             status: 'sending',
-            reel_id: message.context.reel_id,
-            context: message.context
+            reel_id: context.reel_id,
+            saved_message_id: context.saved_message_id
         });
-        
+
         this.sendRawMessage(message);
         return messageId;
     }
