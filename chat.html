@@ -60,23 +60,25 @@
       padding-top: 80px;
     }
 
-    /* Chat Layout Container - FORCE HORIZONTAL LAYOUT */
+    /* Chat Layout Container - FIXED HORIZONTAL LAYOUT */
     .chat-layout {
       margin: 20px auto;
-      display: flex !important;
-      flex-direction: row !important;
+      display: flex;
+      flex-direction: row;
       height: calc(100vh - 140px);
       gap: 0;
       position: relative;
       width: 100%;
       max-width: 1400px;
       padding: 0 20px;
+      box-sizing: border-box;
     }
 
-    /* Chat Sidebar - LEFT SIDE */
+    /* Chat Sidebar - LEFT SIDE - FIXED */
     .chat-sidebar {
-      width: 300px !important;
+      width: 300px;
       min-width: 300px;
+      max-width: 300px;
       background: var(--card-gradient);
       border-radius: var(--radius-15) 0 0 var(--radius-15);
       border: 1px solid rgba(255, 255, 255, 0.1);
@@ -86,11 +88,14 @@
       transition: all 0.3s ease;
       overflow: hidden;
       flex-shrink: 0;
+      position: relative;
+      z-index: 1;
     }
 
     .chat-sidebar.collapsed {
-      width: 60px !important;
+      width: 60px;
       min-width: 60px;
+      max-width: 60px;
     }
 
     .chat-sidebar.collapsed .sidebar-content {
@@ -98,10 +103,10 @@
       pointer-events: none;
     }
 
-    /* Chat Container - RIGHT SIDE */
+    /* Chat Container - RIGHT SIDE - FIXED */
     .chat-container {
       flex: 1;
-      min-width: 400px;
+      min-width: 0;
       background-color: var(--independence);
       border-radius: 0 var(--radius-15) var(--radius-15) 0;
       overflow: hidden;
@@ -111,68 +116,12 @@
       border-left: none;
       display: flex;
       flex-direction: column;
+      z-index: 1;
     }
 
     .chat-container.sidebar-collapsed {
       border-radius: var(--radius-15);
       border-left: 1px solid rgba(255, 255, 255, 0.1);
-    }
-
-    /* Responsive design - ONLY for very small screens */
-    @media (max-width: 768px) {
-      .main-content {
-        padding-top: 60px;
-      }
-      
-      /* Override for mobile only */
-      .chat-layout {
-        margin: 10px auto !important;
-        height: calc(100vh - 80px) !important;
-        flex-direction: column !important;
-        padding: 0 10px !important;
-      }
-
-      .chat-sidebar {
-        width: 100% !important;
-        min-width: 100% !important;
-        height: 200px;
-        border-radius: var(--radius-10) var(--radius-10) 0 0;
-        border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-        border-right: 1px solid rgba(255, 255, 255, 0.1);
-      }
-
-      .chat-sidebar.collapsed {
-        height: 60px !important;
-      }
-
-      .chat-container {
-        min-width: 100% !important;
-        border-radius: 0 0 var(--radius-10) var(--radius-10);
-        border-left: 1px solid rgba(255, 255, 255, 0.1);
-        border-top: none;
-      }
-
-      .chat-container.sidebar-collapsed {
-        border-radius: 0 0 var(--radius-10) var(--radius-10);
-        border-top: 1px solid rgba(255, 255, 255, 0.1);
-      }
-    }
-
-    /* Ensure horizontal layout for larger screens */
-    @media (min-width: 769px) {
-      .chat-layout {
-        flex-direction: row !important;
-      }
-      
-      .chat-sidebar {
-        width: 300px !important;
-        height: auto !important;
-      }
-      
-      .chat-container {
-        width: auto !important;
-        height: auto !important;
-      }
     }
 
     /* Sidebar Header */
@@ -183,6 +132,7 @@
       align-items: center;
       justify-content: space-between;
       min-height: 70px;
+      flex-shrink: 0;
     }
 
     .project-name {
@@ -223,6 +173,7 @@
       flex-direction: column;
       transition: opacity 0.3s ease;
       overflow: hidden;
+      min-height: 0;
     }
 
     /* Reel Management Styles */
@@ -240,6 +191,7 @@
       justify-content: space-between;
       align-items: center;
       margin-bottom: 15px;
+      flex-shrink: 0;
     }
 
     .reel-header h4 {
@@ -275,6 +227,7 @@
       border-radius: 8px;
       margin-bottom: 15px;
       border: 1px solid rgba(255, 255, 255, 0.1);
+      flex-shrink: 0;
     }
 
     .current-reel-label {
@@ -336,6 +289,7 @@
       color: rgba(255, 255, 255, 0.8);
       font-size: 0.85rem;
       position: relative;
+      box-sizing: border-box;
     }
 
     .reel-item:hover {
@@ -436,26 +390,6 @@
       width: 20px;
       height: 20px;
       margin-bottom: 10px;
-    }
-
-    /* Responsive adjustments */
-    @media (max-width: 768px) {
-      .reel-management-container {
-        padding: 12px 15px;
-      }
-
-      .reel-item {
-        padding: 8px 10px;
-        font-size: 0.8rem;
-      }
-
-      .reel-item-name {
-        font-size: 0.85rem;
-      }
-
-      .reel-item-info {
-        font-size: 0.7rem;
-      }
     }
 
     /* Modal styles for reel creation */
@@ -630,19 +564,6 @@
       100% { transform: rotate(360deg); }
     }
 
-    /* Responsive modal */
-    @media (max-width: 768px) {
-      .modal {
-        padding: 20px;
-        max-width: 95%;
-      }
-
-      .modal-actions {
-        flex-direction: column;
-        gap: 10px;
-      }
-    }
-
     /* New Chat Button */
     .new-chat-container {
       padding: 15px 20px;
@@ -733,11 +654,6 @@
       border-radius: 50%;
       animation: spin 1s linear infinite;
       margin: 0 auto 10px;
-    }
-
-    @keyframes spin {
-      0% { transform: rotate(0deg); }
-      100% { transform: rotate(360deg); }
     }
 
     /* Empty chat state */
@@ -902,6 +818,7 @@
       background: linear-gradient(180deg, var(--space-cadet) 0%, var(--independence) 100%);
       scrollbar-width: thin;
       scrollbar-color: var(--orange-soda) transparent;
+      min-height: 0;
     }
     
     .chat-body::-webkit-scrollbar {
@@ -1182,18 +1099,7 @@
       box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
     }
 
-    /* Responsive design */
-    @media (max-width: 1024px) {
-      .chat-layout {
-        padding: 0 10px;
-        max-width: none;
-      }
-      
-      .chat-sidebar {
-        width: 280px;
-      }
-    }
-
+    /* RESPONSIVE DESIGN - MOBILE ONLY */
     @media (max-width: 768px) {
       .main-content {
         padding-top: 60px;
@@ -1202,12 +1108,14 @@
       .chat-layout {
         margin: 10px auto;
         height: calc(100vh - 80px);
-        flex-direction: column !important; /* Only stack on mobile */
+        flex-direction: column;
         padding: 0 10px;
       }
 
       .chat-sidebar {
-        width: 100% !important;
+        width: 100%;
+        min-width: 100%;
+        max-width: 100%;
         height: 200px;
         border-radius: var(--radius-10) var(--radius-10) 0 0;
         border-bottom: 1px solid rgba(255, 255, 255, 0.1);
@@ -1216,8 +1124,10 @@
       }
 
       .chat-sidebar.collapsed {
-        height: 60px !important;
-        width: 100% !important;
+        height: 60px;
+        width: 100%;
+        min-width: 100%;
+        max-width: 100%;
       }
 
       .chat-container {
@@ -1260,6 +1170,68 @@
       
       .back-btn span {
         display: none;
+      }
+
+      .reel-management-container {
+        padding: 12px 15px;
+      }
+
+      .reel-item {
+        padding: 8px 10px;
+        font-size: 0.8rem;
+      }
+
+      .reel-item-name {
+        font-size: 0.85rem;
+      }
+
+      .reel-item-info {
+        font-size: 0.7rem;
+      }
+
+      .modal {
+        padding: 20px;
+        max-width: 95%;
+      }
+
+      .modal-actions {
+        flex-direction: column;
+        gap: 10px;
+      }
+    }
+
+    /* TABLET AND DESKTOP - FORCE HORIZONTAL */
+    @media (min-width: 769px) {
+      .chat-layout {
+        display: flex;
+        flex-direction: row;
+      }
+      
+      .chat-sidebar {
+        width: 300px;
+        min-width: 300px;
+        max-width: 300px;
+        height: auto;
+      }
+      
+      .chat-sidebar.collapsed {
+        width: 60px;
+        min-width: 60px;
+        max-width: 60px;
+        height: auto;
+      }
+      
+      .chat-container {
+        flex: 1;
+        min-width: 0;
+        height: auto;
+      }
+    }
+
+    @media (min-width: 1025px) {
+      .chat-layout {
+        padding: 0 20px;
+        max-width: 1400px;
       }
     }
   </style>
