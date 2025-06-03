@@ -72,6 +72,7 @@ class ProductionChatIntegration {
         this.currentProjectId = projectId;
         this.currentProjectName = projectName;
         
+        // Update WebSocket with project context initially
         if (this.webSocketManager) {
             this.webSocketManager.setProjectContext(projectId, projectName);
         }
@@ -82,6 +83,16 @@ class ProductionChatIntegration {
         // If no reel is selected and we have reels, select the first one
         if (!this.currentReelId && this.reels.length > 0) {
             await this.switchToReel(this.reels[0].id, this.reels[0].reel_name);
+        } else if (this.currentReelId) {
+            // Update WebSocket with complete context if reel is already selected
+            if (this.webSocketManager) {
+                this.webSocketManager.setCompleteContext(
+                    this.currentProjectId,
+                    this.currentProjectName,
+                    this.currentReelId,
+                    this.currentReelName
+                );
+            }
         }
         
         // Update UI
@@ -194,11 +205,16 @@ class ProductionChatIntegration {
                 this.currentReelId = reelId;
                 this.currentReelName = reelName;
                 
-                console.log('✅ Reel context switched successfully, loading history...');
+                console.log('✅ Reel context switched successfully, updating WebSocket and loading history...');
                 
-                // Update WebSocket context
+                // Update WebSocket with complete context including reel
                 if (this.webSocketManager) {
-                    this.webSocketManager.setProjectContext(this.currentProjectId, this.currentProjectName);
+                    this.webSocketManager.setCompleteContext(
+                        this.currentProjectId, 
+                        this.currentProjectName,
+                        this.currentReelId,
+                        this.currentReelName
+                    );
                 }
                 
                 // Load messages for this reel
@@ -289,7 +305,7 @@ class ProductionChatIntegration {
                 
                 console.log('✅ Reel created, switching to new reel:', { reelId, reelName });
                 
-                // Switch to new reel
+                // Switch to new reel (this will update WebSocket context)
                 const switchSuccess = await this.switchToReel(reelId, reelName);
                 
                 if (!switchSuccess) {
@@ -320,7 +336,7 @@ class ProductionChatIntegration {
             }
         }
     }
-
+    
     /**
      * Send a message with reel context
      */

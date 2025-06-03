@@ -25,6 +25,8 @@ class ProductionWebSocketManager {
         // State management
         this.isAuthenticated = false;
         this.authService = null;
+        this.currentReelId = null;
+        this.currentReelName = null;
         
         // Bind methods to maintain context
         this.handleOpen = this.handleOpen.bind(this);
@@ -128,23 +130,32 @@ class ProductionWebSocketManager {
                 user_id: this.userId,
                 chat_id: this.projectId,
                 project_name: this.projectName,
-                reel_id: context.reel_id || null,
-                reel_name: context.reel_name || null,
+                reel_id: this.currentReelId || context.reel_id || null,
+                reel_name: this.currentReelName || context.reel_name || null,
+                saved_message_id: context.saved_message_id || null,
                 ...context
             }
         };
+        
+        console.log('📤 Sending message with complete context:', {
+            messageId,
+            reelId: message.context.reel_id,
+            reelName: message.context.reel_name,
+            projectId: message.context.chat_id
+        });
         
         this.pendingMessages.set(messageId, {
             text: text.trim(),
             timestamp: Date.now(),
             status: 'sending',
-            reel_id: context.reel_id
+            reel_id: message.context.reel_id,
+            context: message.context
         });
         
         this.sendRawMessage(message);
         return messageId;
     }
-    
+
     /**
      * Set project context
      */
@@ -163,6 +174,52 @@ class ProductionWebSocketManager {
                 timestamp: new Date().toISOString()
             });
         }
+    }
+
+    setReelContext(reelId, reelName) {
+        // Update local state
+        this.currentReelId = reelId;
+        this.currentReelName = reelName;
+        
+        // Send context update if connected
+        if (this.state === 'connected') {
+            this.sendRawMessage({
+                type: 'context_update',
+                context: {
+                    user_id: this.userId,
+                    chat_id: this.projectId,
+                    project_name: this.projectName,
+                    reel_id: reelId,
+                    reel_name: reelName
+                },
+                timestamp: new Date().toISOString()
+            });
+        }
+        
+        console.log('🎯 Reel context updated:', { reelId, reelName });
+    }
+
+    setCompleteContext(projectId, projectName, reelId = null, reelName = null) {
+        this.projectId = projectId;
+        this.projectName = projectName;
+        this.currentReelId = reelId;
+        this.currentReelName = reelName;
+        
+        if (this.state === 'connected') {
+            this.sendRawMessage({
+                type: 'context_update',
+                context: {
+                    user_id: this.userId,
+                    chat_id: projectId,
+                    project_name: projectName,
+                    reel_id: reelId,
+                    reel_name: reelName
+                },
+                timestamp: new Date().toISOString()
+            });
+        }
+        
+        console.log('🎯 Complete context updated:', { projectId, projectName, reelId, reelName });
     }
     
     /**
