@@ -97,14 +97,20 @@ class ProductionChatIntegration {
         }
         
         try {
+            console.log('Loading reels for project:', this.currentProjectId);
+            
             const result = await window.AuthService.executeFunction('list_project_reels', {
-                chat_id: this.currentProjectId
+                chat_id: this.currentProjectId,
+                email: window.AuthService.getCurrentUser().email
             });
+            
+            console.log('Project reels API response:', result);
             
             if (result?.status === 'success' && result?.data?.success) {
                 this.reels = result.data.reels || [];
-                console.log('Loaded reels:', this.reels);
+                console.log('✅ Loaded reels:', this.reels.length);
             } else {
+                console.error('Failed to load reels:', result);
                 this.reels = [];
             }
         } catch (error) {
@@ -171,7 +177,8 @@ class ProductionChatIntegration {
             // Call API to switch reel context
             const result = await window.AuthService.executeFunction('switch_reel_context', {
                 chat_id: this.currentProjectId,
-                reel_id: reelId
+                reel_id: reelId,
+                email: window.AuthService.getCurrentUser().email
             });
             
             console.log('Switch reel API response:', result);
@@ -181,7 +188,7 @@ class ProductionChatIntegration {
                 this.currentReelId = reelId;
                 this.currentReelName = reelName;
                 
-                console.log('Reel context switched successfully, loading history...');
+                console.log('✅ Reel context switched successfully, loading history...');
                 
                 // Update WebSocket context
                 if (this.webSocketManager) {
@@ -200,6 +207,8 @@ class ProductionChatIntegration {
                 document.dispatchEvent(new CustomEvent('reel_switched', {
                     detail: { reelId: reelId, reelName: reelName }
                 }));
+                
+                return true;
             } else {
                 console.error('Failed to switch reel context:', result);
                 this.showReelError('Failed to switch to reel. Please try again.');
@@ -229,8 +238,11 @@ class ProductionChatIntegration {
             const result = await window.AuthService.executeFunction('create_reel', {
                 chat_id: this.currentProjectId,
                 reel_name: reelName.trim(),
-                reel_description: reelDescription.trim()
+                reel_description: reelDescription.trim(),
+                email: window.AuthService.getCurrentUser().email
             });
+            
+            console.log('Create reel API response:', result);
             
             if (result?.status === 'success' && result?.data?.success) {
                 const newReel = result.data.reel;
@@ -266,12 +278,24 @@ class ProductionChatIntegration {
             throw new Error('No active reel selected');
         }
         
-        // Add user message to UI
+        const messageText = text.trim();
+        console.log('📤 Sending message with database persistence:', {
+            text: messageText.substring(0, 50) + '...',
+            reelId: this.currentReelId,
+            projectId: this.currentProjectId
+        });
+        
+        // Generate a temporary message ID for UI tracking
+        const tempMessageId = `temp_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+        
+        // Add user message to UI immediately
         this.addMessageToUI({
             type: 'user',
-            text: text.trim(),
+            text: messageText,
             timestamp: Date.now(),
-            reel_id: this.currentReelId
+            id: tempMessageId,
+            reel_id: this.currentReelId,
+            isTemporary: true  // Mark as temporary until confirmed saved
         });
         
         // Clear input
@@ -284,22 +308,63 @@ class ProductionChatIntegration {
         this.showTypingIndicator();
         
         try {
-            // Send via WebSocket with reel context
-            const messageId = await this.webSocketManager.sendMessage(text.trim(), {
+            // First, save the user message to database via API
+            const saveResult = await window.AuthService.executeFunction('send_chat_message', {
+                chat_id: this.currentProjectId,
+                content: messageText,
                 reel_id: this.currentReelId,
-                reel_name: this.currentReelName
+                context_data: {
+                    source: 'chat_integration',
+                    reel_name: this.currentReelName,
+                    project_name: this.currentProjectName
+                }
             });
-            return messageId;
+            
+            if (saveResult?.status === 'success' && saveResult?.data?.success) {
+                console.log('✅ User message saved to database:', saveResult.data.message_id);
+                
+                // Update the temporary message with the real database ID
+                const tempMessageElement = document.querySelector(`[data-message-id="${tempMessageId}"]`);
+                if (tempMessageElement) {
+                    tempMessageElement.setAttribute('data-message-id', saveResult.data.message_id);
+                    tempMessageElement.classList.remove('temporary-message');
+                }
+                
+                // Now send via WebSocket for processing (this will create a queue entry)
+                const messageId = await this.webSocketManager.sendMessage(messageText, {
+                    reel_id: this.currentReelId,
+                    reel_name: this.currentReelName,
+                    saved_message_id: saveResult.data.message_id  // Reference to the saved message
+                });
+                
+                console.log('✅ Message sent via WebSocket for processing:', messageId);
+                return messageId;
+                
+            } else {
+                console.error('Failed to save user message to database:', saveResult);
+                throw new Error('Failed to save message to database');
+            }
+            
         } catch (error) {
             this.hideTypingIndicator();
+            
+            // Remove the temporary message if save failed
+            const tempMessageElement = document.querySelector(`[data-message-id="${tempMessageId}"]`);
+            if (tempMessageElement) {
+                tempMessageElement.remove();
+            }
+            
             this.addMessageToUI({
                 type: 'error',
                 text: 'Failed to send message: ' + error.message,
                 timestamp: Date.now()
             });
+            
+            console.error('❌ Failed to send message with database persistence:', error);
             throw error;
         }
     }
+    
     
     /**
      * Load chat history for current reel
@@ -319,49 +384,59 @@ class ProductionChatIntegration {
         });
         
         try {
+            // Use the get_reel_messages function to get messages from database
             const result = await window.AuthService.executeFunction('get_reel_messages', {
                 chat_id: this.currentProjectId,
                 reel_id: this.currentReelId,
-                limit: 30,
+                limit: 50,
                 offset: 0
             });
             
             console.log('Reel messages API response:', result);
             
-            if (result?.status === 'success') {
+            if (result?.status === 'success' && result?.data?.success) {
                 // Clear existing messages first
                 this.clearMessages();
                 
                 if (result?.data?.messages?.length > 0) {
-                    console.log(`Loading ${result.data.messages.length} messages for reel`);
+                    console.log(`Loading ${result.data.messages.length} messages for reel from database`);
                     
-                    // Add history messages (reverse to show oldest first)
-                    result.data.messages.reverse().forEach(msg => {
+                    // Sort messages by timestamp to ensure correct order
+                    const sortedMessages = result.data.messages.sort((a, b) => {
+                        return new Date(a.timestamp) - new Date(b.timestamp);
+                    });
+                    
+                    // Add history messages from database
+                    sortedMessages.forEach(msg => {
                         this.addMessageToUI({
-                            type: msg.sender === 'user' ? 'user' : 'bot',
+                            type: msg.sender === 'user' ? 'user' : (msg.sender === 'bot' ? 'bot' : 'system'),
                             text: msg.content,
                             timestamp: new Date(msg.timestamp).getTime(),
                             id: msg.id,
-                            reel_id: msg.reel_id
+                            reel_id: msg.reel_id,
+                            isHistorical: true  // Mark as historical message
                         });
                     });
                     
                     // Scroll to bottom
                     this.scrollToBottom();
+                    
+                    console.log(`✅ Loaded ${sortedMessages.length} messages from database for reel ${this.currentReelName}`);
                 } else {
-                    console.log('No messages found for this reel');
+                    console.log('No messages found for this reel in database');
                     // Show empty reel message
                     this.showEmptyReelMessage();
                 }
             } else {
-                console.error('Failed to get reel messages:', result);
-                this.showReelError('Failed to load chat history.');
+                console.error('Failed to get reel messages from database:', result);
+                this.showReelError('Failed to load chat history from database.');
             }
         } catch (error) {
-            console.error('Failed to load reel history:', error);
+            console.error('Failed to load reel history from database:', error);
             this.showReelError('Error loading chat history: ' + error.message);
         }
     }
+
     /**
      * Update reel selector UI
      */
@@ -608,15 +683,39 @@ class ProductionChatIntegration {
     handleChatResponse(data) {
         this.hideTypingIndicator();
         
+        console.log('📥 Handling chat response:', {
+            messageId: data.messageId,
+            hasText: !!data.text,
+            hasSavedBotMessageId: !!data.saved_bot_message_id,
+            reelId: this.currentReelId
+        });
+        
+        // Ensure we have response text
+        if (!data.text) {
+            console.warn('Chat response missing text content');
+            data.text = 'Response received but no content available.';
+        }
+        
+        // Add the bot message to UI
         this.addMessageToUI({
             type: 'bot',
             text: data.text,
-            timestamp: data.timestamp,
-            id: data.messageId,
-            components: data.components,
-            reel_id: this.currentReelId
+            timestamp: data.timestamp || Date.now(),
+            id: data.saved_bot_message_id || data.messageId, // Use saved database ID if available
+            components: data.components || [],
+            reel_id: this.currentReelId,
+            metadata: {
+                originalMessageId: data.messageId,
+                savedBotMessageId: data.saved_bot_message_id,
+                parentMessageId: data.context?.parent_message_id,
+                processingTime: data.processing_time,
+                isFromDatabase: !!data.saved_bot_message_id
+            }
         });
+        
+        console.log('✅ Bot response added to UI with database persistence');
     }
+    
     
     handleChatError(data) {
         this.hideTypingIndicator();
@@ -689,6 +788,16 @@ class ProductionChatIntegration {
             messageEl.setAttribute('data-reel-id', message.reel_id);
         }
         
+        // Add temporary class for unsaved messages
+        if (message.isTemporary) {
+            messageEl.classList.add('temporary-message');
+        }
+        
+        // Add historical class for database-loaded messages
+        if (message.isHistorical) {
+            messageEl.classList.add('historical-message');
+        }
+        
         // Message content
         const contentEl = document.createElement('div');
         contentEl.className = 'message-content';
@@ -701,6 +810,15 @@ class ProductionChatIntegration {
             timestampEl.className = 'message-timestamp';
             timestampEl.textContent = this.formatTimestamp(message.timestamp);
             messageEl.appendChild(timestampEl);
+        }
+        
+        // Add database persistence indicator for debugging (can be removed in production)
+        if (message.metadata?.isFromDatabase) {
+            const dbIndicator = document.createElement('div');
+            dbIndicator.className = 'db-indicator';
+            dbIndicator.textContent = '💾';
+            dbIndicator.title = 'Message loaded from database';
+            messageEl.appendChild(dbIndicator);
         }
         
         return messageEl;
