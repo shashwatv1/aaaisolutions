@@ -1305,6 +1305,148 @@
       await initializeApp();
     });
   </script>
+  <script>
+    document.addEventListener('DOMContentLoaded', async function() {
+        console.log('🚀 Production Chat Application Starting...');
+        
+        // Wait for unified initialization
+        if (window.AAAI_APP && !window.AAAI_APP.initialized) {
+            await new Promise(resolve => {
+                const checkInit = () => {
+                    if (window.AAAI_APP.initialized) {
+                        resolve();
+                    } else {
+                        setTimeout(checkInit, 100);
+                    }
+                };
+                checkInit();
+            });
+        }
+        
+        // Verify authentication
+        if (!window.AuthService?.isAuthenticated()) {
+            window.location.href = 'login.html';
+            return;
+        }
+        
+        // Get project context
+        const urlParams = new URLSearchParams(window.location.search);
+        const projectId = urlParams.get('project');
+        const projectName = urlParams.get('project_name');
+        
+        if (!projectId) {
+            window.location.href = 'project.html';
+            return;
+        }
+        
+        try {
+            // Initialize production chat integration
+            await window.ProductionChatIntegration.initialize('chatContainer');
+            
+            // Set project context
+            window.ProductionChatIntegration.setProjectContext(
+                projectId, 
+                projectName ? decodeURIComponent(projectName) : null
+            );
+            
+            // Update UI
+            const user = window.AuthService.getCurrentUser();
+            if (user) {
+                const userEmail = document.getElementById('userEmail');
+                if (userEmail) userEmail.textContent = user.email;
+            }
+            
+            // Update project info
+            const chatTitle = document.getElementById('chatTitle');
+            const sidebarProjectName = document.getElementById('sidebarProjectName');
+            
+            if (projectName) {
+                const decodedName = decodeURIComponent(projectName);
+                if (chatTitle) chatTitle.textContent = decodedName;
+                if (sidebarProjectName) sidebarProjectName.textContent = decodedName;
+                document.title = `${decodedName} - AAAI Solutions`;
+            }
+            
+            // Set up navigation
+            const backBtn = document.getElementById('backBtn');
+            if (backBtn) {
+                backBtn.addEventListener('click', () => {
+                    window.location.href = 'project.html';
+                });
+            }
+            
+            // Set up send message functionality
+            const sendBtn = document.getElementById('sendMessageBtn');
+            const messageInput = document.getElementById('messageInput');
+            
+            if (sendBtn && messageInput) {
+                // Send message function
+                const sendMessage = async () => {
+                    const text = messageInput.value.trim();
+                    if (text) {
+                        try {
+                            await window.ProductionChatIntegration.sendMessage(text);
+                        } catch (error) {
+                            console.error('Failed to send message:', error);
+                        }
+                    }
+                };
+                
+                sendBtn.addEventListener('click', sendMessage);
+                
+                messageInput.addEventListener('keydown', (e) => {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                        e.preventDefault();
+                        sendMessage();
+                    }
+                });
+            }
+            
+            console.log('✅ Production Chat Application Initialized Successfully');
+            
+        } catch (error) {
+            console.error('❌ Failed to initialize chat application:', error);
+            
+            // Show error to user
+            const errorDiv = document.createElement('div');
+            errorDiv.style.cssText = `
+                position: fixed;
+                top: 50%;
+                left: 50%;
+                transform: translate(-50%, -50%);
+                background: #dc3545;
+                color: white;
+                padding: 20px;
+                border-radius: 10px;
+                text-align: center;
+                z-index: 10000;
+            `;
+            errorDiv.innerHTML = `
+                <h3>Chat Initialization Failed</h3>
+                <p>${error.message}</p>
+                <button onclick="window.location.reload()" style="
+                    background: white;
+                    color: #dc3545;
+                    border: none;
+                    padding: 10px 20px;
+                    border-radius: 5px;
+                    cursor: pointer;
+                    margin-top: 10px;
+                ">Reload Page</button>
+            `;
+            document.body.appendChild(errorDiv);
+        }
+    });
+    
+    // Global suggestion function
+    window.sendSuggestion = function(text) {
+        if (window.ProductionChatIntegration) {
+            window.ProductionChatIntegration.sendMessage(text).catch(error => {
+                console.error('Failed to send suggestion:', error);
+            });
+        }
+    };
+    </script>
 </body>
 
 </html>
