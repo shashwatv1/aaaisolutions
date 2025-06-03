@@ -1321,6 +1321,12 @@
             }
         });
     }
+    
+    // Listen for custom events to debug reel switching
+    document.addEventListener('reel_switched', (e) => {
+        console.log('Reel switched event:', e.detail);
+    });
+
     document.addEventListener('DOMContentLoaded', async function() {
         console.log('🚀 Production Chat Application Starting...');
         
@@ -1353,15 +1359,16 @@
             window.location.href = 'project.html';
             return;
         }
-        
-        console.log('Chat application debug info:', {
-          authService: !!window.AuthService,
-          authAuthenticated: window.AuthService?.isAuthenticated(),
-          chatIntegration: !!window.ProductionChatIntegration,
-          projectId: projectId,
-          projectName: projectName
-      });
 
+        // Debug info with properly scoped variables
+        console.log('Chat application debug info:', {
+            authService: !!window.AuthService,
+            authAuthenticated: window.AuthService?.isAuthenticated(),
+            chatIntegration: !!window.ProductionChatIntegration,
+            projectId: projectId,
+            projectName: projectName
+        });
+        
         try {
             // Initialize production chat integration
             await window.ProductionChatIntegration.initialize('chatContainer');
@@ -1469,7 +1476,8 @@
             });
         }
     };
-        // Global functions for reel modal
+        
+    // Global functions for reel modal
     window.showNewReelModal = function() {
         const modal = document.getElementById('newReelModal');
         const nameInput = document.getElementById('reelName');
@@ -1532,44 +1540,32 @@
             createBtn.classList.remove('loading');
         }
     };
-    console.log('Chat application debug info:', {
-      authService: !!window.AuthService,
-      authAuthenticated: window.AuthService?.isAuthenticated(),
-      chatIntegration: !!window.ProductionChatIntegration,
-      projectId: projectId,
-      projectName: projectName
-    });
-    
-    // Listen for custom events to debug reel switching
-    document.addEventListener('reel_switched', (e) => {
-        console.log('Reel switched event:', e.detail);
-    });
 
     document.addEventListener('DOMContentLoaded', function() {
-      const sidebarCollapseBtn = document.getElementById('sidebarCollapseBtn');
-      const chatSidebar = document.getElementById('chatSidebar');
-      const chatContainer = document.getElementById('chatContainer');
-      const collapseIcon = document.getElementById('collapseIcon');
-      
-      if (sidebarCollapseBtn && chatSidebar && chatContainer) {
-          sidebarCollapseBtn.addEventListener('click', function() {
-              const isCollapsed = chatSidebar.classList.contains('collapsed');
-              
-              if (isCollapsed) {
-                  // Expand sidebar
-                  chatSidebar.classList.remove('collapsed');
-                  chatContainer.classList.remove('sidebar-collapsed');
-                  collapseIcon.setAttribute('name', 'chevron-back-outline');
-              } else {
-                  // Collapse sidebar
-                  chatSidebar.classList.add('collapsed');
-                  chatContainer.classList.add('sidebar-collapsed');
-                  collapseIcon.setAttribute('name', 'chevron-forward-outline');
-              }
-          });
-      }
-  });
-    </script>
+        const sidebarCollapseBtn = document.getElementById('sidebarCollapseBtn');
+        const chatSidebar = document.getElementById('chatSidebar');
+        const chatContainer = document.getElementById('chatContainer');
+        const collapseIcon = document.getElementById('collapseIcon');
+        
+        if (sidebarCollapseBtn && chatSidebar && chatContainer) {
+            sidebarCollapseBtn.addEventListener('click', function() {
+                const isCollapsed = chatSidebar.classList.contains('collapsed');
+                
+                if (isCollapsed) {
+                    // Expand sidebar
+                    chatSidebar.classList.remove('collapsed');
+                    chatContainer.classList.remove('sidebar-collapsed');
+                    collapseIcon.setAttribute('name', 'chevron-back-outline');
+                } else {
+                    // Collapse sidebar
+                    chatSidebar.classList.add('collapsed');
+                    chatContainer.classList.add('sidebar-collapsed');
+                    collapseIcon.setAttribute('name', 'chevron-forward-outline');
+                }
+            });
+        }
+    });
+  </script>
 </body>
 
 </html>
