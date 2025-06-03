@@ -154,10 +154,13 @@ class ProductionChatIntegration {
      */
     async createReel(reelName, reelDescription = '') {
         if (!this.currentProjectId || !reelName?.trim()) {
+            console.error('Invalid parameters for reel creation');
             return false;
         }
         
         try {
+            console.log('Creating new reel:', { reelName, reelDescription, projectId: this.currentProjectId });
+            
             const result = await window.AuthService.executeFunction('create_reel', {
                 chat_id: this.currentProjectId,
                 reel_name: reelName.trim(),
@@ -165,19 +168,25 @@ class ProductionChatIntegration {
             });
             
             if (result?.status === 'success' && result?.data?.success) {
+                const newReel = result.data.reel;
+                const reelId = result.data.reel_id;
+                
                 // Add new reel to list
-                this.reels.push(result.data.reel);
+                this.reels.push(newReel);
                 
                 // Switch to new reel
-                await this.switchToReel(result.data.reel_id, reelName);
+                await this.switchToReel(reelId, reelName);
                 
+                console.log('✅ Reel created successfully:', newReel);
                 return true;
+            } else {
+                console.error('Reel creation failed:', result);
+                return false;
             }
         } catch (error) {
             console.error('Failed to create reel:', error);
+            return false;
         }
-        
-        return false;
     }
     
     /**
@@ -602,10 +611,10 @@ class ProductionChatIntegration {
     }
     
     showNewReelModal() {
-        // Implementation for new reel modal
-        const reelName = prompt('Enter reel name:');
-        if (reelName && reelName.trim()) {
-            this.createReel(reelName.trim());
+        if (typeof window.showNewReelModal === 'function') {
+            window.showNewReelModal();
+        } else {
+            console.error('New reel modal function not available');
         }
     }
 }

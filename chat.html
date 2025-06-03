@@ -165,6 +165,190 @@
       font-weight: 600;
     }
 
+    /* Modal styles for reel creation */
+    .modal-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0, 0, 0, 0.7);
+      display: none;
+      justify-content: center;
+      align-items: center;
+      z-index: 1000;
+      backdrop-filter: blur(5px);
+    }
+    
+    .modal {
+      background: var(--card-gradient);
+      border-radius: var(--radius-15);
+      padding: 30px;
+      max-width: 500px;
+      width: 90%;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      position: relative;
+      max-height: 80vh;
+      overflow-y: auto;
+    }
+    
+    .modal-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 25px;
+    }
+    
+    .modal-title {
+      color: var(--white);
+      font-size: 1.5rem;
+      margin: 0;
+    }
+
+    .modal-close {
+      background: transparent;
+      border: none;
+      color: rgba(255, 255, 255, 0.6);
+      font-size: 1.5rem;
+      cursor: pointer;
+      padding: 5px;
+      border-radius: 4px;
+      transition: all 0.3s ease;
+    }
+
+    .modal-close:hover {
+      background: rgba(255, 255, 255, 0.1);
+      color: var(--white);
+    }
+
+    .modal-form {
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+
+    .form-group {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .form-label {
+      color: var(--white);
+      font-weight: 600;
+      font-size: 0.9rem;
+    }
+
+    .form-input, .form-textarea {
+      background: rgba(255, 255, 255, 0.1);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      color: var(--white);
+      padding: 12px 15px;
+      border-radius: 8px;
+      font-size: 1rem;
+      transition: all 0.3s ease;
+      resize: vertical;
+    }
+
+    .form-input:focus, .form-textarea:focus {
+      outline: none;
+      background: rgba(255, 255, 255, 0.15);
+      border-color: var(--orange-soda);
+    }
+
+    .form-input::placeholder, .form-textarea::placeholder {
+      color: rgba(255, 255, 255, 0.6);
+    }
+
+    .form-textarea {
+      min-height: 80px;
+      max-height: 150px;
+    }
+
+    .modal-actions {
+      display: flex;
+      gap: 15px;
+      justify-content: flex-end;
+      margin-top: 10px;
+    }
+
+    .btn-secondary {
+      background: transparent;
+      border: 1px solid rgba(255, 255, 255, 0.3);
+      color: var(--white);
+      padding: 12px 24px;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: all 0.3s ease;
+      font-weight: 500;
+    }
+
+    .btn-secondary:hover {
+      background: rgba(255, 255, 255, 0.1);
+      border-color: rgba(255, 255, 255, 0.5);
+    }
+
+    .btn-primary {
+      background: var(--primary-gradient);
+      color: white;
+      border: none;
+      padding: 12px 24px;
+      border-radius: 8px;
+      cursor: pointer;
+      font-weight: 600;
+      transition: all 0.3s ease;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .btn-primary:hover:not(:disabled) {
+      transform: translateY(-2px);
+      box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
+    }
+
+    .btn-primary:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+      transform: none;
+    }
+
+    .btn-primary.loading {
+      position: relative;
+      color: transparent;
+    }
+
+    .btn-primary.loading::after {
+      content: '';
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      width: 16px;
+      height: 16px;
+      border: 2px solid rgba(255, 255, 255, 0.3);
+      border-top: 2px solid white;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+    }
+
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+
+    /* Responsive modal */
+    @media (max-width: 768px) {
+      .modal {
+        padding: 20px;
+        max-width: 95%;
+      }
+
+      .modal-actions {
+        flex-direction: column;
+        gap: 10px;
+      }
+    }
     .new-reel-btn {
       background: var(--primary-gradient);
       color: white;
@@ -1028,6 +1212,32 @@
         </div>
       </div>
     </div>
+    <div class="modal-overlay" id="newReelModal">
+      <div class="modal">
+        <div class="modal-header">
+          <h3 class="modal-title">Create New Reel</h3>
+          <button class="modal-close" onclick="hideNewReelModal()">
+            <ion-icon name="close-outline"></ion-icon>
+          </button>
+        </div>
+        <form class="modal-form" id="newReelForm">
+          <div class="form-group">
+            <label class="form-label" for="reelName">Reel Name</label>
+            <input type="text" class="form-input" id="reelName" placeholder="Enter reel name" required maxlength="100">
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="reelDescription">Description (Optional)</label>
+            <textarea class="form-textarea" id="reelDescription" placeholder="Describe the purpose of this reel" maxlength="500"></textarea>
+          </div>
+          <div class="modal-actions">
+            <button type="button" class="btn-secondary" onclick="hideNewReelModal()">Cancel</button>
+            <button type="submit" class="btn-primary" id="createReelBtn">
+              <span>Create Reel</span>
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
   </main>
 
   <!-- Footer -->
@@ -1059,6 +1269,20 @@
   
   <!-- Simplified Chat Application Script -->
   <script>
+    const newReelForm = document.getElementById('newReelForm');
+    const newReelModal = document.getElementById('newReelModal');
+    
+    if (newReelForm) {
+        newReelForm.addEventListener('submit', window.handleCreateReel);
+    }
+    
+    if (newReelModal) {
+        newReelModal.addEventListener('click', function(e) {
+            if (e.target === newReelModal) {
+                window.hideNewReelModal();
+            }
+        });
+    }
     document.addEventListener('DOMContentLoaded', async function() {
         console.log('🚀 Production Chat Application Starting...');
         
@@ -1199,6 +1423,70 @@
             });
         }
     };
+        // Global functions for reel modal
+    window.showNewReelModal = function() {
+        const modal = document.getElementById('newReelModal');
+        const nameInput = document.getElementById('reelName');
+        if (modal && nameInput) {
+            modal.style.display = 'flex';
+            nameInput.focus();
+        }
+    };
+
+    window.hideNewReelModal = function() {
+        const modal = document.getElementById('newReelModal');
+        const form = document.getElementById('newReelForm');
+        if (modal) {
+            modal.style.display = 'none';
+        }
+        if (form) {
+            form.reset();
+        }
+    };
+
+    window.handleCreateReel = async function(e) {
+        e.preventDefault();
+        
+        const nameInput = document.getElementById('reelName');
+        const descriptionInput = document.getElementById('reelDescription');
+        const createBtn = document.getElementById('createReelBtn');
+        
+        if (!nameInput || !nameInput.value.trim()) {
+            alert('Reel name is required');
+            return;
+        }
+        
+        const reelName = nameInput.value.trim();
+        const reelDescription = descriptionInput ? descriptionInput.value.trim() : '';
+        
+        try {
+            // Set button loading state
+            createBtn.disabled = true;
+            createBtn.classList.add('loading');
+            
+            // Create reel using the chat integration
+            if (window.ProductionChatIntegration) {
+                const success = await window.ProductionChatIntegration.createReel(reelName, reelDescription);
+                
+                if (success) {
+                    window.hideNewReelModal();
+                    console.log('✅ Reel created successfully:', reelName);
+                } else {
+                    alert('Failed to create reel. Please try again.');
+                }
+            } else {
+                alert('Chat service not available. Please refresh the page.');
+            }
+        } catch (error) {
+            console.error('Error creating reel:', error);
+            alert('Failed to create reel: ' + error.message);
+        } finally {
+            // Reset button state
+            createBtn.disabled = false;
+            createBtn.classList.remove('loading');
+        }
+    };
+
     </script>
 </body>
 
