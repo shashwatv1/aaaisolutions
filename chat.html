@@ -1354,6 +1354,14 @@
             return;
         }
         
+        console.log('Chat application debug info:', {
+          authService: !!window.AuthService,
+          authAuthenticated: window.AuthService?.isAuthenticated(),
+          chatIntegration: !!window.ProductionChatIntegration,
+          projectId: projectId,
+          projectName: projectName
+      });
+
         try {
             // Initialize production chat integration
             await window.ProductionChatIntegration.initialize('chatContainer');
