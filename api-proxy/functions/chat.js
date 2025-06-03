@@ -51,13 +51,40 @@ async function chat(req, res) {
         console.warn('Failed to extract user info from JWT:', error);
       }
       
+      // Extract context from request body
+      const messageContext = req.body.context || {};
+      const chatId = messageContext.chat_id || req.body.chat_id;
+      const reelId = messageContext.reel_id || req.body.reel_id;
+      
       // Enhanced request body with delivery_status
       const enhancedBody = {
         ...req.body,
-        _delivery_status: 'pending_delivery',  // Set delivery status for HTTP messages
+        chat_id: chatId,
+        reel_id: reelId,
+        user_id: userInfo?.user_id,
+        // Add context if not already present
+        context: {
+          ...messageContext,
+          user_id: userInfo?.user_id,
+          chat_id: chatId,
+          reel_id: reelId,
+          project_name: messageContext.project_name,
+          reel_name: messageContext.reel_name
+        },
+        // Message queue metadata
+        _delivery_status: 'pending_delivery',
         _source: 'http_api',
-        _user_info: userInfo
+        _user_info: userInfo,
+        _timestamp: new Date().toISOString()
       };
+      
+      console.log('Enhanced chat request:', {
+        user_id: userInfo?.user_id,
+        chat_id: chatId,
+        reel_id: reelId,
+        has_message: !!req.body.message,
+        delivery_status: enhancedBody._delivery_status
+      });
       
       // Forward the request to the main API
       const response = await axios.post(
