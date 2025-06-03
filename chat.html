@@ -67,6 +67,7 @@
     .chat-layout {
       margin: 20px auto;
       display: flex;
+      flex-direction: row;
       height: calc(100vh - 140px);
       gap: 0;
       position: relative;
@@ -92,11 +93,21 @@
 
     .chat-sidebar.collapsed {
       width: 60px;
+      overflow: hidden;
     }
 
     .chat-sidebar.collapsed .sidebar-content {
       opacity: 0;
       pointer-events: none;
+      transform: translateX(-100%);
+      transition: all 0.3s ease;
+    }
+
+    .chat-sidebar:not(.collapsed) .sidebar-content {
+      opacity: 1;
+      pointer-events: auto;
+      transform: translateX(0);
+      transition: all 0.3s ease;
     }
 
     /* Sidebar Header */
@@ -1146,12 +1157,12 @@
       .chat-layout {
         margin: 10px auto;
         height: calc(100vh - 80px);
-        flex-direction: column;
+        flex-direction: column !important; /* Only stack on mobile */
         padding: 0 10px;
       }
 
       .chat-sidebar {
-        width: 100%;
+        width: 100% !important;
         height: 200px;
         border-radius: var(--radius-10) var(--radius-10) 0 0;
         border-bottom: 1px solid rgba(255, 255, 255, 0.1);
@@ -1160,7 +1171,8 @@
       }
 
       .chat-sidebar.collapsed {
-        height: 60px;
+        height: 60px !important;
+        width: 100% !important;
       }
 
       .chat-container {
@@ -1634,6 +1646,30 @@
         console.log('Reel switched event:', e.detail);
     });
 
+    document.addEventListener('DOMContentLoaded', function() {
+      const sidebarCollapseBtn = document.getElementById('sidebarCollapseBtn');
+      const chatSidebar = document.getElementById('chatSidebar');
+      const chatContainer = document.getElementById('chatContainer');
+      const collapseIcon = document.getElementById('collapseIcon');
+      
+      if (sidebarCollapseBtn && chatSidebar && chatContainer) {
+          sidebarCollapseBtn.addEventListener('click', function() {
+              const isCollapsed = chatSidebar.classList.contains('collapsed');
+              
+              if (isCollapsed) {
+                  // Expand sidebar
+                  chatSidebar.classList.remove('collapsed');
+                  chatContainer.classList.remove('sidebar-collapsed');
+                  collapseIcon.setAttribute('name', 'chevron-back-outline');
+              } else {
+                  // Collapse sidebar
+                  chatSidebar.classList.add('collapsed');
+                  chatContainer.classList.add('sidebar-collapsed');
+                  collapseIcon.setAttribute('name', 'chevron-forward-outline');
+              }
+          });
+      }
+  });
     </script>
 </body>
 
