@@ -107,9 +107,9 @@ class ProductionWebSocketManager {
     }
     
     /**
-     * Send message through WebSocket
+     * Send message through WebSocket with reel context
      */
-    async sendMessage(text) {
+    async sendMessage(text, context = {}) {
         if (this.state !== 'connected') {
             throw new Error('WebSocket not connected');
         }
@@ -127,14 +127,18 @@ class ProductionWebSocketManager {
             context: {
                 user_id: this.userId,
                 chat_id: this.projectId,
-                project_name: this.projectName
+                project_name: this.projectName,
+                reel_id: context.reel_id || null,
+                reel_name: context.reel_name || null,
+                ...context
             }
         };
         
         this.pendingMessages.set(messageId, {
             text: text.trim(),
             timestamp: Date.now(),
-            status: 'sending'
+            status: 'sending',
+            reel_id: context.reel_id
         });
         
         this.sendRawMessage(message);

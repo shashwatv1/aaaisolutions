@@ -1,6 +1,6 @@
 /**
- * Production Chat Integration for AAAI Solutions
- * Robust, reliable chat interface with proper state management
+ * Production Chat Integration with Reel Support for AAAI Solutions
+ * Robust, reliable chat interface with proper reel management
  */
 class ProductionChatIntegration {
     constructor() {
@@ -10,7 +10,10 @@ class ProductionChatIntegration {
         this.messages = [];
         this.currentProjectId = null;
         this.currentProjectName = null;
+        this.currentReelId = null;
+        this.currentReelName = null;
         this.webSocketManager = null;
+        this.reels = [];
         
         // UI state
         this.isTypingIndicatorVisible = false;
@@ -63,9 +66,9 @@ class ProductionChatIntegration {
     }
     
     /**
-     * Set project context
+     * Set project context and load reels
      */
-    setProjectContext(projectId, projectName) {
+    async setProjectContext(projectId, projectName) {
         this.currentProjectId = projectId;
         this.currentProjectName = projectName;
         
@@ -73,23 +76,128 @@ class ProductionChatIntegration {
             this.webSocketManager.setProjectContext(projectId, projectName);
         }
         
-        // Load chat history
-        this.loadChatHistory();
+        // Load reels for this project
+        await this.loadProjectReels();
+        
+        // If no reel is selected and we have reels, select the first one
+        if (!this.currentReelId && this.reels.length > 0) {
+            await this.switchToReel(this.reels[0].id, this.reels[0].reel_name);
+        }
+        
+        // Update UI
+        this.updateReelSelector();
     }
     
     /**
-     * Send a message
+     * Load reels for current project
+     */
+    async loadProjectReels() {
+        if (!this.currentProjectId || !window.AuthService?.isAuthenticated()) {
+            return;
+        }
+        
+        try {
+            const result = await window.AuthService.executeFunction('list_project_reels', {
+                chat_id: this.currentProjectId
+            });
+            
+            if (result?.status === 'success' && result?.data?.success) {
+                this.reels = result.data.reels || [];
+                console.log('Loaded reels:', this.reels);
+            } else {
+                this.reels = [];
+            }
+        } catch (error) {
+            console.error('Failed to load project reels:', error);
+            this.reels = [];
+        }
+    }
+    
+    /**
+     * Switch to a specific reel
+     */
+    async switchToReel(reelId, reelName) {
+        if (!this.currentProjectId || !reelId) {
+            return;
+        }
+        
+        try {
+            const result = await window.AuthService.executeFunction('switch_reel_context', {
+                chat_id: this.currentProjectId,
+                reel_id: reelId
+            });
+            
+            if (result?.status === 'success' && result?.data?.success) {
+                this.currentReelId = reelId;
+                this.currentReelName = reelName;
+                
+                // Update WebSocket context
+                if (this.webSocketManager) {
+                    this.webSocketManager.setProjectContext(this.currentProjectId, this.currentProjectName);
+                }
+                
+                // Load messages for this reel
+                await this.loadReelHistory();
+                
+                // Update UI
+                this.updateReelSelector();
+                
+                console.log('Switched to reel:', reelName);
+            }
+        } catch (error) {
+            console.error('Failed to switch reel:', error);
+        }
+    }
+    
+    /**
+     * Create a new reel
+     */
+    async createReel(reelName, reelDescription = '') {
+        if (!this.currentProjectId || !reelName?.trim()) {
+            return false;
+        }
+        
+        try {
+            const result = await window.AuthService.executeFunction('create_reel', {
+                chat_id: this.currentProjectId,
+                reel_name: reelName.trim(),
+                reel_description: reelDescription.trim()
+            });
+            
+            if (result?.status === 'success' && result?.data?.success) {
+                // Add new reel to list
+                this.reels.push(result.data.reel);
+                
+                // Switch to new reel
+                await this.switchToReel(result.data.reel_id, reelName);
+                
+                return true;
+            }
+        } catch (error) {
+            console.error('Failed to create reel:', error);
+        }
+        
+        return false;
+    }
+    
+    /**
+     * Send a message with reel context
      */
     async sendMessage(text) {
         if (!text?.trim()) {
             throw new Error('Message cannot be empty');
         }
         
+        if (!this.currentReelId) {
+            throw new Error('No active reel selected');
+        }
+        
         // Add user message to UI
         this.addMessageToUI({
             type: 'user',
             text: text.trim(),
-            timestamp: Date.now()
+            timestamp: Date.now(),
+            reel_id: this.currentReelId
         });
         
         // Clear input
@@ -102,8 +210,11 @@ class ProductionChatIntegration {
         this.showTypingIndicator();
         
         try {
-            // Send via WebSocket
-            const messageId = await this.webSocketManager.sendMessage(text.trim());
+            // Send via WebSocket with reel context
+            const messageId = await this.webSocketManager.sendMessage(text.trim(), {
+                reel_id: this.currentReelId,
+                reel_name: this.currentReelName
+            });
             return messageId;
         } catch (error) {
             this.hideTypingIndicator();
@@ -117,16 +228,17 @@ class ProductionChatIntegration {
     }
     
     /**
-     * Load chat history from database
+     * Load chat history for current reel
      */
-    async loadChatHistory() {
-        if (!this.currentProjectId || !window.AuthService?.isAuthenticated()) {
+    async loadReelHistory() {
+        if (!this.currentProjectId || !this.currentReelId || !window.AuthService?.isAuthenticated()) {
             return;
         }
         
         try {
-            const result = await window.AuthService.executeFunction('get_chat_messages', {
+            const result = await window.AuthService.executeFunction('get_reel_messages', {
                 chat_id: this.currentProjectId,
+                reel_id: this.currentReelId,
                 limit: 30,
                 offset: 0
             });
@@ -141,12 +253,40 @@ class ProductionChatIntegration {
                         type: msg.sender === 'user' ? 'user' : 'bot',
                         text: msg.content,
                         timestamp: new Date(msg.timestamp).getTime(),
-                        id: msg.id
+                        id: msg.id,
+                        reel_id: msg.reel_id
                     });
                 });
             }
         } catch (error) {
-            console.error('Failed to load chat history:', error);
+            console.error('Failed to load reel history:', error);
+        }
+    }
+    
+    /**
+     * Update reel selector UI
+     */
+    updateReelSelector() {
+        // Find reel selector elements
+        const reelSelector = document.getElementById('reelSelector');
+        const reelTitle = document.getElementById('currentReelTitle');
+        
+        if (reelSelector) {
+            // Clear existing options
+            reelSelector.innerHTML = '<option value="">Select a reel...</option>';
+            
+            // Add reel options
+            this.reels.forEach(reel => {
+                const option = document.createElement('option');
+                option.value = reel.id;
+                option.textContent = reel.reel_name;
+                option.selected = reel.id === this.currentReelId;
+                reelSelector.appendChild(option);
+            });
+        }
+        
+        if (reelTitle && this.currentReelName) {
+            reelTitle.textContent = this.currentReelName;
         }
     }
     
@@ -175,9 +315,12 @@ class ProductionChatIntegration {
         this.container = null;
         this.elements = {};
         this.messages = [];
+        this.reels = [];
+        this.currentReelId = null;
+        this.currentReelName = null;
     }
     
-    // Private methods
+    // Private methods (keeping existing implementation but adding reel support)
     
     findUIElements() {
         const selectors = {
@@ -223,6 +366,26 @@ class ProductionChatIntegration {
             this.elements.messageInput.addEventListener('keydown', this.handleKeyDown);
             this.elements.messageInput.addEventListener('input', this.handleInput);
         }
+        
+        // Reel selector events
+        const reelSelector = document.getElementById('reelSelector');
+        if (reelSelector) {
+            reelSelector.addEventListener('change', (e) => {
+                const reelId = e.target.value;
+                const reel = this.reels.find(r => r.id === reelId);
+                if (reel) {
+                    this.switchToReel(reel.id, reel.reel_name);
+                }
+            });
+        }
+        
+        // New reel button
+        const newReelBtn = document.getElementById('newReelBtn');
+        if (newReelBtn) {
+            newReelBtn.addEventListener('click', () => {
+                this.showNewReelModal();
+            });
+        }
     }
     
     removeEventListeners() {
@@ -262,7 +425,8 @@ class ProductionChatIntegration {
             text: data.text,
             timestamp: data.timestamp,
             id: data.messageId,
-            components: data.components
+            components: data.components,
+            reel_id: this.currentReelId
         });
     }
     
@@ -331,6 +495,10 @@ class ProductionChatIntegration {
         
         if (message.id) {
             messageEl.setAttribute('data-message-id', message.id);
+        }
+        
+        if (message.reel_id) {
+            messageEl.setAttribute('data-reel-id', message.reel_id);
         }
         
         // Message content
@@ -431,6 +599,14 @@ class ProductionChatIntegration {
             hour: '2-digit', 
             minute: '2-digit' 
         });
+    }
+    
+    showNewReelModal() {
+        // Implementation for new reel modal
+        const reelName = prompt('Enter reel name:');
+        if (reelName && reelName.trim()) {
+            this.createReel(reelName.trim());
+        }
     }
 }
 

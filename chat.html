@@ -145,6 +145,112 @@
       overflow: hidden;
     }
 
+    /* Reel Management Styles */
+    .reel-management-container {
+      padding: 15px 20px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    }
+
+    .reel-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 15px;
+    }
+
+    .reel-header h4 {
+      color: var(--white);
+      margin: 0;
+      font-size: 1rem;
+      font-weight: 600;
+    }
+
+    .new-reel-btn {
+      background: var(--primary-gradient);
+      color: white;
+      border: none;
+      width: 24px;
+      height: 24px;
+      border-radius: 50%;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.3s ease;
+    }
+
+    .new-reel-btn:hover {
+      transform: scale(1.1);
+    }
+
+    .current-reel-display {
+      background: rgba(255, 255, 255, 0.05);
+      padding: 10px;
+      border-radius: 6px;
+      margin-bottom: 15px;
+    }
+
+    .current-reel-label {
+      color: rgba(255, 255, 255, 0.6);
+      font-size: 0.8rem;
+      margin-bottom: 4px;
+    }
+
+    .current-reel-name {
+      color: var(--white);
+      font-weight: 600;
+      font-size: 0.9rem;
+    }
+
+    .reel-selector-container {
+      margin-bottom: 15px;
+    }
+
+    .reel-selector {
+      width: 100%;
+      background: rgba(255, 255, 255, 0.1);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      color: var(--white);
+      padding: 8px 12px;
+      border-radius: 6px;
+      font-size: 0.9rem;
+      cursor: pointer;
+    }
+
+    .reel-selector:focus {
+      outline: none;
+      border-color: var(--orange-soda);
+      background: rgba(255, 255, 255, 0.15);
+    }
+
+    .reel-list-container {
+      max-height: 200px;
+      overflow-y: auto;
+    }
+
+    .reel-item {
+      padding: 8px 10px;
+      margin-bottom: 4px;
+      background: transparent;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: all 0.3s ease;
+      text-align: left;
+      width: 100%;
+      color: rgba(255, 255, 255, 0.8);
+      font-size: 0.85rem;
+    }
+
+    .reel-item:hover {
+      background: rgba(255, 255, 255, 0.1);
+      color: var(--white);
+    }
+
+    .reel-item.active {
+      background: var(--primary-gradient);
+      color: var(--white);
+    }
     /* New Chat Button */
     .new-chat-container {
       padding: 15px 20px;
@@ -825,22 +931,30 @@
 
         <!-- Sidebar Content -->
         <div class="sidebar-content">
-          <!-- New Chat Button -->
-          <div class="new-chat-container">
-            <button class="new-chat-btn" id="newChatBtn">
-              <ion-icon name="add-outline"></ion-icon>
-              <span>New Chat</span>
-            </button>
-          </div>
-
-          <!-- Chat List -->
-          <div class="chat-list-container">
-            <div class="chat-list-header">Recent Chats</div>
-            <div class="chat-list" id="chatList">
-              <!-- Loading state -->
-              <div class="loading-chats" id="loadingChats">
-                <div class="loading-spinner"></div>
-                <div>Loading chats...</div>
+            <!-- Reel Management Section -->
+            <div class="reel-management-container">
+              <div class="reel-header">
+                  <h4>Chat Reels</h4>
+                  <button class="new-reel-btn" id="newReelBtn" title="Create New Reel">
+                      <ion-icon name="add-outline"></ion-icon>
+                  </button>
+              </div>
+              
+              <div class="current-reel-display">
+                  <div class="current-reel-label">Active Reel:</div>
+                  <div class="current-reel-name" id="currentReelTitle">No reel selected</div>
+              </div>
+              
+              <div class="reel-selector-container">
+                  <select class="reel-selector" id="reelSelector">
+                      <option value="">Select a reel...</option>
+                  </select>
+              </div>
+              
+              <div class="reel-list-container">
+                  <div class="reel-list" id="reelList">
+                      <!-- Reels will be populated here -->
+                  </div>
               </div>
             </div>
           </div>
