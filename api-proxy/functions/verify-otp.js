@@ -7,8 +7,8 @@ const {getSecret} = require('../utils/secret-manager');
 let supabaseClient = null;
 
 /**
- * High-Performance JWT-based OTP Verification
- * Optimized for fast response times
+ * UPDATED: High-Performance JWT-based OTP Verification for 7-day sessions
+ * Optimized for fast response times with 6-hour access tokens
  */
 async function verifyOTP(req, res) {
   return cors(req, res, async () => {
@@ -20,7 +20,7 @@ async function verifyOTP(req, res) {
     const startTime = Date.now();
     
     try {
-      console.log('🔐 Fast JWT OTP verification starting...');
+      console.log('🔐 Fast JWT OTP verification starting for 7-day session...');
       
       const { email, otp } = req.body;
       
@@ -74,34 +74,49 @@ async function verifyOTP(req, res) {
         });
       }
       
-      console.log('🎟️ Creating fast JWT token pair...');
+      console.log('🎟️ Creating fast JWT token pair for 7-day session...');
       
-      // Create JWT tokens quickly
+      // Create JWT tokens quickly for 7-day session
       const tokenPair = await createFastJWTTokenPair(userData);
       
-      // Set cookies efficiently
-      const cookieOptions = {
-        httpOnly: true,
-        secure: true,
-        sameSite: 'lax',
-        path: '/'
-      };
+      // UPDATED: Set cookies efficiently with proper 7-day session expiry
+      const secure = req.headers['x-forwarded-proto'] === 'https';
       
+      // Set refresh token cookie - 7 days
       res.cookie('refresh_token', tokenPair.refreshToken, {
-        ...cookieOptions,
-        maxAge: 90 * 24 * 60 * 60 * 1000 // 90 days
+        httpOnly: true,
+        secure: secure,
+        sameSite: 'lax',
+        path: '/',
+        maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days (was 90 days)
       });
       
+      // Set authenticated flag - 6 hours (matches access token)
       res.cookie('authenticated', 'true', {
-        ...cookieOptions,
         httpOnly: false, // Accessible to JS
-        maxAge: 90 * 24 * 60 * 60 * 1000
+        secure: secure,
+        sameSite: 'lax',
+        path: '/',
+        maxAge: 21600000 // 6 hours in milliseconds (was 90 days)
+      });
+      
+      // Set user info cookie - 6 hours
+      res.cookie('user_info', JSON.stringify({
+        id: userData.id,
+        email: userData.email,
+        session_id: tokenPair.sessionId
+      }), {
+        httpOnly: false, // Accessible to JS
+        secure: secure,
+        sameSite: 'lax',
+        path: '/',
+        maxAge: 21600000 // 6 hours in milliseconds
       });
       
       const responseTime = Date.now() - startTime;
-      console.log(`✅ Fast JWT authentication completed in ${responseTime}ms`);
+      console.log(`✅ Fast JWT authentication completed in ${responseTime}ms for 7-day session`);
       
-      // Return optimized response
+      // UPDATED: Return optimized response with 7-day session info
       res.status(200).json({
         user: {
           id: userData.id,
@@ -110,12 +125,20 @@ async function verifyOTP(req, res) {
         },
         tokens: {
           access_token: tokenPair.accessToken,
-          expires_in: 900
+          refresh_token: tokenPair.refreshToken,
+          token_type: 'Bearer',
+          expires_in: 21600 // 6 hours
         },
         authentication: {
           method: 'jwt_bearer',
           token_type: 'user_access_token',
-          expires_in: 900
+          expires_in: 21600, // 6 hours
+          session_duration: '7_days'
+        },
+        session: {
+          duration_days: 7,
+          access_token_hours: 6,
+          auto_refresh: true
         },
         performance: {
           response_time_ms: responseTime
@@ -134,11 +157,11 @@ async function verifyOTP(req, res) {
 }
 
 /**
- * Create JWT token pair with optimized performance
+ * UPDATED: Create JWT token pair for 7-day sessions with 6-hour access tokens
  */
 async function createFastJWTTokenPair(userData) {
   try {
-    console.log('Creating fast JWT tokens for:', userData.email);
+    console.log('Creating fast JWT tokens for 7-day session:', userData.email);
     
     // Get JWT secret (cached)
     const jwtSecret = await getSecret('JWT_SECRET_KEY');
@@ -152,7 +175,7 @@ async function createFastJWTTokenPair(userData) {
     const now = Math.floor(Date.now() / 1000);
     const jti = crypto.randomBytes(8).toString('hex');
     
-    // Create access token (15 minutes)
+    // Create 6-hour access token
     const accessTokenPayload = {
       user_id: userData.id,
       email: userData.email,
@@ -161,11 +184,11 @@ async function createFastJWTTokenPair(userData) {
       iss: 'aaai-solutions',
       aud: 'aaai-api',
       iat: now,
-      exp: now + 900, // 15 minutes
+      exp: now + 21600, // 6 hours
       jti: jti
     };
     
-    // Create refresh token (90 days)
+    // UPDATED: Create 7-day refresh token (was 90 days)
     const refreshTokenPayload = {
       user_id: userData.id,
       email: userData.email,
@@ -174,7 +197,7 @@ async function createFastJWTTokenPair(userData) {
       iss: 'aaai-solutions',
       aud: 'aaai-refresh',
       iat: now,
-      exp: now + (90 * 24 * 60 * 60), // 90 days
+      exp: now + (7 * 24 * 60 * 60), // 7 days (was 90 days)
       jti: jti + '_refresh'
     };
     
@@ -199,13 +222,13 @@ async function createFastJWTTokenPair(userData) {
       console.error('Warning: Failed to store refresh token:', error);
     });
     
-    console.log('✅ Fast JWT tokens created');
+    console.log('✅ Fast JWT tokens created for 7-day session (6h access, 7d refresh)');
     
     return {
       accessToken,
       refreshToken,
       sessionId,
-      expiresIn: 900
+      expiresIn: 21600 // 6 hours
     };
     
   } catch (error) {
@@ -215,7 +238,7 @@ async function createFastJWTTokenPair(userData) {
 }
 
 /**
- * Store refresh token asynchronously for better performance
+ * Store refresh token asynchronously for 7-day sessions
  */
 async function storeRefreshTokenAsync(refreshToken, userId, sessionId) {
   try {
@@ -232,7 +255,7 @@ async function storeRefreshTokenAsync(refreshToken, userId, sessionId) {
       
       const { createClient } = require('@supabase/supabase-js');
       supabaseClient = createClient(supabaseUrl, supabaseKey);
-      console.log('✅ Supabase client initialized for performance');
+      console.log('✅ Supabase client initialized for 7-day session storage');
     }
     
     // Decode token for email (fast operation)
@@ -241,19 +264,21 @@ async function storeRefreshTokenAsync(refreshToken, userId, sessionId) {
     
     const now = new Date().toISOString();
     
-    // Fast database insert
+    // Fast database insert with 7-day expiry
     const { error } = await supabaseClient
       .from('user_refresh_token')
       .insert({
         user_id: userId,
         email: payload.email,
         refresh_token: refreshToken,
-        expires_at: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString(),
+        expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(), // 7 days
         created_at: now,
         updated_at: now,
         device_info: {
           session_id: sessionId,
-          created_via: 'fast_otp_verification'
+          created_via: 'fast_otp_verification',
+          session_duration: '7_days',
+          access_token_duration: '6_hours'
         },
         is_active: true,
         last_used_at: now
@@ -264,7 +289,7 @@ async function storeRefreshTokenAsync(refreshToken, userId, sessionId) {
       throw new Error(`Refresh token storage failed: ${error.message}`);
     }
     
-    console.log('✅ Refresh token stored quickly');
+    console.log('✅ Refresh token stored for 7-day session');
     
   } catch (error) {
     console.error('❌ Async refresh token storage error:', error);

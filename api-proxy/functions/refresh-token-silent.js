@@ -1,73 +1,36 @@
-const axios = require('axios');
 const cors = require('cors')({origin: true});
+const axios = require('axios');
 const {getSecret} = require('../utils/secret-manager');
-const {handleError} = require('../utils/error-handler');
 
 /**
- * FIXED: Silent token refresh using cookies only
- * Enhanced cookie parsing and debugging
+ * UPDATED: Silent Token Refresh for 7-day sessions
+ * Enhanced with 6-hour access tokens and better cookie management
  */
 async function refreshTokenSilent(req, res) {
-  // Handle CORS
   return cors(req, res, async () => {
-    // Handle OPTIONS request for CORS preflight
     if (req.method === 'OPTIONS') {
       res.status(204).send('');
       return;
     }
     
-    if (req.method !== 'POST') {
-      res.status(405).send('Method Not Allowed');
-      return;
-    }
-    
     try {
-      // Get API key from Secret Manager
-      const apiKey = await getSecret('api-key');
+      console.log('🔄 Silent refresh request initiated for 7-day session');
       
-      // Enhanced cookie parsing with debugging
-      console.log('=== SILENT REFRESH DEBUG ===');
-      console.log('All cookies received:', req.cookies);
-      console.log('Cookie header:', req.headers.cookie);
-      
-      // Multiple methods to extract refresh token
-      let refreshToken = null;
-      
-      // Method 1: req.cookies (parsed by Express)
-      if (req.cookies && req.cookies.refresh_token) {
-        refreshToken = req.cookies.refresh_token;
-        console.log('Found refresh token via req.cookies');
+      // Get API key for internal requests
+      const apiKey = await getSecret('INTERNAL_API_KEY');
+      if (!apiKey) {
+        throw new Error('Internal API key not configured');
       }
       
-      // Method 2: Parse cookie header manually
-      if (!refreshToken && req.headers.cookie) {
-        const cookies = req.headers.cookie.split(';');
-        for (const cookie of cookies) {
-          const [name, value] = cookie.trim().split('=');
-          if (name === 'refresh_token' && value) {
-            refreshToken = decodeURIComponent(value);
-            console.log('Found refresh token via header parsing');
-            break;
-          }
-        }
-      }
+      // Extract refresh token from cookies
+      const refreshToken = req.cookies?.refresh_token;
       
-      // Method 3: Check for token in different formats
-      if (!refreshToken) {
-        // Check for refresh_token with different encodings
-        const cookieStr = req.headers.cookie || '';
-        const refreshMatch = cookieStr.match(/refresh_token=([^;]+)/);
-        if (refreshMatch) {
-          refreshToken = decodeURIComponent(refreshMatch[1]);
-          console.log('Found refresh token via regex parsing');
-        }
-      }
-      
-      console.log('Final refresh token found:', !!refreshToken);
+      console.log('Cookies received:', !!req.cookies);
+      console.log('Refresh token present:', !!refreshToken);
       console.log('Refresh token length:', refreshToken ? refreshToken.length : 0);
       
       if (!refreshToken) {
-        console.log('ERROR: No refresh token found in any format');
+        console.log('ERROR: No refresh token found for silent refresh');
         res.status(401).json({ 
           error: 'No refresh token available',
           message: 'No refresh token found in cookies for silent refresh',
@@ -93,7 +56,7 @@ async function refreshTokenSilent(req, res) {
       }
       
       // Forward the request to the main API
-      console.log('Forwarding to main API with refresh token');
+      console.log('Forwarding to main API with refresh token for 6-hour access token');
       const response = await axios.post(
         'https://api-server-559730737995.us-central1.run.app/auth/refresh',
         { 
@@ -110,63 +73,64 @@ async function refreshTokenSilent(req, res) {
         }
       );
       
-      // If successful, update cookies silently
-      if (response.data && response.data.access_token) {
+      // UPDATED: If successful, update cookies with 6-hour access token
+      if (response.data && response.data.tokens && response.data.tokens.access_token) {
         const secure = req.headers['x-forwarded-proto'] === 'https';
         const sameSite = 'lax';
         
-        console.log('Silent refresh successful, setting new cookies');
+        console.log('Silent refresh successful, setting new 6-hour cookies');
         
-        // Set new access token cookie
-        res.cookie('access_token', response.data.access_token, {
+        // UPDATED: Set new 6-hour access token cookie
+        res.cookie('access_token', response.data.tokens.access_token, {
           httpOnly: true,
           secure: secure,
           sameSite: sameSite,
-          maxAge: 3600000, // 1 hour
+          maxAge: 21600000, // 6 hours in milliseconds (was 3600000)
           path: '/'
         });
         
         // Update refresh token if a new one is provided
-        if (response.data.refresh_token) {
-          res.cookie('refresh_token', response.data.refresh_token, {
+        if (response.data.tokens.refresh_token) {
+          res.cookie('refresh_token', response.data.tokens.refresh_token, {
             httpOnly: true,
             secure: secure,
             sameSite: sameSite,
-            maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
+            maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days (was 30 days)
             path: '/'
           });
         }
         
-        // Update authenticated flag
+        // UPDATED: Update authenticated flag with 6-hour expiry
         res.cookie('authenticated', 'true', {
           httpOnly: false, // Accessible to JavaScript
           secure: secure,
           sameSite: sameSite,
-          maxAge: 3600000, // 1 hour
+          maxAge: 21600000, // 6 hours (was 3600000)
           path: '/'
         });
         
-        // Update user info if provided
+        // UPDATED: Update user info if provided with 6-hour expiry
         if (response.data.user) {
           res.cookie('user_info', JSON.stringify({
             id: response.data.user.id,
             email: response.data.user.email,
-            session_id: response.data.session_id || 'silent_refresh'
+            session_id: response.data.user.session_id || 'silent_refresh'
           }), {
             httpOnly: false, // Accessible to JavaScript
             secure: secure,
             sameSite: sameSite,
-            maxAge: 3600000, // 1 hour
+            maxAge: 21600000, // 6 hours (was 3600000)
             path: '/'
           });
         }
         
-        // For silent refresh, return minimal response
+        // UPDATED: Return minimal response with 6-hour token info
         res.status(200).json({
           success: true,
-          message: 'Token refreshed silently',
-          expires_in: 3600, // 1 hour in seconds
+          message: 'Token refreshed silently for 7-day session',
+          expires_in: 21600, // 6 hours in seconds (was 3600)
           token_type: 'Bearer',
+          session_duration: '7 days',
           refreshed_at: new Date().toISOString()
         });
       } else {
@@ -200,7 +164,7 @@ async function refreshTokenSilent(req, res) {
         
         res.status(401).json({
           error: 'Silent refresh failed',
-          message: 'Authentication required - please log in again',
+          message: 'Session expired - please log in again for new 7-day session',
           code: 'SILENT_REFRESH_FAILED',
           requires_login: true
         });

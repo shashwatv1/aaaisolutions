@@ -9,8 +9,8 @@ let jwtSecretCache = null;
 let secretCacheExpiry = null;
 
 /**
- * High-Performance JWT Token Refresh
- * Optimized for minimal latency
+ * UPDATED: High-Performance JWT Token Refresh for 7-day sessions
+ * Creates 6-hour access tokens with optimized cookie management
  */
 async function refreshToken(req, res) {
   return cors(req, res, async () => {
@@ -22,7 +22,7 @@ async function refreshToken(req, res) {
     const startTime = Date.now();
     
     try {
-      console.log('🔄 Fast JWT token refresh starting...');
+      console.log('🔄 Fast JWT token refresh starting (6-hour tokens for 7-day sessions)...');
       
       // Quick refresh token extraction
       const refreshToken = req.cookies?.refresh_token;
@@ -77,8 +77,11 @@ async function refreshToken(req, res) {
       
       console.log('✅ Fast refresh token validated for:', payload.email);
       
-      // Create new access token quickly
+      // Create new 6-hour access token
       const newAccessToken = await createFastAccessToken(payload);
+      
+      // UPDATED: Set refreshed cookies with proper expiry
+      setRefreshCookies(req, res, newAccessToken, payload);
       
       // Update database asynchronously (non-blocking)
       updateRefreshTokenUsageAsync(refreshToken).catch(error => {
@@ -88,16 +91,23 @@ async function refreshToken(req, res) {
       const responseTime = Date.now() - startTime;
       console.log(`✅ Fast token refresh completed in ${responseTime}ms for:`, payload.email);
       
-      // Return optimized response
+      // UPDATED: Enhanced response with session information
       res.status(200).json({
         tokens: {
           access_token: newAccessToken,
-          expires_in: 900
+          expires_in: 21600, // 6 hours in seconds
+          token_type: 'Bearer'
         },
         user: {
           id: payload.user_id,
           email: payload.email,
           session_id: payload.session_id
+        },
+        session: {
+          duration_days: 7,
+          access_token_hours: 6,
+          refresh_successful: true,
+          refreshed_at: new Date().toISOString()
         },
         performance: {
           response_time_ms: responseTime
@@ -187,7 +197,7 @@ async function verifyRefreshTokenFast(refreshToken, userId) {
 }
 
 /**
- * Create new access token quickly
+ * Create new 6-hour access token quickly
  */
 async function createFastAccessToken(payload) {
   try {
@@ -202,16 +212,64 @@ async function createFastAccessToken(payload) {
       iss: 'aaai-solutions',
       aud: 'aaai-api',
       iat: now,
-      exp: now + 900, // 15 minutes
+      exp: now + 21600, // 6 hours in seconds
       jti: crypto.randomBytes(8).toString('hex')
     };
     
     // Use synchronous signing for speed
-    return jwt.sign(newAccessTokenPayload, jwtSecret, { algorithm: 'HS256' });
+    const token = jwt.sign(newAccessTokenPayload, jwtSecret, { algorithm: 'HS256' });
+    
+    console.log('✅ Created 6-hour access token');
+    return token;
     
   } catch (error) {
     console.error('❌ Fast access token creation failed:', error);
     throw new Error('Access token creation failed');
+  }
+}
+
+/**
+ * UPDATED: Set refresh cookies with proper 7-day session management
+ */
+function setRefreshCookies(req, res, accessToken, payload) {
+  try {
+    const secure = req.headers['x-forwarded-proto'] === 'https';
+    
+    // Set access token cookie - 6 hours (not typically used but for compatibility)
+    res.cookie('access_token', accessToken, {
+      httpOnly: true,
+      secure: secure,
+      sameSite: 'lax',
+      path: '/',
+      maxAge: 21600000 // 6 hours in milliseconds
+    });
+    
+    // Update authenticated flag - 6 hours
+    res.cookie('authenticated', 'true', {
+      httpOnly: false, // Accessible to JavaScript
+      secure: secure,
+      sameSite: 'lax',
+      path: '/',
+      maxAge: 21600000 // 6 hours in milliseconds
+    });
+    
+    // Update user info cookie - 6 hours
+    res.cookie('user_info', JSON.stringify({
+      id: payload.user_id,
+      email: payload.email,
+      session_id: payload.session_id
+    }), {
+      httpOnly: false, // Accessible to JavaScript
+      secure: secure,
+      sameSite: 'lax',
+      path: '/',
+      maxAge: 21600000 // 6 hours in milliseconds
+    });
+    
+    console.log('✅ Refresh cookies updated for 6-hour access token');
+    
+  } catch (error) {
+    console.error('❌ Failed to set refresh cookies:', error);
   }
 }
 
@@ -258,6 +316,11 @@ function clearAuthCookies(res) {
   
   res.clearCookie('refresh_token', cookieOptions);
   res.clearCookie('authenticated', cookieOptions);
+  res.clearCookie('access_token', cookieOptions);
+  res.clearCookie('user_info', cookieOptions);
+  res.clearCookie('session_id', cookieOptions);
+  
+  console.log('✅ Authentication cookies cleared');
 }
 
 module.exports = refreshToken;
