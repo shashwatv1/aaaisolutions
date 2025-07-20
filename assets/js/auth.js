@@ -68,11 +68,11 @@ const AuthService = {
     },
 
     /**
-     * UPDATED: Enhanced authentication check for 7-day sessions
+     * Check if user is authenticated
      */
     isAuthenticated() {
-        // Use cache if recent (but shorter cache for more responsive updates)
-        if (this.lastValidation && (Date.now() - this.lastValidation) < 5000) { // 5 seconds
+        // Use cache if recent
+        if (this.lastValidation && (Date.now() - this.lastValidation) < 10000) {
             return this.authenticated;
         }
         
@@ -83,10 +83,9 @@ const AuthService = {
             return true;
         }
         
-        // Try to restore from session storage if internal state is missing
+        // Check session storage
         const stored = this._getStoredAccessToken();
         if (stored && this._isTokenValid(stored)) {
-            this._log('🔧 Restoring auth state from session storage');
             this._setAccessToken(stored.token, stored.expiresIn);
             this._setUserInfo(stored.user);
             this._scheduleProactiveRefresh();
@@ -94,31 +93,19 @@ const AuthService = {
             return true;
         }
         
-        // CRITICAL: Check cookie-based authentication and SET INTERNAL STATE
-        if (this._hasRefreshTokenCookie() || document.cookie.includes('authenticated=true')) {
-            try {
-                const userInfoCookie = this._getUserInfoFromCookie();
-                if (userInfoCookie && userInfoCookie.email && userInfoCookie.id) {
-                    this._log('🔧 Setting auth state from user_info cookie');
-                    
-                    // SET INTERNAL STATE (this was missing before)
-                    this.authenticated = true;
-                    this.userEmail = userInfoCookie.email;
-                    this.userId = userInfoCookie.id;
-                    this.sessionId = userInfoCookie.session_id;
-                    this.lastValidation = Date.now();
-                    
-                    // Try to get access token via refresh
-                    if (this._hasRefreshTokenCookie()) {
-                        this._performInitialRefresh().catch(() => {
-                            this._log('Background refresh failed, but cookie auth valid');
-                        });
-                    }
-                    
-                    return true;
+        // Check cookie-based authentication
+        if (this._hasCookieAuth()) {
+            const userInfo = this._getUserInfoFromCookie();
+            if (userInfo && userInfo.email && userInfo.id) {
+                this._setUserInfo(userInfo);
+                this.lastValidation = Date.now();
+                
+                // Try to get access token via refresh
+                if (this._hasRefreshTokenCookie()) {
+                    this._performInitialRefresh();
                 }
-            } catch (error) {
-                this._log('Failed to parse user_info cookie:', error);
+                
+                return true;
             }
         }
         
@@ -142,7 +129,7 @@ const AuthService = {
     },
 
     /**
-     * UPDATED: Enhanced token retrieval with automatic refresh
+     * Get valid access token
      */
     getToken() {
         // Return cached token if valid
@@ -150,42 +137,13 @@ const AuthService = {
             return this.accessToken;
         }
         
-        // Quick storage check
+        // Check session storage
         const stored = this._getStoredAccessToken();
         if (stored && this._isTokenValid(stored)) {
             this._setAccessToken(stored.token, stored.expiresIn);
             this._setUserInfo(stored.user);
             this._scheduleProactiveRefresh();
             return this.accessToken;
-        }
-        
-        // CRITICAL FIX: If isAuthenticated() is true but we have no token,
-        // there's a state mismatch - try to recover
-        if (this.isAuthenticated() && !this.accessToken) {
-            this._log('🔧 Auth state mismatch detected - recovering...');
-            
-            // Try to get user info from cookie and set internal state
-            const userInfo = this._getUserInfoFromCookie();
-            if (userInfo && userInfo.email && userInfo.id) {
-                this._log('🔧 Setting internal state from cookie...');
-                this.authenticated = true;
-                this.userEmail = userInfo.email;
-                this.userId = userInfo.id;
-                this.sessionId = userInfo.session_id;
-                this.lastValidation = Date.now();
-                
-                // Try silent refresh to get access token
-                this._log('🔄 Attempting silent refresh to get access token...');
-                this._quickRefresh().then(success => {
-                    if (success) {
-                        this._log('✅ Silent refresh successful');
-                    } else {
-                        this._log('❌ Silent refresh failed');
-                    }
-                }).catch(error => {
-                    this._log('❌ Silent refresh error:', error);
-                });
-            }
         }
         
         return null;
@@ -224,13 +182,13 @@ const AuthService = {
     },
 
     /**
-     * UPDATED: Enhanced OTP verification with 7-day session setup
+     * Enhanced OTP verification with proper token handling
      */
     async verifyOTP(email, otp) {
         try {
-            this._log(`Fast OTP verification for 7-day session: ${email}`);
+            this._log(`OTP verification for: ${email}`);
             
-            this._clearAuthState(); // Quick clear
+            this._clearAuthState();
             
             const controller = new AbortController();
             const timeoutId = setTimeout(() => controller.abort(), 15000);
@@ -253,16 +211,18 @@ const AuthService = {
             const data = await response.json();
             const { user, tokens } = data;
             
-            // Quick validation and setup
             if (!user?.id || !user?.email || !tokens?.access_token) {
                 throw new Error('Invalid authentication response');
             }
             
-            // UPDATED: Set authentication state with 6-hour tokens
+            // Set authentication state
             this._setAccessToken(tokens.access_token, tokens.expires_in || 21600);
             this._setUserInfo(user);
             
-            // Cache the auth state
+            // Store for persistence
+            this._storeAccessToken(tokens.access_token, tokens.expires_in || 21600, user);
+            
+            // Cache auth state
             this._cacheAuthState({
                 user,
                 token: tokens.access_token,
@@ -270,13 +230,10 @@ const AuthService = {
                 timestamp: Date.now()
             });
             
-            // Store for persistence
-            this._storeAccessToken(tokens.access_token, tokens.expires_in || 21600, user);
-            
-            // UPDATED: Start proactive refresh scheduling
+            // Start refresh scheduling
             this._scheduleProactiveRefresh();
             
-            this._log('Fast authentication successful for 7-day session');
+            this._log('Authentication successful');
             return data;
             
         } catch (error) {
@@ -352,7 +309,7 @@ const AuthService = {
     },
 
     /**
-     * UPDATED: Enhanced token refresh with 6-hour tokens
+     * Enhanced token refresh
      */
     async _quickRefresh() {
         if (this.refreshInProgress) {
@@ -363,7 +320,7 @@ const AuthService = {
         
         try {
             const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 15000); // Increased timeout
+            const timeoutId = setTimeout(() => controller.abort(), 15000);
             
             const response = await fetch(`${this.AUTH_BASE_URL}/auth/refresh`, {
                 method: 'POST',
@@ -380,27 +337,19 @@ const AuthService = {
             }
             
             const data = await response.json();
-            let accessToken, expiresIn;
-            
-            if (data.tokens) {
-                accessToken = data.tokens.access_token;
-                expiresIn = data.tokens.expires_in || 21600; // Default 6 hours
-            } else {
-                accessToken = data.access_token;
-                expiresIn = data.expires_in || 21600; // Default 6 hours
-            }
+            const accessToken = data.tokens?.access_token || data.access_token;
+            const expiresIn = data.tokens?.expires_in || data.expires_in || 21600;
             
             if (accessToken) {
                 this._setAccessToken(accessToken, expiresIn);
                 this._updateStoredToken(accessToken, expiresIn);
                 
-                // Update user info if provided
                 if (data.user) {
                     this._setUserInfo(data.user);
                 }
                 
-                this._scheduleProactiveRefresh(); // Schedule next refresh
-                this._log('Token refreshed successfully, expires in:', expiresIn / 3600, 'hours');
+                this._scheduleProactiveRefresh();
+                this._log('Token refreshed successfully');
                 return true;
             }
             
@@ -657,20 +606,20 @@ const AuthService = {
     },
 
     /**
-     * UPDATED: Enhanced cookie detection (fix for missing refresh_token)
+     * Check if user has cookie-based authentication
+     */
+    _hasCookieAuth() {
+        return document.cookie.includes('authenticated=true');
+    },
+
+    /**
+     * Check if refresh token cookie exists
      */
     _hasRefreshTokenCookie() {
         const cookieString = document.cookie;
-        const hasAuthenticated = cookieString.includes('authenticated=true');
-        const hasRefreshToken = cookieString.includes('refresh_token=') && 
-                               !cookieString.includes('refresh_token=;') && 
-                               !cookieString.includes('refresh_token=""');
-        
-        this._log('Cookie check - authenticated:', hasAuthenticated, 'refresh_token:', hasRefreshToken);
-        
-        // TEMPORARY FIX: Return true if we have authenticated cookie (until backend is fixed)
-        // This allows the system to work even without refresh_token cookie
-        return hasAuthenticated;
+        return cookieString.includes('refresh_token=') && 
+               !cookieString.includes('refresh_token=;') && 
+               !cookieString.includes('refresh_token=""');
     },
 
     /**
