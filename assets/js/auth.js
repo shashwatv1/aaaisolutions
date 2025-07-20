@@ -494,32 +494,28 @@ const AuthService = {
 
     // UPDATED: Private methods optimized for 7-day sessions
 
+    /**
+     * Set authentication state
+     */
     _setAccessToken(token, expiresIn) {
         this.accessToken = token;
         this.tokenExpiry = Date.now() + (expiresIn * 1000);
-        
-        // Cache the auth state
-        this._cacheAuthState({
-            token: token,
-            expiresIn: expiresIn,
-            user: {
-                id: this.userId,
-                email: this.userEmail,
-                session_id: this.sessionId
-            }
-        });
     },
 
+    /**
+     * Set user information
+     */
     _setUserInfo(user) {
         this.authenticated = true;
         this.userEmail = user.email;
         this.userId = user.id;
         this.sessionId = user.session_id;
         this.lastValidation = Date.now();
-        
-        this._log('User authenticated:', user.email);
     },
 
+    /**
+     * Clear authentication state
+     */
     _clearAuthState() {
         this.authenticated = false;
         this.userEmail = null;
@@ -532,12 +528,10 @@ const AuthService = {
         this._clearRefreshTimer();
         sessionStorage.removeItem('aaai_access_token');
         this.authCache.clear();
-        
-        this._log('Auth state cleared');
     },
 
     /**
-     * UPDATED: Enhanced access token validation with longer buffer
+     * Check if access token is valid
      */
     _isAccessTokenValid() {
         return this.accessToken && 
@@ -545,6 +539,9 @@ const AuthService = {
                Date.now() < (this.tokenExpiry - this.options.refreshBufferTime);
     },
 
+    /**
+     * Check if stored token is valid
+     */
     _isTokenValid(storedToken) {
         return storedToken && 
                storedToken.token && 
@@ -552,6 +549,9 @@ const AuthService = {
                Date.now() < storedToken.expiry;
     },
 
+    /**
+     * Store access token in session storage
+     */
     _storeAccessToken(token, expiresIn, user) {
         try {
             const tokenData = {
@@ -572,6 +572,9 @@ const AuthService = {
         }
     },
 
+    /**
+     * Get stored access token
+     */
     _getStoredAccessToken() {
         try {
             const stored = sessionStorage.getItem('aaai_access_token');
@@ -591,6 +594,9 @@ const AuthService = {
         }
     },
 
+    /**
+     * Update stored token
+     */
     _updateStoredToken(token, expiresIn) {
         try {
             const stored = this._getStoredAccessToken();
@@ -623,7 +629,7 @@ const AuthService = {
     },
 
     /**
-     * NEW: Extract user info from cookie
+     * Get user info from cookie
      */
     _getUserInfoFromCookie() {
         try {
@@ -647,6 +653,9 @@ const AuthService = {
         }
     },
 
+    /**
+     * Cache authentication state
+     */
     _cacheAuthState(state) {
         this.authCache.set('auth_state', {
             ...state,
