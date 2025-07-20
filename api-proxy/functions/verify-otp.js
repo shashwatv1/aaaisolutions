@@ -81,13 +81,20 @@ async function verifyOTP(req, res) {
       
       // UPDATED: Set cookies efficiently with proper 7-day session expiry
       const secure = req.headers['x-forwarded-proto'] === 'https';
-      
+
       console.log('🍪 Setting authentication cookies...', {
           hasRefreshToken: !!tokenPair.refreshToken,
           refreshTokenLength: tokenPair.refreshToken ? tokenPair.refreshToken.length : 0,
-          secure: secure
+          secure: secure,
+          userDataId: userData.id
       });
-      
+
+      // CRITICAL: Ensure refresh token exists before setting cookie
+      if (!tokenPair.refreshToken) {
+          console.error('❌ CRITICAL ERROR: No refresh token generated!');
+          throw new Error('Refresh token generation failed');
+      }
+
       // CRITICAL: Set refresh token cookie - 7 days
       res.cookie('refresh_token', tokenPair.refreshToken, {
           httpOnly: true,
@@ -96,7 +103,12 @@ async function verifyOTP(req, res) {
           path: '/',
           maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
       });
-      
+
+      console.log('✅ refresh_token cookie set:', {
+          tokenLength: tokenPair.refreshToken.length,
+          maxAge: 7 * 24 * 60 * 60 * 1000
+      });
+
       // Set authenticated flag - 6 hours (matches access token)
       res.cookie('authenticated', 'true', {
           httpOnly: false, // Accessible to JS
@@ -105,7 +117,7 @@ async function verifyOTP(req, res) {
           path: '/',
           maxAge: 21600000 // 6 hours in milliseconds
       });
-      
+
       // Set user info cookie - 6 hours
       res.cookie('user_info', JSON.stringify({
           id: userData.id,
@@ -118,7 +130,7 @@ async function verifyOTP(req, res) {
           path: '/',
           maxAge: 21600000 // 6 hours in milliseconds
       });
-      
+
       console.log('✅ All authentication cookies set successfully');
       
       const responseTime = Date.now() - startTime;
@@ -225,16 +237,25 @@ async function createFastJWTTokenPair(userData) {
       })
     ]);
     
+    // CRITICAL: Verify both tokens were created
+    if (!accessToken || !refreshToken) {
+      throw new Error('Token creation failed - missing tokens');
+    }
+    
+    console.log('✅ JWT tokens created successfully:', {
+      accessTokenLength: accessToken.length,
+      refreshTokenLength: refreshToken.length,
+      sessionId: sessionId
+    });
+    
     // Store refresh token asynchronously (non-blocking)
     storeRefreshTokenAsync(refreshToken, userData.id, sessionId).catch(error => {
       console.error('Warning: Failed to store refresh token:', error);
     });
     
-    console.log('✅ Fast JWT tokens created for 7-day session (6h access, 7d refresh)');
-    
     return {
       accessToken,
-      refreshToken,
+      refreshToken, // CRITICAL: Must return refresh token
       sessionId,
       expiresIn: 21600 // 6 hours
     };
