@@ -72,6 +72,10 @@ class ProductionChatIntegration {
         this.currentProjectId = projectId;
         this.currentProjectName = projectName;
         
+        // Reset current reel when switching projects
+        this.currentReelId = null;
+        this.currentReelName = null;
+        
         // Update WebSocket with project context initially
         if (this.webSocketManager) {
             this.webSocketManager.setProjectContext(projectId, projectName);
@@ -79,6 +83,9 @@ class ProductionChatIntegration {
         
         // Load reels for this project
         await this.loadProjectReels();
+        
+        // Update chat interface visibility based on reel availability
+        this.updateChatInterfaceVisibility();
         
         // If no reel is selected and we have reels, select the first one
         if (!this.currentReelId && this.reels.length > 0) {
@@ -97,6 +104,43 @@ class ProductionChatIntegration {
         
         // Update UI
         this.updateReelSelector();
+    }
+    
+    /**
+     * Update chat interface visibility based on reel availability
+     */
+    updateChatInterfaceVisibility() {
+        const chatFooter = document.getElementById('chatFooter');
+        const chatBody = document.getElementById('chatBody');
+        const createReelPrompt = document.getElementById('createReelPrompt');
+        
+        if (!chatFooter || !chatBody || !createReelPrompt) {
+            console.warn('Chat interface elements not found');
+            return;
+        }
+        
+        const hasReels = this.reels.length > 0;
+        const hasSelectedReel = !!this.currentReelId;
+        
+        if (!hasReels) {
+            // No reels available - hide chat interface, show create reel prompt
+            chatFooter.style.display = 'none';
+            chatBody.style.display = 'none';
+            createReelPrompt.style.display = 'flex';
+            console.log('No reels available - showing create reel prompt');
+        } else if (hasSelectedReel) {
+            // Reel is selected - show chat interface, hide create reel prompt
+            chatFooter.style.display = 'flex';
+            chatBody.style.display = 'block';
+            createReelPrompt.style.display = 'none';
+            console.log('Reel selected - showing chat interface');
+        } else {
+            // Reels available but none selected - show reel selector only
+            chatFooter.style.display = 'none';
+            chatBody.style.display = 'block';
+            createReelPrompt.style.display = 'none';
+            console.log('Reels available but none selected');
+        }
     }
     
     /**
@@ -225,6 +269,7 @@ class ProductionChatIntegration {
                 
                 // Update UI
                 this.updateReelSelector();
+                this.updateChatInterfaceVisibility();
                 
                 // Hide welcome message if visible
                 this.hideWelcomeMessage();
@@ -315,6 +360,7 @@ class ProductionChatIntegration {
                     console.warn('Reel created but failed to switch to it');
                     // Still consider it a success since reel was created
                     this.updateReelSelector();
+                    this.updateChatInterfaceVisibility();
                 }
                 
                 console.log('✅ Reel created successfully:', newReel);

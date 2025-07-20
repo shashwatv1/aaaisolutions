@@ -8,10 +8,6 @@ let supabaseClient = null;
 let jwtSecretCache = null;
 let secretCacheExpiry = null;
 
-/**
- * UPDATED: High-Performance JWT Token Refresh for 7-day sessions
- * Creates 6-hour access tokens with optimized cookie management
- */
 async function refreshToken(req, res) {
   return cors(req, res, async () => {
     if (req.method === 'OPTIONS') {
@@ -42,6 +38,7 @@ async function refreshToken(req, res) {
       let payload;
       try {
         payload = jwt.verify(refreshToken, jwtSecret);
+        console.log('✅ JWT refresh token verified successfully');
       } catch (error) {
         console.log('❌ Invalid refresh token:', error.message);
         
@@ -80,22 +77,23 @@ async function refreshToken(req, res) {
       // Create new 6-hour access token
       const newAccessToken = await createFastAccessToken(payload);
       
-      // UPDATED: Set refreshed cookies with proper expiry
-      setRefreshCookies(req, res, newAccessToken, payload);
+      // Create new refresh token for rotation
+      const newRefreshToken = await createFastRefreshToken(payload);
       
-      // Update database asynchronously (non-blocking)
-      updateRefreshTokenUsageAsync(refreshToken).catch(error => {
-        console.warn('Warning: Failed to update token usage:', error);
-      });
+      // Set refreshed cookies with proper expiry
+      setRefreshCookies(req, res, newAccessToken, newRefreshToken, payload);
+      
+      // Update database with new refresh token
+      await updateRefreshTokenInDatabase(refreshToken, newRefreshToken, payload.user_id);
       
       const responseTime = Date.now() - startTime;
       console.log(`✅ Fast token refresh completed in ${responseTime}ms for:`, payload.email);
       
-      // UPDATED: Enhanced response with session information
       res.status(200).json({
         tokens: {
           access_token: newAccessToken,
-          expires_in: 21600, // 6 hours in seconds
+          refresh_token: newRefreshToken,
+          expires_in: 21600,
           token_type: 'Bearer'
         },
         user: {
@@ -125,18 +123,14 @@ async function refreshToken(req, res) {
   });
 }
 
-/**
- * Get JWT secret with caching for performance
- */
 async function getFastJWTSecret() {
-  // Use cached secret if still valid (cache for 5 minutes)
   if (jwtSecretCache && secretCacheExpiry && Date.now() < secretCacheExpiry) {
     return jwtSecretCache;
   }
   
   try {
     jwtSecretCache = await getSecret('JWT_SECRET_KEY');
-    secretCacheExpiry = Date.now() + (5 * 60 * 1000); // 5 minutes
+    secretCacheExpiry = Date.now() + (5 * 60 * 1000);
     return jwtSecretCache;
   } catch (error) {
     console.error('Failed to get JWT secret:', error);
@@ -144,12 +138,8 @@ async function getFastJWTSecret() {
   }
 }
 
-/**
- * Fast refresh token verification with connection reuse
- */
 async function verifyRefreshTokenFast(refreshToken, userId) {
   try {
-    // Initialize Supabase client once and reuse
     if (!supabaseClient) {
       const [supabaseUrl, supabaseKey] = await Promise.all([
         getSecret('SUPABASE_URL'),
@@ -168,7 +158,7 @@ async function verifyRefreshTokenFast(refreshToken, userId) {
       .eq('refresh_token', refreshToken)
       .eq('user_id', userId)
       .eq('is_active', true)
-      .maybeSingle(); // Use maybeSingle for better performance
+      .maybeSingle();
     
     if (error) {
       console.log('❌ Fast refresh token query error:', error);
@@ -196,9 +186,6 @@ async function verifyRefreshTokenFast(refreshToken, userId) {
   }
 }
 
-/**
- * Create new 6-hour access token quickly
- */
 async function createFastAccessToken(payload) {
   try {
     const jwtSecret = await getFastJWTSecret();
@@ -216,7 +203,6 @@ async function createFastAccessToken(payload) {
       jti: crypto.randomBytes(8).toString('hex')
     };
     
-    // Use synchronous signing for speed
     const token = jwt.sign(newAccessTokenPayload, jwtSecret, { algorithm: 'HS256' });
     
     console.log('✅ Created 6-hour access token');
@@ -228,25 +214,50 @@ async function createFastAccessToken(payload) {
   }
 }
 
-/**
- * UPDATED: Set refresh cookies with proper 7-day session management
- */
-function setRefreshCookies(req, res, accessToken, payload) {
+async function createFastRefreshToken(payload) {
+  try {
+    const jwtSecret = await getFastJWTSecret();
+    const now = Math.floor(Date.now() / 1000);
+    
+    const newRefreshTokenPayload = {
+      user_id: payload.user_id,
+      email: payload.email,
+      session_id: payload.session_id,
+      token_type: 'user_refresh',
+      iss: 'aaai-solutions',
+      aud: 'aaai-refresh',
+      iat: now,
+      exp: now + (7 * 24 * 60 * 60), // 7 days
+      jti: crypto.randomBytes(8).toString('hex') + '_refresh'
+    };
+    
+    const token = jwt.sign(newRefreshTokenPayload, jwtSecret, { algorithm: 'HS256' });
+    
+    console.log('✅ Created new 7-day refresh token');
+    return token;
+    
+  } catch (error) {
+    console.error('❌ Fast refresh token creation failed:', error);
+    throw new Error('Refresh token creation failed');
+  }
+}
+
+function setRefreshCookies(req, res, accessToken, refreshToken, payload) {
   try {
     const secure = req.headers['x-forwarded-proto'] === 'https';
     
-    // Set access token cookie - 6 hours (not typically used but for compatibility)
-    res.cookie('access_token', accessToken, {
+    // Set new refresh token cookie - 7 days
+    res.cookie('refresh_token', refreshToken, {
       httpOnly: true,
       secure: secure,
       sameSite: 'lax',
       path: '/',
-      maxAge: 21600000 // 6 hours in milliseconds
+      maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days in milliseconds
     });
     
     // Update authenticated flag - 6 hours
     res.cookie('authenticated', 'true', {
-      httpOnly: false, // Accessible to JavaScript
+      httpOnly: false,
       secure: secure,
       sameSite: 'lax',
       path: '/',
@@ -259,54 +270,70 @@ function setRefreshCookies(req, res, accessToken, payload) {
       email: payload.email,
       session_id: payload.session_id
     }), {
-      httpOnly: false, // Accessible to JavaScript
+      httpOnly: false,
       secure: secure,
       sameSite: 'lax',
       path: '/',
       maxAge: 21600000 // 6 hours in milliseconds
     });
     
-    console.log('✅ Refresh cookies updated for 6-hour access token');
+    console.log('✅ Refresh cookies updated with new tokens for 7-day session');
     
   } catch (error) {
     console.error('❌ Failed to set refresh cookies:', error);
   }
 }
 
-/**
- * Update refresh token usage asynchronously (non-blocking)
- */
-async function updateRefreshTokenUsageAsync(refreshToken) {
+async function updateRefreshTokenInDatabase(oldRefreshToken, newRefreshToken, userId) {
   try {
     if (!supabaseClient) {
-      return; // Skip if no client available
+      return;
     }
     
     const now = new Date().toISOString();
+    const jwtSecret = await getFastJWTSecret();
+    const newPayload = jwt.verify(newRefreshToken, jwtSecret);
+    const newExpiresAt = new Date(newPayload.exp * 1000).toISOString();
     
-    // Fast update with minimal data
-    const { error } = await supabaseClient
+    // Deactivate old refresh token
+    await supabaseClient
       .from('user_refresh_token')
       .update({
-        last_used_at: now,
+        is_active: false,
         updated_at: now
       })
-      .eq('refresh_token', refreshToken);
+      .eq('refresh_token', oldRefreshToken)
+      .eq('user_id', userId);
+    
+    // Insert new refresh token
+    const { error } = await supabaseClient
+      .from('user_refresh_token')
+      .insert({
+        user_id: userId,
+        email: newPayload.email,
+        refresh_token: newRefreshToken,
+        expires_at: newExpiresAt,
+        created_at: now,
+        updated_at: now,
+        device_info: {
+          session_id: newPayload.session_id,
+          created_via: 'token_refresh'
+        },
+        is_active: true,
+        last_used_at: now
+      });
     
     if (error) {
-      console.warn('⚠️ Fast refresh token update failed:', error);
+      console.error('❌ Failed to update refresh token in database:', error);
     } else {
-      console.log('✅ Fast refresh token usage updated');
+      console.log('✅ Refresh token rotated in database');
     }
     
   } catch (error) {
-    console.warn('⚠️ Fast refresh token update error:', error);
+    console.error('❌ Refresh token database update error:', error);
   }
 }
 
-/**
- * Clear authentication cookies efficiently
- */
 function clearAuthCookies(res) {
   const cookieOptions = {
     path: '/',

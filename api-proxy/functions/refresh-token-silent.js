@@ -1,11 +1,12 @@
 const cors = require('cors')({origin: true});
-const axios = require('axios');
+const jwt = require('jsonwebtoken');
 const {getSecret} = require('../utils/secret-manager');
 
-/**
- * UPDATED: Silent Token Refresh for 7-day sessions
- * Enhanced with 6-hour access tokens and better cookie management
- */
+// Cache for performance
+let supabaseClient = null;
+let jwtSecretCache = null;
+let secretCacheExpiry = null;
+
 async function refreshTokenSilent(req, res) {
   return cors(req, res, async () => {
     if (req.method === 'OPTIONS') {
@@ -16,12 +17,6 @@ async function refreshTokenSilent(req, res) {
     try {
       console.log('🔄 Silent refresh request initiated for 7-day session');
       
-      // Get API key for internal requests
-      const apiKey = await getSecret('INTERNAL_API_KEY');
-      if (!apiKey) {
-        throw new Error('Internal API key not configured');
-      }
-      
       // Extract refresh token from cookies
       const refreshToken = req.cookies?.refresh_token;
       
@@ -31,7 +26,7 @@ async function refreshTokenSilent(req, res) {
       
       if (!refreshToken) {
         console.log('ERROR: No refresh token found for silent refresh');
-        res.status(401).json({ 
+        return res.status(401).json({ 
           error: 'No refresh token available',
           message: 'No refresh token found in cookies for silent refresh',
           code: 'NO_REFRESH_TOKEN',
@@ -41,137 +36,68 @@ async function refreshTokenSilent(req, res) {
             parsedCookies: req.cookies ? Object.keys(req.cookies) : []
           }
         });
-        return;
       }
       
-      // Validate refresh token format
-      if (!refreshToken.startsWith('eyJ')) {
-        console.log('ERROR: Invalid refresh token format');
-        res.status(401).json({
-          error: 'Invalid refresh token format',
-          message: 'Refresh token does not appear to be a valid JWT',
-          code: 'INVALID_TOKEN_FORMAT'
+      // Get JWT secret
+      const jwtSecret = await getFastJWTSecret();
+      
+      // Verify refresh token
+      let payload;
+      try {
+        payload = jwt.verify(refreshToken, jwtSecret);
+        
+        if (payload.token_type !== 'user_refresh') {
+          throw new Error('Invalid token type');
+        }
+        
+        console.log('✅ Silent refresh token verified for:', payload.email);
+      } catch (error) {
+        console.log('❌ Invalid refresh token for silent refresh:', error.message);
+        
+        // Clear invalid cookies
+        clearAuthCookiesSilent(res);
+        
+        return res.status(401).json({
+          error: 'Invalid refresh token',
+          message: 'Refresh token verification failed',
+          code: 'INVALID_REFRESH_TOKEN'
         });
-        return;
       }
       
-      // Forward the request to the main API
-      console.log('Forwarding to main API with refresh token for 6-hour access token');
-      const response = await axios.post(
-        'https://api-server-559730737995.us-central1.run.app/auth/refresh',
-        { 
-          refresh_token: refreshToken,
-          silent: true // Flag to indicate this is a silent refresh
-        },
-        {
-          headers: {
-            'Content-Type': 'application/json',
-            'X-API-Key': apiKey,
-            // Forward all cookies for context
-            'Cookie': req.headers.cookie || ''
-          }
-        }
-      );
-      
-      // UPDATED: If successful, update cookies with 6-hour access token
-      if (response.data && response.data.tokens && response.data.tokens.access_token) {
-        const secure = req.headers['x-forwarded-proto'] === 'https';
-        const sameSite = 'lax';
-        
-        console.log('Silent refresh successful, setting new 6-hour cookies');
-        
-        // UPDATED: Set new 6-hour access token cookie
-        res.cookie('access_token', response.data.tokens.access_token, {
-          httpOnly: true,
-          secure: secure,
-          sameSite: sameSite,
-          maxAge: 21600000, // 6 hours in milliseconds (was 3600000)
-          path: '/'
+      // Verify token exists in database
+      const isValidInDB = await verifyRefreshTokenInDatabase(refreshToken, payload.user_id);
+      if (!isValidInDB) {
+        console.log('❌ Refresh token not found in database');
+        clearAuthCookiesSilent(res);
+        return res.status(401).json({
+          error: 'Refresh token revoked',
+          code: 'TOKEN_REVOKED'
         });
-        
-        // Update refresh token if a new one is provided
-        if (response.data.tokens.refresh_token) {
-          res.cookie('refresh_token', response.data.tokens.refresh_token, {
-            httpOnly: true,
-            secure: secure,
-            sameSite: sameSite,
-            maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days (was 30 days)
-            path: '/'
-          });
-        }
-        
-        // UPDATED: Update authenticated flag with 6-hour expiry
-        res.cookie('authenticated', 'true', {
-          httpOnly: false, // Accessible to JavaScript
-          secure: secure,
-          sameSite: sameSite,
-          maxAge: 21600000, // 6 hours (was 3600000)
-          path: '/'
-        });
-        
-        // UPDATED: Update user info if provided with 6-hour expiry
-        if (response.data.user) {
-          res.cookie('user_info', JSON.stringify({
-            id: response.data.user.id,
-            email: response.data.user.email,
-            session_id: response.data.user.session_id || 'silent_refresh'
-          }), {
-            httpOnly: false, // Accessible to JavaScript
-            secure: secure,
-            sameSite: sameSite,
-            maxAge: 21600000, // 6 hours (was 3600000)
-            path: '/'
-          });
-        }
-        
-        // UPDATED: Return minimal response with 6-hour token info
-        res.status(200).json({
-          success: true,
-          message: 'Token refreshed silently for 7-day session',
-          expires_in: 21600, // 6 hours in seconds (was 3600)
-          token_type: 'Bearer',
-          session_duration: '7 days',
-          refreshed_at: new Date().toISOString()
-        });
-      } else {
-        throw new Error('Invalid response from auth server');
       }
+      
+      // Create new access token
+      const newAccessToken = await createNewAccessToken(payload);
+      
+      // Set new cookies
+      setSilentRefreshCookies(req, res, newAccessToken, payload);
+      
+      // Update database usage
+      updateTokenUsageAsync(refreshToken);
+      
+      console.log('✅ Silent refresh successful for:', payload.email);
+      
+      res.status(200).json({
+        success: true,
+        message: 'Token refreshed silently for 7-day session',
+        expires_in: 21600, // 6 hours in seconds
+        token_type: 'Bearer',
+        session_duration: '7 days',
+        refreshed_at: new Date().toISOString()
+      });
       
     } catch (error) {
       console.log('Silent refresh error:', error.message);
       
-      // Handle specific silent refresh errors
-      if (error.response && error.response.status === 401) {
-        // Clear all auth cookies on failed silent refresh
-        const cookiesToClear = [
-          'access_token', 
-          'refresh_token', 
-          'authenticated', 
-          'user_info',
-          'session_id',
-          'csrf_token'
-        ];
-        
-        const secure = req.headers['x-forwarded-proto'] === 'https';
-        
-        cookiesToClear.forEach(cookieName => {
-          res.clearCookie(cookieName, { 
-            path: '/',
-            secure: secure,
-            sameSite: 'lax'
-          });
-        });
-        
-        res.status(401).json({
-          error: 'Silent refresh failed',
-          message: 'Session expired - please log in again for new 7-day session',
-          code: 'SILENT_REFRESH_FAILED',
-          requires_login: true
-        });
-        return;
-      }
-      
-      // For other errors, don't clear cookies but indicate failure
       res.status(500).json({
         error: 'Silent refresh temporarily unavailable',
         message: 'Unable to refresh token silently at this time',
@@ -180,6 +106,158 @@ async function refreshTokenSilent(req, res) {
       });
     }
   });
+}
+
+async function getFastJWTSecret() {
+  if (jwtSecretCache && secretCacheExpiry && Date.now() < secretCacheExpiry) {
+    return jwtSecretCache;
+  }
+  
+  try {
+    jwtSecretCache = await getSecret('JWT_SECRET_KEY');
+    secretCacheExpiry = Date.now() + (5 * 60 * 1000);
+    return jwtSecretCache;
+  } catch (error) {
+    console.error('Failed to get JWT secret:', error);
+    throw new Error('JWT secret not available');
+  }
+}
+
+async function verifyRefreshTokenInDatabase(refreshToken, userId) {
+  try {
+    if (!supabaseClient) {
+      const [supabaseUrl, supabaseKey] = await Promise.all([
+        getSecret('SUPABASE_URL'),
+        getSecret('SUPABASE_KEY')
+      ]);
+      
+      const { createClient } = require('@supabase/supabase-js');
+      supabaseClient = createClient(supabaseUrl, supabaseKey);
+    }
+    
+    const { data, error } = await supabaseClient
+      .from('user_refresh_token')
+      .select('expires_at, is_active')
+      .eq('refresh_token', refreshToken)
+      .eq('user_id', userId)
+      .eq('is_active', true)
+      .maybeSingle();
+    
+    if (error || !data) {
+      return false;
+    }
+    
+    const expiresAt = new Date(data.expires_at);
+    if (expiresAt < new Date()) {
+      return false;
+    }
+    
+    return true;
+    
+  } catch (error) {
+    console.error('Database verification error:', error);
+    return false;
+  }
+}
+
+async function createNewAccessToken(payload) {
+  try {
+    const jwtSecret = await getFastJWTSecret();
+    const now = Math.floor(Date.now() / 1000);
+    
+    const newAccessTokenPayload = {
+      user_id: payload.user_id,
+      email: payload.email,
+      session_id: payload.session_id,
+      token_type: 'user_access',
+      iss: 'aaai-solutions',
+      aud: 'aaai-api',
+      iat: now,
+      exp: now + 21600, // 6 hours
+      jti: require('crypto').randomBytes(8).toString('hex')
+    };
+    
+    const token = jwt.sign(newAccessTokenPayload, jwtSecret, { algorithm: 'HS256' });
+    
+    console.log('✅ Created new 6-hour access token for silent refresh');
+    return token;
+    
+  } catch (error) {
+    console.error('❌ Access token creation failed:', error);
+    throw new Error('Access token creation failed');
+  }
+}
+
+function setSilentRefreshCookies(req, res, accessToken, payload) {
+  try {
+    const secure = req.headers['x-forwarded-proto'] === 'https';
+    
+    // Update authenticated flag - 6 hours
+    res.cookie('authenticated', 'true', {
+      httpOnly: false,
+      secure: secure,
+      sameSite: 'lax',
+      path: '/',
+      maxAge: 21600000 // 6 hours in milliseconds
+    });
+    
+    // Update user info cookie - 6 hours
+    res.cookie('user_info', JSON.stringify({
+      id: payload.user_id,
+      email: payload.email,
+      session_id: payload.session_id
+    }), {
+      httpOnly: false,
+      secure: secure,
+      sameSite: 'lax',
+      path: '/',
+      maxAge: 21600000 // 6 hours in milliseconds
+    });
+    
+    console.log('✅ Silent refresh cookies updated');
+    
+  } catch (error) {
+    console.error('❌ Failed to set silent refresh cookies:', error);
+  }
+}
+
+function clearAuthCookiesSilent(res) {
+  const cookieOptions = {
+    path: '/',
+    secure: true,
+    sameSite: 'lax'
+  };
+  
+  res.clearCookie('refresh_token', cookieOptions);
+  res.clearCookie('authenticated', cookieOptions);
+  res.clearCookie('access_token', cookieOptions);
+  res.clearCookie('user_info', cookieOptions);
+  res.clearCookie('session_id', cookieOptions);
+  
+  console.log('✅ Auth cookies cleared for silent refresh');
+}
+
+async function updateTokenUsageAsync(refreshToken) {
+  try {
+    if (!supabaseClient) {
+      return;
+    }
+    
+    const now = new Date().toISOString();
+    
+    await supabaseClient
+      .from('user_refresh_token')
+      .update({
+        last_used_at: now,
+        updated_at: now
+      })
+      .eq('refresh_token', refreshToken);
+    
+    console.log('✅ Token usage updated');
+    
+  } catch (error) {
+    console.warn('⚠️ Token usage update failed:', error);
+  }
 }
 
 module.exports = refreshTokenSilent;

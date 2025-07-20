@@ -153,8 +153,8 @@ async function createJWTTokenPair(userData) {
   
   console.log('✅ JWT tokens created successfully');
   
-  // Store refresh token in database
-  storeRefreshToken(refreshToken, userData.id, sessionId);
+  // Store refresh token in database - WAIT for completion
+  await storeRefreshToken(refreshToken, userData.id, sessionId);
   
   return {
     accessToken,
@@ -198,7 +198,7 @@ function setCookies(req, res, tokenPair, userData) {
     maxAge: 21600000
   });
   
-  console.log('✅ All authentication cookies set');
+  console.log('✅ All authentication cookies set for 7-day session');
 }
 
 async function storeRefreshToken(refreshToken, userId, sessionId) {
@@ -211,38 +211,45 @@ async function storeRefreshToken(refreshToken, userId, sessionId) {
       
       const { createClient } = require('@supabase/supabase-js');
       supabaseClient = createClient(supabaseUrl, supabaseKey);
+      console.log('✅ Supabase client initialized for refresh token storage');
     }
     
     const jwtSecret = await getSecret('JWT_SECRET_KEY');
     const payload = jwt.verify(refreshToken, jwtSecret);
     
     const now = new Date().toISOString();
+    const expiresAt = new Date(payload.exp * 1000).toISOString();
     
-    const { error } = await supabaseClient
+    const { data, error } = await supabaseClient
       .from('user_refresh_token')
       .insert({
         user_id: userId,
         email: payload.email,
         refresh_token: refreshToken,
-        expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+        expires_at: expiresAt,
         created_at: now,
         updated_at: now,
         device_info: {
           session_id: sessionId,
-          created_via: 'otp_verification'
+          created_via: 'otp_verification',
+          user_agent: 'web_client'
         },
         is_active: true,
         last_used_at: now
-      });
+      })
+      .select('id')
+      .single();
     
     if (error) {
       console.error('❌ Failed to store refresh token:', error);
+      throw new Error('Failed to store refresh token: ' + error.message);
     } else {
-      console.log('✅ Refresh token stored in database');
+      console.log('✅ Refresh token stored in database with ID:', data.id);
     }
     
   } catch (error) {
     console.error('❌ Refresh token storage error:', error);
+    throw error;
   }
 }
 

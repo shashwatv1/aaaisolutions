@@ -398,6 +398,74 @@
       margin-bottom: 10px;
     }
 
+    /* Create Reel Prompt */
+    .create-reel-prompt {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 40px 20px;
+      background: rgba(255, 255, 255, 0.05);
+      border-radius: 8px;
+      margin: 20px;
+      border: 1px dashed rgba(255, 255, 255, 0.2);
+    }
+
+    .create-reel-prompt .prompt-content {
+      text-align: center;
+      max-width: 400px;
+    }
+
+    .create-reel-prompt .prompt-icon {
+      margin-bottom: 16px;
+    }
+
+    .create-reel-prompt .prompt-icon ion-icon {
+      font-size: 3rem;
+      color: var(--orange-soda);
+      opacity: 0.8;
+    }
+
+    .create-reel-prompt h3 {
+      color: var(--white);
+      margin-bottom: 8px;
+      font-size: 1.5rem;
+      font-weight: 600;
+    }
+
+    .create-reel-prompt p {
+      color: rgba(255, 255, 255, 0.7);
+      margin-bottom: 24px;
+      line-height: 1.5;
+    }
+
+    .create-reel-button {
+      background: var(--primary-gradient);
+      border: none;
+      border-radius: 8px;
+      padding: 12px 24px;
+      color: var(--white);
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.3s ease;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 0.95rem;
+    }
+
+    .create-reel-button:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 4px 16px rgba(255, 126, 95, 0.3);
+    }
+
+    .create-reel-button:active {
+      transform: translateY(0);
+    }
+
+    .create-reel-button ion-icon {
+      font-size: 1.1rem;
+    }
+
     /* Modal styles for reel creation */
     .modal-overlay {
       position: fixed;
@@ -1299,6 +1367,20 @@
       .chat-container .ai-list {
         padding-left: 16px;
       }
+
+      .create-reel-prompt {
+        margin: 10px;
+        padding: 30px 15px;
+      }
+
+      .create-reel-prompt h3 {
+        font-size: 1.3rem;
+      }
+
+      .create-reel-button {
+        padding: 10px 20px;
+        font-size: 0.9rem;
+      }
     }
   </style>
 </head>
@@ -1431,8 +1513,24 @@
           
           <!-- Messages will be inserted here -->
         </div>
+
+        <!-- Create Reel First Prompt -->
+        <div class="create-reel-prompt" id="createReelPrompt" style="display: none;">
+          <div class="prompt-content">
+            <div class="prompt-icon">
+              <ion-icon name="videocam-outline"></ion-icon>
+            </div>
+            <h3>Create Your First Reel</h3>
+            <p>Before you can start chatting, you need to create a reel to organize your conversations.</p>
+            <button class="create-reel-button" onclick="window.showNewReelModal()">
+              <ion-icon name="add-outline"></ion-icon>
+              <span>Create New Reel</span>
+            </button>
+          </div>
+        </div>
+
         <!-- Chat Footer -->
-        <div class="chat-footer">
+        <div class="chat-footer" id="chatFooter">
           <textarea class="chat-input" id="messageInput" placeholder="Type your message here..." maxlength="1000" rows="1"></textarea>
           <button class="chat-send-btn" id="sendMessageBtn">
             <ion-icon name="send"></ion-icon>
@@ -1544,8 +1642,8 @@
             // Initialize production chat integration
             await window.ProductionChatIntegration.initialize('chatContainer');
             
-            // Set project context
-            window.ProductionChatIntegration.setProjectContext(
+            // Set project context - this will trigger the new visibility logic
+            await window.ProductionChatIntegration.setProjectContext(
                 projectId, 
                 projectName ? decodeURIComponent(projectName) : null
             );
@@ -1602,6 +1700,11 @@
                     }
                 });
             }
+            
+            // Dispatch custom event after successful initialization
+            document.dispatchEvent(new CustomEvent('project_context_set', {
+                detail: { projectId, projectName }
+            }));
             
             console.log('✅ Production Chat Application Initialized Successfully');
             
@@ -1784,6 +1887,14 @@
     // Listen for custom events to debug reel switching
     document.addEventListener('reel_switched', (e) => {
         console.log('Reel switched event:', e.detail);
+    });
+
+    // Listen for project context changes to update UI
+    document.addEventListener('project_context_set', (e) => {
+        console.log('Project context set:', e.detail);
+        if (window.ProductionChatIntegration) {
+            window.ProductionChatIntegration.updateChatInterfaceVisibility();
+        }
     });
 </script>
 </body>
