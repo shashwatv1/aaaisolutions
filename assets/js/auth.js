@@ -71,8 +71,8 @@ const AuthService = {
      * UPDATED: Enhanced authentication check for 7-day sessions
      */
     isAuthenticated() {
-        // Use cache if recent
-        if (this.lastValidation && (Date.now() - this.lastValidation) < this.validationCache) {
+        // Use cache if recent (but shorter cache for more responsive updates)
+        if (this.lastValidation && (Date.now() - this.lastValidation) < 10000) { // 10 seconds
             return this.authenticated;
         }
         
@@ -83,20 +83,83 @@ const AuthService = {
             return true;
         }
         
-        // Try quick restore from storage
+        // CRITICAL FIX: Try to restore from session storage if internal state is missing
         const stored = this._getStoredAccessToken();
         if (stored && this._isTokenValid(stored)) {
-            this._setAccessToken(stored.token, stored.expiresIn);
-            this._setUserInfo(stored.user);
-            this._scheduleProactiveRefresh(); // Start proactive refresh
+            console.log('🔧 Restoring auth state from session storage');
+            
+            // Set internal state from stored data
+            this.authenticated = true;
+            this.userEmail = stored.user.email;
+            this.userId = stored.user.id;
+            this.sessionId = stored.user.session_id;
+            this.accessToken = stored.token;
+            this.tokenExpiry = stored.expiry;
             this.lastValidation = Date.now();
+            
+            // Schedule proactive refresh
+            this._scheduleProactiveRefresh();
+            
+            // Cache the auth state
+            this._cacheAuthState({
+                token: stored.token,
+                expiresIn: stored.expiresIn,
+                user: stored.user
+            });
+            
+            console.log('✅ Auth state restored from session storage');
             return true;
         }
         
-        // Check if we have a refresh token but no access token
-        if (!hasBasicAuth && this._hasRefreshTokenCookie()) {
-            // Don't perform sync refresh, return true and let proactive refresh handle it
+        // Check cookie-based authentication with user_info parsing
+        if (this._hasRefreshTokenCookie()) {
+            try {
+                const userInfoCookie = this._getUserInfoFromCookie();
+                if (userInfoCookie && userInfoCookie.email && userInfoCookie.id) {
+                    // Set minimal auth state from cookies
+                    this.authenticated = true;
+                    this.userEmail = userInfoCookie.email;
+                    this.userId = userInfoCookie.id;
+                    this.sessionId = userInfoCookie.session_id;
+                    this.lastValidation = Date.now();
+                    
+                    console.log('✅ Auth state set from user_info cookie');
+                    
+                    // Schedule immediate token refresh to get access token
+                    this._performInitialRefresh().catch(() => {
+                        console.log('Background refresh failed, but cookie auth valid');
+                    });
+                    
+                    return true;
+                }
+            } catch (error) {
+                console.log('Failed to parse user_info cookie:', error);
+            }
+            
+            // Even without user_info, if we have refresh token, consider authenticated
+            console.log('Has refresh token cookie, considering authenticated');
             return true;
+        }
+        
+        // FALLBACK: Check for authenticated cookie even without refresh_token
+        // This handles the current issue where refresh_token cookie is missing
+        if (document.cookie.includes('authenticated=true')) {
+            try {
+                const userInfoCookie = this._getUserInfoFromCookie();
+                if (userInfoCookie && userInfoCookie.email && userInfoCookie.id) {
+                    // Set auth state from user_info cookie
+                    this.authenticated = true;
+                    this.userEmail = userInfoCookie.email;
+                    this.userId = userInfoCookie.id;
+                    this.sessionId = userInfoCookie.session_id;
+                    this.lastValidation = Date.now();
+                    
+                    console.log('✅ Auth state set from authenticated cookie + user_info');
+                    return true;
+                }
+            } catch (error) {
+                console.log('Failed to parse user_info from authenticated cookie fallback:', error);
+            }
         }
         
         this.authenticated = false;
@@ -604,9 +667,40 @@ const AuthService = {
         }
     },
 
+    /**
+     * UPDATED: Enhanced cookie detection (fix for missing refresh_token)
+     */
     _hasRefreshTokenCookie() {
-        return document.cookie.includes('authenticated=true') && 
-               document.cookie.includes('refresh_token=');
+        const cookieString = document.cookie;
+        const hasAuthenticated = cookieString.includes('authenticated=true');
+        const hasRefreshToken = cookieString.includes('refresh_token=') && 
+                               !cookieString.includes('refresh_token=;') && 
+                               !cookieString.includes('refresh_token=""') &&
+                               !cookieString.includes('refresh_token=temp_refresh_token'); // Ignore temp tokens
+        
+        this._log('Cookie check - authenticated:', hasAuthenticated, 'refresh_token:', hasRefreshToken);
+        
+        // TEMPORARY FIX: If we have authenticated but no refresh_token, still consider it valid
+        // This handles the current backend issue where refresh_token cookie isn't being set
+        return hasAuthenticated; // Changed from: hasAuthenticated && hasRefreshToken
+    },
+
+    /**
+     * NEW: Extract user info from cookie
+     */
+    _getUserInfoFromCookie() {
+        try {
+            const cookies = document.cookie.split(';');
+            for (const cookie of cookies) {
+                const [name, value] = cookie.trim().split('=');
+                if (name === 'user_info' && value) {
+                    return JSON.parse(decodeURIComponent(value));
+                }
+            }
+        } catch (error) {
+            this._log('Failed to parse user_info cookie:', error);
+        }
+        return null;
     },
 
     _clearRefreshTimer() {

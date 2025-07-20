@@ -82,67 +82,75 @@ async function verifyOTP(req, res) {
       // UPDATED: Set cookies efficiently with proper 7-day session expiry
       const secure = req.headers['x-forwarded-proto'] === 'https';
       
-      // Set refresh token cookie - 7 days
+      console.log('🍪 Setting authentication cookies...', {
+          hasRefreshToken: !!tokenPair.refreshToken,
+          refreshTokenLength: tokenPair.refreshToken ? tokenPair.refreshToken.length : 0,
+          secure: secure
+      });
+      
+      // CRITICAL: Set refresh token cookie - 7 days
       res.cookie('refresh_token', tokenPair.refreshToken, {
-        httpOnly: true,
-        secure: secure,
-        sameSite: 'lax',
-        path: '/',
-        maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days (was 90 days)
+          httpOnly: true,
+          secure: secure,
+          sameSite: 'lax',
+          path: '/',
+          maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
       });
       
       // Set authenticated flag - 6 hours (matches access token)
       res.cookie('authenticated', 'true', {
-        httpOnly: false, // Accessible to JS
-        secure: secure,
-        sameSite: 'lax',
-        path: '/',
-        maxAge: 21600000 // 6 hours in milliseconds (was 90 days)
+          httpOnly: false, // Accessible to JS
+          secure: secure,
+          sameSite: 'lax',
+          path: '/',
+          maxAge: 21600000 // 6 hours in milliseconds
       });
       
       // Set user info cookie - 6 hours
       res.cookie('user_info', JSON.stringify({
-        id: userData.id,
-        email: userData.email,
-        session_id: tokenPair.sessionId
+          id: userData.id,
+          email: userData.email,
+          session_id: tokenPair.sessionId
       }), {
-        httpOnly: false, // Accessible to JS
-        secure: secure,
-        sameSite: 'lax',
-        path: '/',
-        maxAge: 21600000 // 6 hours in milliseconds
+          httpOnly: false, // Accessible to JS
+          secure: secure,
+          sameSite: 'lax',
+          path: '/',
+          maxAge: 21600000 // 6 hours in milliseconds
       });
+      
+      console.log('✅ All authentication cookies set successfully');
       
       const responseTime = Date.now() - startTime;
       console.log(`✅ Fast JWT authentication completed in ${responseTime}ms for 7-day session`);
       
-      // UPDATED: Return optimized response with 7-day session info
+      // UPDATED: Enhanced response with both tokens
       res.status(200).json({
-        user: {
-          id: userData.id,
-          email: userData.email,
-          session_id: tokenPair.sessionId
-        },
-        tokens: {
-          access_token: tokenPair.accessToken,
-          refresh_token: tokenPair.refreshToken,
-          token_type: 'Bearer',
-          expires_in: 21600 // 6 hours
-        },
-        authentication: {
-          method: 'jwt_bearer',
-          token_type: 'user_access_token',
-          expires_in: 21600, // 6 hours
-          session_duration: '7_days'
-        },
-        session: {
-          duration_days: 7,
-          access_token_hours: 6,
-          auto_refresh: true
-        },
-        performance: {
-          response_time_ms: responseTime
-        }
+          user: {
+              id: userData.id,
+              email: userData.email,
+              session_id: tokenPair.sessionId
+          },
+          tokens: {
+              access_token: tokenPair.accessToken,
+              refresh_token: tokenPair.refreshToken, // CRITICAL: Include in response
+              token_type: 'Bearer',
+              expires_in: 21600 // 6 hours
+          },
+          authentication: {
+              method: 'jwt_bearer',
+              token_type: 'user_access_token',
+              expires_in: 21600, // 6 hours
+              session_duration: '7_days'
+          },
+          session: {
+              duration_days: 7,
+              access_token_hours: 6,
+              auto_refresh: true
+          },
+          performance: {
+              response_time_ms: responseTime
+          }
       });
       
     } catch (error) {
