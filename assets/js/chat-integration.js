@@ -1,6 +1,6 @@
 /**
  * Production Chat Integration with Reel Support for AAAI Solutions
- * Robust, reliable chat interface with proper reel management
+ * Robust, reliable chat interface with proper reel management and message formatting
  */
 class ProductionChatIntegration {
     constructor() {
@@ -145,6 +145,7 @@ class ProductionChatIntegration {
         }
         // If hide, updateReelSelector will be called to restore the list
     }
+    
     showReelError(message) {
         if (this.elements.chatBody) {
             this.addMessageToUI({
@@ -154,12 +155,14 @@ class ProductionChatIntegration {
             });
         }
     }
+    
     hideWelcomeMessage() {
         const welcomeMessage = document.getElementById('welcomeMessage');
         if (welcomeMessage) {
             welcomeMessage.style.display = 'none';
         }
     }
+    
     showEmptyReelMessage() {
         if (this.elements.chatBody) {
             this.addMessageToUI({
@@ -338,7 +341,32 @@ class ProductionChatIntegration {
     }
     
     /**
-     * Send a message with reel context
+     * Preprocess message content for database storage
+     * Ensures formatting is preserved when saving to Supabase
+     */
+    preprocessMessageForStorage(messageText, messageType = 'user') {
+        if (!messageText) return '';
+        
+        // For user messages, store as-is (usually plain text)
+        if (messageType === 'user') {
+            return messageText.trim();
+        }
+        
+        // For bot messages, ensure we preserve line breaks and special characters
+        // that might get lost in transmission
+        let processed = messageText;
+        
+        // Normalize line breaks for consistent storage
+        processed = processed.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+        
+        // Preserve bullet point characters that might get corrupted
+        processed = processed.replace(/[•]/g, '•'); // Ensure consistent bullet character
+        
+        return processed;
+    }
+    
+    /**
+     * Send a message with reel context and formatting preservation
      */
     async sendMessage(text) {
         if (!text?.trim()) {
@@ -379,15 +407,19 @@ class ProductionChatIntegration {
         this.showTypingIndicator();
         
         try {
-            // First, save the user message to database via API
+            // Preprocess message for storage
+            const processedContent = this.preprocessMessageForStorage(messageText, 'user');
+            
+            // Save the user message to database via API
             const saveResult = await window.AuthService.executeFunction('send_chat_message', {
                 chat_id: this.currentProjectId,
-                content: messageText,
+                content: processedContent,
                 reel_id: this.currentReelId,
                 context_data: {
                     source: 'chat_integration',
                     reel_name: this.currentReelName,
-                    project_name: this.currentProjectName
+                    project_name: this.currentProjectName,
+                    formatted_content: true // Flag to indicate content may have formatting
                 }
             });
             
@@ -401,11 +433,12 @@ class ProductionChatIntegration {
                     tempMessageElement.classList.remove('temporary-message');
                 }
                 
-                // Now send via WebSocket for processing (this will create a queue entry)
+                // Send via WebSocket for processing
                 const messageId = await this.webSocketManager.sendMessage(messageText, {
                     reel_id: this.currentReelId,
                     reel_name: this.currentReelName,
-                    saved_message_id: saveResult.data.message_id  // Reference to the saved message
+                    saved_message_id: saveResult.data.message_id,
+                    preserve_formatting: true // Flag for backend to preserve formatting
                 });
                 
                 console.log('✅ Message sent via WebSocket for processing:', messageId);
@@ -436,11 +469,7 @@ class ProductionChatIntegration {
         }
     }
     
-    
     /**
-     * Load chat history for current reel
-     */
-/**
      * Load chat history for current reel with better error handling
      */
     async loadReelHistory() {
@@ -620,9 +649,177 @@ class ProductionChatIntegration {
     }
     
     /**
-     * Escape HTML to prevent XSS
+     * Validate and sanitize message content
+     */
+    validateAndSanitizeMessage(text) {
+        if (!text || typeof text !== 'string') {
+            return '';
+        }
+        
+        // Remove potentially harmful scripts while preserving formatting
+        text = text.replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '');
+        text = text.replace(/javascript:/gi, '');
+        text = text.replace(/on\w+\s*=/gi, '');
+        
+        // Normalize whitespace but preserve intentional formatting
+        text = text.replace(/[\u00A0\u1680\u2000-\u200A\u202F\u205F\u3000]/g, ' '); // Replace non-breaking spaces
+        text = text.replace(/\t/g, '    '); // Convert tabs to spaces
+        
+        return text.trim();
+    }
+
+    /**
+     * Detect message content type for appropriate formatting
+     */
+    detectMessageType(text) {
+        if (!text) return 'plain';
+        
+        const hasBulletPoints = /^[•\-\*]\s/gm.test(text);
+        const hasNumberedList = /^\d+\.\s/gm.test(text);
+        const hasMultipleParagraphs = text.includes('\n\n');
+        const hasHeaders = /^[A-Za-z0-9\s]+:$/gm.test(text);
+        
+        if (hasNumberedList && hasBulletPoints) return 'mixed-list';
+        if (hasNumberedList) return 'numbered-list';
+        if (hasBulletPoints) return 'bullet-list';
+        if (hasHeaders && hasMultipleParagraphs) return 'structured';
+        if (hasMultipleParagraphs) return 'multi-paragraph';
+        
+        return 'plain';
+    }
+
+    /**
+     * Apply formatting based on detected message type
+     */
+    applyFormattingByType(text, messageType) {
+        const sanitizedText = this.validateAndSanitizeMessage(text);
+        const detectedType = this.detectMessageType(sanitizedText);
+        
+        switch (detectedType) {
+            case 'mixed-list':
+            case 'structured':
+                return this.processComplexFormatting(sanitizedText);
+                
+            case 'numbered-list':
+                return this.formatNumberedList(sanitizedText);
+                
+            case 'bullet-list':
+                return this.formatBulletList(sanitizedText);
+                
+            case 'multi-paragraph':
+                return this.formatParagraphs(sanitizedText);
+                
+            default:
+                return this.formatSimpleText(sanitizedText);
+        }
+    }
+
+    /**
+     * Enhanced text processor for complex message formatting
+     */
+    processComplexFormatting(text) {
+        if (!text) return '';
+        
+        // First escape HTML
+        let processed = this.escapeHtml(text);
+        
+        // Handle multiple line breaks and spacing
+        processed = processed.replace(/\n\s*\n/g, '\n\n'); // Normalize double line breaks
+        
+        // Process sections separated by double line breaks
+        const sections = processed.split('\n\n');
+        const processedSections = sections.map(section => {
+            // Split section by single line breaks
+            const lines = section.split('\n');
+            const processedLines = [];
+            
+            for (let i = 0; i < lines.length; i++) {
+                const line = lines[i].trim();
+                if (!line) continue;
+                
+                // Check for bullet point patterns
+                if (line.match(/^[•\-\*]\s/)) {
+                    processedLines.push(`<div class="bullet-point">${line}</div>`);
+                }
+                // Check for numbered list patterns
+                else if (line.match(/^\d+\.\s/)) {
+                    processedLines.push(`<div class="numbered-point">${line}</div>`);
+                }
+                // Check for header-like patterns (text followed by colon)
+                else if (line.match(/^[A-Za-z0-9\s]+:$/) && lines[i + 1] && !lines[i + 1].match(/^[•\-\*\d]/)) {
+                    processedLines.push(`<div class="message-header">${line}</div>`);
+                }
+                // Regular text
+                else {
+                    processedLines.push(line);
+                }
+            }
+            
+            return processedLines.join('<br>');
+        });
+        
+        // Join sections with paragraph breaks
+        return processedSections.join('</p><p>').replace(/^/, '<p>').replace(/$/, '</p>');
+    }
+
+    /**
+     * Format numbered lists specifically
+     */
+    formatNumberedList(text) {
+        let escaped = this.escapeHtml(text);
+        escaped = escaped.replace(/^(\d+)\.\s(.+)$/gm, '<div class="numbered-point">$1. $2</div>');
+        escaped = escaped.replace(/\n(?!\<div)/g, '<br>');
+        return escaped;
+    }
+
+    /**
+     * Format bullet lists specifically
+     */
+    formatBulletList(text) {
+        let escaped = this.escapeHtml(text);
+        escaped = escaped.replace(/^[•\-\*]\s(.+)$/gm, '<div class="bullet-point">• $1</div>');
+        escaped = escaped.replace(/\n(?!\<div)/g, '<br>');
+        return escaped;
+    }
+
+    /**
+     * Format multi-paragraph text
+     */
+    formatParagraphs(text) {
+        let escaped = this.escapeHtml(text);
+        const paragraphs = escaped.split('\n\n').filter(p => p.trim());
+        return paragraphs.map(p => `<p>${p.replace(/\n/g, '<br>')}</p>`).join('');
+    }
+
+    /**
+     * Format simple text with basic line breaks
+     */
+    formatSimpleText(text) {
+        let escaped = this.escapeHtml(text);
+        return escaped.replace(/\n/g, '<br>');
+    }
+
+    /**
+     * Main formatting function - updated to use type detection
+     */
+    formatMessageText(text) {
+        if (!text) return '';
+        
+        try {
+            return this.applyFormattingByType(text, 'auto');
+        } catch (error) {
+            console.error('Error formatting message text:', error);
+            // Fallback to simple escaping
+            return this.escapeHtml(text).replace(/\n/g, '<br>');
+        }
+    }
+    
+    /**
+     * Escape HTML to prevent XSS - updated for better security
      */
     escapeHtml(text) {
+        if (!text) return '';
+        
         const div = document.createElement('div');
         div.textContent = text;
         return div.innerHTML;
@@ -751,6 +948,9 @@ class ProductionChatIntegration {
         }
     }
     
+    /**
+     * Enhanced handleChatResponse with formatting preservation
+     */
     handleChatResponse(data) {
         this.hideTypingIndicator();
         
@@ -766,13 +966,16 @@ class ProductionChatIntegration {
             console.warn('Chat response missing text content');
             data.text = 'Response received but no content available.';
         }
+
+        // Preprocess bot response for consistent formatting
+        const processedText = this.preprocessMessageForStorage(data.text, 'bot');
         
-        // Add the bot message to UI
+        // Add the bot message to UI with formatting
         this.addMessageToUI({
             type: 'bot',
-            text: data.text,
+            text: processedText,
             timestamp: data.timestamp || Date.now(),
-            id: data.saved_bot_message_id || data.messageId, // Use saved database ID if available
+            id: data.saved_bot_message_id || data.messageId,
             components: data.components || [],
             reel_id: this.currentReelId,
             metadata: {
@@ -780,13 +983,13 @@ class ProductionChatIntegration {
                 savedBotMessageId: data.saved_bot_message_id,
                 parentMessageId: data.context?.parent_message_id,
                 processingTime: data.processing_time,
-                isFromDatabase: !!data.saved_bot_message_id
+                isFromDatabase: !!data.saved_bot_message_id,
+                hasFormatting: true
             }
         });
         
-        console.log('✅ Bot response added to UI with database persistence');
+        console.log('✅ Bot response added to UI with formatting preservation');
     }
-    
     
     handleChatError(data) {
         this.hideTypingIndicator();
@@ -847,6 +1050,9 @@ class ProductionChatIntegration {
         this.messages.push(message);
     }
     
+    /**
+     * Updated createMessageElement with proper formatting support
+     */
     createMessageElement(message) {
         const messageEl = document.createElement('div');
         messageEl.className = `message message-${message.type}`;
@@ -869,10 +1075,14 @@ class ProductionChatIntegration {
             messageEl.classList.add('historical-message');
         }
         
-        // Message content
+        // Message content with proper formatting
         const contentEl = document.createElement('div');
         contentEl.className = 'message-content';
-        contentEl.textContent = message.text;
+        
+        // Process and format the message text
+        const formattedText = this.formatMessageText(message.text);
+        contentEl.innerHTML = formattedText;
+        
         messageEl.appendChild(contentEl);
         
         // Timestamp
@@ -887,8 +1097,8 @@ class ProductionChatIntegration {
         if (message.metadata?.isFromDatabase) {
             const dbIndicator = document.createElement('div');
             dbIndicator.className = 'db-indicator';
-            dbIndicator.textContent = '💾';
-            dbIndicator.title = 'Message loaded from database';
+            dbIndicator.textContent = '💾 DB';
+            dbIndicator.style.cssText = 'font-size: 0.7rem; color: rgba(255,255,255,0.5); margin-top: 4px;';
             messageEl.appendChild(dbIndicator);
         }
         

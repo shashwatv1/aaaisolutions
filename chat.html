@@ -1000,6 +1000,187 @@
       box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
     }
 
+    /* Message headers for structured responses */
+    .chat-container .message-header {
+      font-weight: 600;
+      color: rgba(255, 255, 255, 0.9);
+      margin: 8px 0 4px 0;
+      font-size: 1.05em;
+    }
+
+    /* Better paragraph spacing for complex messages */
+    .chat-container .message-content p {
+      margin: 0 0 12px 0;
+    }
+
+    .chat-container .message-content p:last-child {
+      margin-bottom: 0;
+    }
+
+    /* Handle empty paragraphs */
+    .chat-container .message-content p:empty {
+      margin: 0;
+      height: 0;
+    }
+
+    /* Message content formatting */
+    .chat-container .message-content {
+      line-height: 1.6;
+      word-wrap: break-word;
+      white-space: normal;
+    }
+
+    .chat-container .message-content p {
+      margin: 0 0 8px 0;
+    }
+
+    .chat-container .message-content p:last-child {
+      margin-bottom: 0;
+    }
+
+    /* Bullet points and lists */
+    .chat-container .bullet-point,
+    .chat-container .numbered-point {
+      margin: 4px 0;
+      padding-left: 8px;
+      line-height: 1.5;
+    }
+
+    .chat-container .bullet-point {
+      position: relative;
+    }
+
+    .chat-container .numbered-point {
+      position: relative;
+      font-weight: 500;
+    }
+
+    /* Ensure proper spacing between different message elements */
+    .chat-container .message-content br + .bullet-point,
+    .chat-container .message-content br + .numbered-point {
+      margin-top: 8px;
+    }
+
+    /* Handle multiple consecutive bullet points */
+    .chat-container .bullet-point + .bullet-point,
+    .chat-container .numbered-point + .numbered-point {
+      margin-top: 2px;
+    }
+
+    /* Preserve spacing for code-like content */
+    .chat-container .message-content pre {
+      white-space: pre-wrap;
+      background: rgba(0, 0, 0, 0.2);
+      padding: 8px 12px;
+      border-radius: 6px;
+      margin: 8px 0;
+      font-family: 'Courier New', monospace;
+      font-size: 0.9em;
+    }
+
+    /* Handle long text without breaking layout */
+    .chat-container .message-content {
+      max-width: 100%;
+      overflow-wrap: break-word;
+      word-break: break-word;
+    }
+
+    /* AI Response Formatting Styles */
+    .chat-container .ai-paragraph {
+      margin: 0 0 12px 0;
+      line-height: 1.6;
+    }
+
+    .chat-container .ai-header {
+      color: var(--white);
+      margin: 16px 0 8px 0;
+      font-weight: 600;
+    }
+
+    .chat-container .ai-header:first-child {
+      margin-top: 0;
+    }
+
+    .chat-container .ai-list {
+      margin: 8px 0;
+      padding-left: 20px;
+    }
+
+    .chat-container .ai-list-item {
+      margin: 4px 0;
+      line-height: 1.5;
+    }
+
+    .chat-container .ai-quote {
+      border-left: 3px solid var(--orange-soda);
+      padding-left: 12px;
+      margin: 12px 0;
+      font-style: italic;
+      color: rgba(255, 255, 255, 0.8);
+    }
+
+    .chat-container .ai-link {
+      color: var(--orange-soda);
+      text-decoration: underline;
+      transition: color 0.3s ease;
+    }
+
+    .chat-container .ai-link:hover {
+      color: var(--red-orange);
+    }
+
+    .chat-container .inline-code {
+      background: rgba(255, 255, 255, 0.1);
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-family: 'Courier New', monospace;
+      font-size: 0.9em;
+      color: var(--orange-soda);
+    }
+
+    .chat-container .code-block {
+      margin: 12px 0;
+      border-radius: 8px;
+      overflow: hidden;
+      background: rgba(0, 0, 0, 0.3);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+    }
+
+    .chat-container .code-block pre {
+      margin: 0;
+      padding: 12px 16px;
+      background: transparent;
+      border-radius: 0;
+      font-family: 'Courier New', monospace;
+      font-size: 0.9em;
+      line-height: 1.4;
+      overflow-x: auto;
+    }
+
+    .chat-container .code-block code {
+      background: transparent;
+      padding: 0;
+      border-radius: 0;
+      font-family: inherit;
+      font-size: inherit;
+    }
+
+    /* Strong and emphasis text */
+    .chat-container .message-content strong {
+      font-weight: 600;
+      color: var(--white);
+    }
+
+    .chat-container .message-content em {
+      font-style: italic;
+      color: rgba(255, 255, 255, 0.9);
+    }
+
+    .chat-container .message-content del {
+      text-decoration: line-through;
+      color: rgba(255, 255, 255, 0.6);
+    }
+
     /* MOBILE RESPONSIVE - ONLY BELOW 768PX */
     @media (max-width: 768px) {
       .main-content {
@@ -1098,6 +1279,25 @@
       .modal-actions {
         flex-direction: column;
         gap: 10px;
+      }
+
+      /* Mobile-specific formatting adjustments */
+      .chat-container .ai-header {
+        font-size: 1.1rem;
+        margin: 12px 0 6px 0;
+      }
+
+      .chat-container .code-block {
+        margin: 8px 0;
+      }
+
+      .chat-container .code-block pre {
+        padding: 8px 12px;
+        font-size: 0.8em;
+      }
+
+      .chat-container .ai-list {
+        padding-left: 16px;
       }
     }
   </style>
