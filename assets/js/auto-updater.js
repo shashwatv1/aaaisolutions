@@ -1,8 +1,12 @@
-// Updated auto-updater.js with correct FastAPI endpoints
+// Fixed auto-updater.js - Updated to use correct API server URL
 class AutoUpdater {
     constructor() {
       this.currentVersion = window.BUILD_TIMESTAMP || Date.now().toString();
       this.checkInterval = 120000; // 2 minutes
+      
+      // FIXED: Use your actual API server URL
+      this.API_BASE_URL = 'https://api-server-gbk7m6nvoa-uc.a.run.app';
+      
       this.init();
     }
   
@@ -63,14 +67,20 @@ class AutoUpdater {
   
     async getCurrentServerVersion() {
       try {
-        // Updated endpoint: /admin/api/version (not /api/version)
-        const response = await fetch(`/admin/api/version?current_version=${this.currentVersion}&t=${Date.now()}`, {
+        // FIXED: Use correct API server URL
+        const response = await fetch(`${this.API_BASE_URL}/admin/api/version?current_version=${this.currentVersion}&t=${Date.now()}`, {
           cache: 'no-cache',
           headers: {
             'Cache-Control': 'no-cache, no-store, must-revalidate',
             'Pragma': 'no-cache'
           }
         });
+        
+        if (!response.ok) {
+          console.warn(`Version check failed: ${response.status} - ${response.statusText}`);
+          return null;
+        }
+        
         const data = await response.json();
         
         // Report to admin that we checked for updates
@@ -85,8 +95,8 @@ class AutoUpdater {
   
     async reportVersionToAdmin() {
       try {
-        // Updated endpoint: /admin/api/user-updated
-        await fetch('/admin/api/user-updated', {
+        // FIXED: Use correct API server URL
+        const response = await fetch(`${this.API_BASE_URL}/admin/api/user-updated`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json'
@@ -98,6 +108,10 @@ class AutoUpdater {
             url: window.location.href
           })
         });
+        
+        if (!response.ok) {
+          console.warn(`Failed to report version: ${response.status}`);
+        }
       } catch (error) {
         console.warn('Failed to report version to admin:', error);
       }
@@ -139,18 +153,21 @@ class AutoUpdater {
       
       try {
         // Report successful update to admin before reloading
-        const response = await fetch(`/admin/api/version?current_version=${this.currentVersion}`, { cache: 'no-cache' });
-        const data = await response.json();
+        const response = await fetch(`${this.API_BASE_URL}/admin/api/version?current_version=${this.currentVersion}`, { cache: 'no-cache' });
         
-        await fetch('/admin/api/user-updated', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            version: data.version,
-            timestamp: Date.now(),
-            updated_from: this.currentVersion
-          })
-        });
+        if (response.ok) {
+          const data = await response.json();
+          
+          await fetch(`${this.API_BASE_URL}/admin/api/user-updated`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              version: data.version,
+              timestamp: Date.now(),
+              updated_from: this.currentVersion
+            })
+          });
+        }
       } catch (error) {
         console.warn('Failed to report update to admin:', error);
       }
@@ -181,6 +198,7 @@ class AutoUpdater {
       console.log('✅ Auto-updater initialized - website will refresh automatically on updates');
       console.log(`📊 Current version: ${this.currentVersion}`);
       console.log(`🔄 Checking for updates every ${this.checkInterval/1000} seconds`);
+      console.log(`🌐 API Server: ${this.API_BASE_URL}`);
     }
   }
   
