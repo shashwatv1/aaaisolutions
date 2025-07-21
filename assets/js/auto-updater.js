@@ -1,11 +1,11 @@
-// Fixed auto-updater.js - Updated to use correct API server URL
+// Auto-updater.js - Updated for AAAI Solutions Nginx Proxy Setup
 class AutoUpdater {
     constructor() {
       this.currentVersion = window.BUILD_TIMESTAMP || Date.now().toString();
       this.checkInterval = 120000; // 2 minutes
       
-      // FIXED: Use your actual API server URL
-      this.API_BASE_URL = 'https://api-server-gbk7m6nvoa-uc.a.run.app';
+      // UPDATED: Use same domain - nginx will proxy to gateway
+      this.API_BASE_URL = window.location.origin; // https://aaai.solutions
       
       this.init();
     }
@@ -67,7 +67,7 @@ class AutoUpdater {
   
     async getCurrentServerVersion() {
       try {
-        // FIXED: Use correct API server URL
+        // UPDATED: Use nginx proxied admin endpoint
         const response = await fetch(`${this.API_BASE_URL}/admin/api/version?current_version=${this.currentVersion}&t=${Date.now()}`, {
           cache: 'no-cache',
           headers: {
@@ -95,7 +95,7 @@ class AutoUpdater {
   
     async reportVersionToAdmin() {
       try {
-        // FIXED: Use correct API server URL
+        // UPDATED: Use nginx proxied admin endpoint
         const response = await fetch(`${this.API_BASE_URL}/admin/api/user-updated`, {
           method: 'POST',
           headers: {
@@ -198,7 +198,7 @@ class AutoUpdater {
       console.log('✅ Auto-updater initialized - website will refresh automatically on updates');
       console.log(`📊 Current version: ${this.currentVersion}`);
       console.log(`🔄 Checking for updates every ${this.checkInterval/1000} seconds`);
-      console.log(`🌐 API Server: ${this.API_BASE_URL}`);
+      console.log(`🌐 Admin API: ${this.API_BASE_URL}/admin/api (via nginx proxy)`);
     }
   }
   

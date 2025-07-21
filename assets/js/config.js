@@ -11,15 +11,15 @@ const getEnvironment = () => {
     }
 };
 
-// Get consistent API base URL for all environments with proper protocol handling
+// Get consistent API base URL for all environments with nginx proxy support
 const getAPIBaseURL = () => {
     const environment = getEnvironment();
     
     if (environment === 'development') {
         return 'http://localhost:8080'; // Local development
     } else {
-        // Production and staging - ensure HTTPS
-        return 'https://aaai-gateway-754x89jf.uc.gateway.dev';
+        // UPDATED: Use same domain - nginx will proxy to gateway
+        return window.location.origin; // https://aaai.solutions
     }
 };
 
@@ -30,7 +30,7 @@ const getWebSocketBaseURL = () => {
     if (hostname === 'localhost' || hostname === '127.0.0.1') {
         return 'localhost:3000';
     } else {
-        return hostname;
+        return hostname; // aaai.solutions (nginx will handle WebSocket proxying)
     }
 };
 
@@ -40,7 +40,7 @@ window.AAAI_CONFIG = {
     ENVIRONMENT: getEnvironment(),
     VERSION: '2.1.0',
     
-    // Consistent URL Configuration - Both API and WebSocket via Gateway
+    // UPDATED: API and WebSocket via same domain (nginx proxy)
     API_BASE_URL: getAPIBaseURL(),
     WEBSOCKET_BASE_URL: getWebSocketBaseURL(),
     
@@ -51,7 +51,7 @@ window.AAAI_CONFIG = {
     ENABLE_BATCHING: false,
     ENABLE_CACHING: true,
     ENABLE_PERSISTENCE: true,
-    ENABLE_GATEWAY_ROUTING: true,
+    ENABLE_GATEWAY_ROUTING: true, // Still true - just proxied through nginx
     
     // WebSocket Configuration
     WS_CONFIG: {
@@ -81,8 +81,8 @@ window.AAAI_CONFIG = {
         // JWT Specific Settings
         JWT_BEARER_AUTH: true,          // Use JWT Bearer tokens for WebSocket
         JWT_REFRESH_ON_CONNECT: true,   // Refresh token before WebSocket connection
-        JWT_PROTOCOLS: false,           // Don't use WebSocket subprotocols (Gateway handles auth)
-        GATEWAY_WEBSOCKET: true         // WebSocket via API Gateway (same as API calls)
+        JWT_PROTOCOLS: false,           // Don't use WebSocket subprotocols (nginx handles routing)
+        GATEWAY_WEBSOCKET: true         // WebSocket via nginx proxy to gateway
     },
     
     // Authentication Configuration
@@ -92,8 +92,8 @@ window.AAAI_CONFIG = {
         AUTO_REFRESH: true,
         PERSIST_SESSION: true,
         JWT_BEARER_ONLY: true,            // Only use Bearer tokens
-        GATEWAY_AUTH: true,               // Route auth through gateway
-        WEBSOCKET_VIA_GATEWAY: true       // WebSocket authentication via Gateway
+        GATEWAY_AUTH: true,               // Route auth through nginx proxy to gateway
+        WEBSOCKET_VIA_GATEWAY: true       // WebSocket authentication via nginx proxy
     },
     
     // Development Configuration
@@ -102,8 +102,9 @@ window.AAAI_CONFIG = {
         VERBOSE_LOGGING: false,
         PERFORMANCE_MONITORING: true,
         ERROR_SIMULATION: false,
-        GATEWAY_BYPASS: false,            // Never bypass gateway
-        GATEWAY_WEBSOCKET_DEBUG: getEnvironment() !== 'production'
+        GATEWAY_BYPASS: false,            // Never bypass nginx proxy
+        GATEWAY_WEBSOCKET_DEBUG: getEnvironment() !== 'production',
+        NGINX_PROXY_MODE: getEnvironment() === 'production' // Flag to indicate nginx proxy usage
     }
 };
 
@@ -157,7 +158,7 @@ window.getChatServiceConfig = function() {
     };
 };
 
-// Enhanced URL helpers with better error handling
+// Enhanced URL helpers for nginx proxy setup
 window.getAPIURL = function(endpoint) {
     try {
         const baseURL = window.AAAI_CONFIG.API_BASE_URL;
@@ -165,7 +166,9 @@ window.getAPIURL = function(endpoint) {
         return `${baseURL}${cleanEndpoint}`;
     } catch (error) {
         console.error('Error constructing API URL:', error);
-        return `https://aaai-gateway-754x89jf.uc.gateway.dev${endpoint}`;
+        // Fallback to same domain (nginx proxy)
+        const cleanEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
+        return `${window.location.origin}${cleanEndpoint}`;
     }
 };
 
@@ -192,15 +195,15 @@ window.getWebSocketURL = function(endpoint, params = {}) {
 };
 
 // Log configuration loaded
-window.AAAI_LOGGER.info('AAAI Configuration loaded with enhanced error handling', {
+window.AAAI_LOGGER.info('AAAI Configuration loaded for nginx proxy setup', {
     environment: window.AAAI_CONFIG.ENVIRONMENT,
     version: window.AAAI_CONFIG.VERSION,
     apiBaseURL: window.AAAI_CONFIG.API_BASE_URL,
     websocketBaseURL: window.AAAI_CONFIG.WEBSOCKET_BASE_URL,
     websocketsEnabled: window.AAAI_CONFIG.ENABLE_WEBSOCKETS,
     debugEnabled: window.AAAI_CONFIG.ENABLE_DEBUG,
-    gatewayRouting: window.AAAI_CONFIG.ENABLE_GATEWAY_ROUTING,
-    gatewayWebSocket: window.AAAI_CONFIG.WS_CONFIG.GATEWAY_WEBSOCKET
+    gatewayRouting: 'via nginx proxy',
+    nginxProxyMode: window.AAAI_CONFIG.DEV_CONFIG.NGINX_PROXY_MODE
 });
 
 // Freeze configuration

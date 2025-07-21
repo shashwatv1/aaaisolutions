@@ -40,6 +40,221 @@ responses:
         default: '3600'
 
 paths:
+  # =====================================
+  # ADMIN ROUTES - AUTO-UPDATE SYSTEM
+  # =====================================
+  
+  /admin/api/version:
+    get:
+      summary: Get current app version for auto-update system
+      operationId: getAppVersion
+      x-google-backend:
+        address: https://api-server-gbk7m6nvoa-uc.a.run.app
+        path_translation: APPEND_PATH_TO_ADDRESS
+      responses:
+        '200':
+          description: Version information
+          headers:
+            Access-Control-Allow-Origin:
+              type: string
+              default: 'https://aaai.solutions'
+            Access-Control-Allow-Credentials:
+              type: string
+              default: 'true'
+            Cache-Control:
+              type: string
+              default: 'no-cache, no-store, must-revalidate'
+            Pragma:
+              type: string
+              default: 'no-cache'
+            Expires:
+              type: string
+              default: '0'
+        '500':
+          description: Server error
+    post:
+      summary: Update app version (deployment webhook)
+      operationId: updateAppVersion
+      x-google-backend:
+        address: https://api-server-gbk7m6nvoa-uc.a.run.app
+        path_translation: APPEND_PATH_TO_ADDRESS
+      responses:
+        '200':
+          description: Version updated successfully
+          headers:
+            Access-Control-Allow-Origin:
+              type: string
+              default: 'https://aaai.solutions'
+            Access-Control-Allow-Credentials:
+              type: string
+              default: 'true'
+        '500':
+          description: Server error
+    options:
+      summary: CORS support for version endpoint
+      operationId: corsGetAppVersion
+      x-google-backend:
+        address: https://api-server-gbk7m6nvoa-uc.a.run.app
+        path_translation: APPEND_PATH_TO_ADDRESS
+      responses:
+        '204':
+          description: CORS preflight response
+          headers:
+            Access-Control-Allow-Origin:
+              type: string
+              default: 'https://aaai.solutions'
+            Access-Control-Allow-Methods:
+              type: string
+              default: 'GET, POST, OPTIONS'
+            Access-Control-Allow-Headers:
+              type: string
+              default: 'Content-Type, Cache-Control, Pragma'
+            Access-Control-Allow-Credentials:
+              type: string
+              default: 'true'
+            Access-Control-Max-Age:
+              type: string
+              default: '3600'
+
+  /admin/api/stats:
+    get:
+      summary: Get auto-update system statistics
+      operationId: getUpdateStats
+      x-google-backend:
+        address: https://api-server-gbk7m6nvoa-uc.a.run.app
+        path_translation: APPEND_PATH_TO_ADDRESS
+      responses:
+        '200':
+          description: Update statistics
+          headers:
+            Access-Control-Allow-Origin:
+              type: string
+              default: 'https://aaai.solutions'
+            Access-Control-Allow-Credentials:
+              type: string
+              default: 'true'
+        '500':
+          description: Server error
+    options:
+      summary: CORS support for update stats
+      operationId: corsGetUpdateStats
+      x-google-backend:
+        address: https://api-server-gbk7m6nvoa-uc.a.run.app
+        path_translation: APPEND_PATH_TO_ADDRESS
+      responses:
+        '204':
+          description: CORS preflight response
+          headers:
+            Access-Control-Allow-Origin:
+              type: string
+              default: 'https://aaai.solutions'
+            Access-Control-Allow-Methods:
+              type: string
+              default: 'GET, OPTIONS'
+            Access-Control-Allow-Headers:
+              type: string
+              default: 'Content-Type'
+            Access-Control-Allow-Credentials:
+              type: string
+              default: 'true'
+            Access-Control-Max-Age:
+              type: string
+              default: '3600'
+
+  /admin/api/user-updated:
+    post:
+      summary: Track user update notifications
+      operationId: trackUserUpdate
+      x-google-backend:
+        address: https://api-server-gbk7m6nvoa-uc.a.run.app
+        path_translation: APPEND_PATH_TO_ADDRESS
+      responses:
+        '200':
+          description: User update tracked
+          headers:
+            Access-Control-Allow-Origin:
+              type: string
+              default: 'https://aaai.solutions'
+            Access-Control-Allow-Credentials:
+              type: string
+              default: 'true'
+        '500':
+          description: Server error
+    options:
+      summary: CORS support for user update tracking
+      operationId: corsTrackUserUpdate
+      x-google-backend:
+        address: https://api-server-gbk7m6nvoa-uc.a.run.app
+        path_translation: APPEND_PATH_TO_ADDRESS
+      responses:
+        '204':
+          description: CORS preflight response
+          headers:
+            Access-Control-Allow-Origin:
+              type: string
+              default: 'https://aaai.solutions'
+            Access-Control-Allow-Methods:
+              type: string
+              default: 'POST, OPTIONS'
+            Access-Control-Allow-Headers:
+              type: string
+              default: 'Content-Type'
+            Access-Control-Allow-Credentials:
+              type: string
+              default: 'true'
+            Access-Control-Max-Age:
+              type: string
+              default: '3600'
+
+  /admin/updates:
+    get:
+      summary: Admin dashboard for monitoring auto-updates
+      operationId: getAdminDashboard
+      x-google-backend:
+        address: https://api-server-gbk7m6nvoa-uc.a.run.app
+        path_translation: APPEND_PATH_TO_ADDRESS
+      responses:
+        '200':
+          description: Admin dashboard HTML
+          headers:
+            Access-Control-Allow-Origin:
+              type: string
+              default: 'https://aaai.solutions'
+            Access-Control-Allow-Credentials:
+              type: string
+              default: 'true'
+        '500':
+          description: Server error
+    options:
+      summary: CORS support for admin dashboard
+      operationId: corsGetAdminDashboard
+      x-google-backend:
+        address: https://api-server-gbk7m6nvoa-uc.a.run.app
+        path_translation: APPEND_PATH_TO_ADDRESS
+      responses:
+        '204':
+          description: CORS preflight response
+          headers:
+            Access-Control-Allow-Origin:
+              type: string
+              default: 'https://aaai.solutions'
+            Access-Control-Allow-Methods:
+              type: string
+              default: 'GET, OPTIONS'
+            Access-Control-Allow-Headers:
+              type: string
+              default: 'Content-Type'
+            Access-Control-Allow-Credentials:
+              type: string
+              default: 'true'
+            Access-Control-Max-Age:
+              type: string
+              default: '3600'
+
+  # =====================================
+  # EXISTING ROUTES (UNCHANGED)
+  # =====================================
+
   /auth/request-otp:
     post:
       summary: Request OTP for authentication
