@@ -4,6 +4,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Pragma" content="no-cache">
+  <meta http-equiv="Expires" content="0">
   <title>AAAI Solutions - My Projects</title>
   <link rel="shortcut icon" href="./robot.svg" type="image/svg+xml">
   <link rel="stylesheet" href="./assets/css/style.css">
@@ -1021,7 +1023,14 @@
 
   <a href="#top" class="back-to-top" data-back-to-top>BACK TOP</a>
 
-  <!-- Scripts -->
+  <script>
+    window.BUILD_TIMESTAMP = '{{BUILD_TIMESTAMP}}'; // Your deployment script will replace this
+  </script>
+  
+  <!-- Add auto-updater (BEFORE your existing scripts) -->
+  <script src="./assets/js/auto-updater.js"></script>
+
+  <!-- Your existing scripts -->
   <script src="./assets/js/script.js"></script>
   <script src="./assets/js/auth.js"></script>
   <script src="./assets/js/project-service.js"></script>

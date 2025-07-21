@@ -5,6 +5,8 @@
   <meta charset="UTF-8">
   <meta http-equiv="X-UA-Compatible" content="IE=edge">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Pragma" content="no-cache">
+  <meta http-equiv="Expires" content="0">
   <title>Aaai Solutions - Automate Anything! </title>
 
   <!-- 
@@ -473,6 +475,14 @@
   <!-- 
     - custom js link
   -->
+  <script>
+    window.BUILD_TIMESTAMP = '{{BUILD_TIMESTAMP}}'; // Your deployment script will replace this
+  </script>
+  
+  <!-- Add auto-updater (BEFORE your existing scripts) -->
+  <script src="./assets/js/auto-updater.js"></script>
+
+  <!-- Your existing scripts -->
   <script src="./assets/js/script.js"></script>
 
   <!-- 
