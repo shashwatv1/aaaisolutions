@@ -1,29 +1,47 @@
+/**
+ * AAAI Solutions Auto-Updater
+ * Handles automatic version checking and reloading
+ * Works with nginx + API Gateway routing
+ */
+
 class AutoUpdater {
     constructor() {
       this.currentVersion = window.BUILD_TIMESTAMP || Date.now().toString();
       this.checkInterval = 120000; // 2 minutes
-      this.baseUrl = ''; // Use relative URLs - nginx will handle routing
+      this.isInitialized = false;
+      this.intervalId = null;
+      
+      console.log(`🚀 Auto-updater starting with version: ${this.currentVersion}`);
       this.init();
     }
   
     async init() {
-      console.log('🚀 Auto-updater initializing...');
-      console.log(`Current version: ${this.currentVersion}`);
+      if (this.isInitialized) return;
       
-      this.registerServiceWorker();
-      this.setupMessageListeners();
-      this.setupBroadcastChannel();
-      this.startVersionCheck();
-      
-      // Report initial version
-      await this.reportVersionToAdmin();
+      try {
+        await this.registerServiceWorker();
+        this.setupMessageListeners();
+        this.setupBroadcastChannel();
+        
+        // Report initial version to admin
+        await this.reportVersionToAdmin();
+        
+        // Start version checking
+        this.startVersionCheck();
+        
+        this.isInitialized = true;
+        console.log('✅ Auto-updater initialized successfully');
+        
+      } catch (error) {
+        console.error('❌ Auto-updater initialization failed:', error);
+      }
     }
   
     async registerServiceWorker() {
       if ('serviceWorker' in navigator) {
         try {
           const registration = await navigator.serviceWorker.register('/sw.js');
-          console.log('✅ Service Worker registered successfully');
+          console.log('✅ Service Worker registered');
           
           registration.addEventListener('updatefound', () => {
             const newWorker = registration.installing;
@@ -36,8 +54,9 @@ class AutoUpdater {
               });
             }
           });
+          
         } catch (error) {
-          console.error('❌ Service Worker registration failed:', error);
+          console.warn('⚠️ Service Worker registration failed:', error);
         }
       }
     }
@@ -58,7 +77,7 @@ class AutoUpdater {
         
         this.updateChannel.addEventListener('message', (event) => {
           if (event.data && event.data.type === 'AUTO_RELOAD') {
-            // Add random delay to prevent thundering herd
+            // Random delay to prevent thundering herd
             setTimeout(() => {
               this.performAutoReload();
             }, Math.random() * 2000);
@@ -69,10 +88,8 @@ class AutoUpdater {
   
     async getCurrentServerVersion() {
       try {
-        // Use relative URL - nginx routes /admin/ to gateway automatically
+        // Use correct admin endpoint - nginx routes /admin/ to gateway
         const url = `/admin/api/version?current_version=${this.currentVersion}&t=${Date.now()}`;
-        
-        console.log(`🔍 Checking version at: ${url}`);
         
         const response = await fetch(url, {
           method: 'GET',
@@ -83,15 +100,20 @@ class AutoUpdater {
             'Expires': '0'
           }
         });
-        
+  
         if (!response.ok) {
           throw new Error(`HTTP ${response.status}: ${response.statusText}`);
         }
-        
+  
         const data = await response.json();
-        console.log(`✅ Version check successful - Current: ${this.currentVersion}, Server: ${data.version}`);
+        
+        // Log version check result
+        if (data.version !== this.currentVersion) {
+          console.log(`🔍 Version check - Current: ${this.currentVersion}, Server: ${data.version}`);
+        }
         
         return data.version;
+  
       } catch (error) {
         console.warn('⚠️ Version check failed:', error.message);
         return null;
@@ -100,7 +122,6 @@ class AutoUpdater {
   
     async reportVersionToAdmin() {
       try {
-        // Use relative URL - nginx routes /admin/ to gateway
         const url = '/admin/api/user-updated';
         
         const payload = {
@@ -108,11 +129,9 @@ class AutoUpdater {
           timestamp: Date.now(),
           user_agent: navigator.userAgent,
           url: window.location.href,
-          reported_by: 'auto-updater'
+          reported_by: 'auto_updater'
         };
-        
-        console.log('📡 Reporting version to admin system...');
-        
+  
         const response = await fetch(url, {
           method: 'POST',
           headers: {
@@ -120,14 +139,13 @@ class AutoUpdater {
           },
           body: JSON.stringify(payload)
         });
-        
+  
         if (response.ok) {
-          console.log('✅ Version reported successfully');
-          const result = await response.json();
-          console.log('📊 Admin response:', result);
+          console.log('📡 Version reported to admin system');
         } else {
-          console.warn(`⚠️ Version reporting failed: ${response.status} ${response.statusText}`);
+          console.warn(`⚠️ Version reporting failed: ${response.status}`);
         }
+  
       } catch (error) {
         console.warn('⚠️ Failed to report version to admin:', error.message);
       }
@@ -137,10 +155,10 @@ class AutoUpdater {
       const serverVersion = await this.getCurrentServerVersion();
       
       if (serverVersion && serverVersion !== this.currentVersion) {
-        console.log(`🚀 NEW VERSION DETECTED!`);
+        console.log('🚀 NEW VERSION DETECTED!');
         console.log(`   Current: ${this.currentVersion}`);
         console.log(`   Server:  ${serverVersion}`);
-        console.log(`🔄 Triggering auto-reload...`);
+        console.log('🔄 Triggering auto-reload...');
         
         this.triggerAutoReload();
         return true;
@@ -150,13 +168,13 @@ class AutoUpdater {
     }
   
     triggerAutoReload() {
-      // Notify other tabs via broadcast channel
+      // Notify other tabs
       if ('BroadcastChannel' in window) {
         const channel = new BroadcastChannel('app-updates');
         channel.postMessage({ 
           type: 'AUTO_RELOAD',
           timestamp: Date.now(),
-          triggeredBy: this.currentVersion
+          version: this.currentVersion
         });
       }
       
@@ -168,12 +186,12 @@ class AutoUpdater {
         });
       }
       
-      // Trigger reload for this tab
+      // Reload this tab after short delay
       setTimeout(() => this.performAutoReload(), 1000);
     }
   
     async performAutoReload() {
-      console.log('🔄 Performing auto-reload...');
+      console.log('🔄 Performing auto-reload due to version update...');
       
       try {
         // Get latest version info before reloading
@@ -202,7 +220,15 @@ class AutoUpdater {
         console.warn('⚠️ Failed to report update completion:', error.message);
       }
       
-      // Clear all caches
+      // Clear caches before reload
+      await this.clearCaches();
+      
+      // Hard reload
+      console.log('🔄 Performing hard reload...');
+      window.location.reload(true);
+    }
+  
+    async clearCaches() {
       if ('caches' in window) {
         try {
           const cacheNames = await caches.keys();
@@ -213,52 +239,122 @@ class AutoUpdater {
           console.warn('⚠️ Cache clearing failed:', error.message);
         }
       }
-      
-      // Force hard reload
-      console.log('🔄 Performing hard reload...');
-      window.location.reload(true);
     }
   
     startVersionCheck() {
+      // Clear any existing interval
+      if (this.intervalId) {
+        clearInterval(this.intervalId);
+      }
+      
       // Initial check
       console.log('🔍 Starting initial version check...');
       this.checkForUpdates();
       
       // Set up periodic checks
-      setInterval(() => {
+      this.intervalId = setInterval(() => {
         this.checkForUpdates();
       }, this.checkInterval);
       
-      console.log(`✅ Auto-updater fully initialized`);
-      console.log(`   - Version: ${this.currentVersion}`);
-      console.log(`   - Check interval: ${this.checkInterval/1000}s`);
-      console.log(`   - Service Worker: ${('serviceWorker' in navigator) ? 'Available' : 'Not available'}`);
-      console.log(`   - Broadcast Channel: ${('BroadcastChannel' in window) ? 'Available' : 'Not available'}`);
+      console.log(`✅ Auto-updater active - checking every ${this.checkInterval/1000} seconds`);
     }
   
-    // Manual methods for debugging
+    stopVersionCheck() {
+      if (this.intervalId) {
+        clearInterval(this.intervalId);
+        this.intervalId = null;
+        console.log('⏹️ Version checking stopped');
+      }
+    }
+  
+    // Manual testing methods
     async manualVersionCheck() {
       console.log('🔍 Manual version check triggered...');
       return await this.checkForUpdates();
     }
   
-    async manualReportVersion() {
+    async manualVersionReport() {
       console.log('📡 Manual version report triggered...');
       return await this.reportVersionToAdmin();
+    }
+  
+    async manualTriggerReload() {
+      console.log('🔄 Manual reload triggered...');
+      this.triggerAutoReload();
     }
   
     getCurrentStatus() {
       return {
         currentVersion: this.currentVersion,
+        isInitialized: this.isInitialized,
         checkInterval: this.checkInterval,
         hasServiceWorker: 'serviceWorker' in navigator,
         hasBroadcastChannel: 'BroadcastChannel' in window,
-        url: window.location.href
+        url: window.location.href,
+        intervalId: this.intervalId !== null
       };
+    }
+  
+    // Debug method to test admin endpoints
+    async testAdminEndpoints() {
+      const results = {};
+      
+      console.log('🧪 Testing admin endpoints...');
+      
+      // Test version endpoint
+      try {
+        const versionResponse = await fetch(`/admin/api/version?test=true&t=${Date.now()}`, {
+          cache: 'no-cache'
+        });
+        results.version = {
+          status: versionResponse.status,
+          ok: versionResponse.ok,
+          data: versionResponse.ok ? await versionResponse.json() : await versionResponse.text()
+        };
+      } catch (error) {
+        results.version = { error: error.message };
+      }
+      
+      // Test user update endpoint
+      try {
+        const updateResponse = await fetch('/admin/api/user-updated', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            version: this.currentVersion,
+            timestamp: Date.now(),
+            test: true
+          })
+        });
+        results.userUpdate = {
+          status: updateResponse.status,
+          ok: updateResponse.ok,
+          data: updateResponse.ok ? await updateResponse.json() : await updateResponse.text()
+        };
+      } catch (error) {
+        results.userUpdate = { error: error.message };
+      }
+      
+      // Test stats endpoint
+      try {
+        const statsResponse = await fetch('/admin/api/stats', {
+          cache: 'no-cache'
+        });
+        results.stats = {
+          status: statsResponse.status,
+          ok: statsResponse.ok,
+          data: statsResponse.ok ? await statsResponse.json() : await statsResponse.text()
+        };
+      } catch (error) {
+        results.stats = { error: error.message };
+      }
+      
+      console.log('🧪 Admin endpoints test results:', results);
+      return results;
     }
   }
   
-  // Initialize when DOM is ready
+  // Initialize auto-updater when DOM is ready
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', () => {
       window.autoUpdater = new AutoUpdater();
@@ -267,10 +363,17 @@ class AutoUpdater {
     window.autoUpdater = new AutoUpdater();
   }
   
-  // Expose manual testing functions to console
+  // Expose testing interface to console
   window.testAutoUpdater = {
     checkVersion: () => window.autoUpdater?.manualVersionCheck(),
-    reportVersion: () => window.autoUpdater?.manualReportVersion(),
+    reportVersion: () => window.autoUpdater?.manualVersionReport(),
+    triggerReload: () => window.autoUpdater?.manualTriggerReload(),
     getStatus: () => window.autoUpdater?.getCurrentStatus(),
-    triggerReload: () => window.autoUpdater?.triggerAutoReload()
+    testEndpoints: () => window.autoUpdater?.testAdminEndpoints(),
+    restart: () => {
+      if (window.autoUpdater) {
+        window.autoUpdater.stopVersionCheck();
+        window.autoUpdater = new AutoUpdater();
+      }
+    }
   };
