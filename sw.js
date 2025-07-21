@@ -1,7 +1,7 @@
-const CACHE_NAME = 'app-cache-v' + (window.BUILD_TIMESTAMP || Date.now());
-const STATIC_CACHE = 'static-cache-v' + (window.BUILD_TIMESTAMP || Date.now());
+const CACHE_VERSION = Date.now().toString();
+const CACHE_NAME = 'app-cache-v' + CACHE_VERSION;
+const STATIC_CACHE = 'static-cache-v' + CACHE_VERSION;
 
-// Install event - cache core assets
 self.addEventListener('install', (event) => {
   console.log('Service Worker: Installing');
   
@@ -22,7 +22,6 @@ self.addEventListener('install', (event) => {
   );
 });
 
-// Activate event - clean old caches
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys().then(cacheNames => {
@@ -37,10 +36,9 @@ self.addEventListener('activate', (event) => {
   );
 });
 
-// Fetch event
 self.addEventListener('fetch', (event) => {
   if (event.request.method !== 'GET') return;
-  if (event.request.url.includes('/api/version')) {
+  if (event.request.url.includes('/admin/api/version')) {
     return fetch(event.request);
   }
 
@@ -64,7 +62,6 @@ self.addEventListener('fetch', (event) => {
   );
 });
 
-// Listen for auto-reload messages
 self.addEventListener('message', (event) => {
   if (event.data && event.data.type === 'FORCE_AUTO_RELOAD') {
     self.clients.matchAll().then(clients => {
