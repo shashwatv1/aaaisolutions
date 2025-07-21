@@ -1,3 +1,4 @@
+// Enhanced auto-updater.js with admin tracking
 class AutoUpdater {
     constructor() {
       this.currentVersion = window.BUILD_TIMESTAMP || Date.now().toString();
@@ -10,6 +11,9 @@ class AutoUpdater {
       this.setupMessageListeners();
       this.setupBroadcastChannel();
       this.startVersionCheck();
+      
+      // Initial check-in with admin system
+      this.reportVersionToAdmin();
     }
   
     async registerServiceWorker() {
@@ -59,7 +63,8 @@ class AutoUpdater {
   
     async getCurrentServerVersion() {
       try {
-        const response = await fetch('/api/version?' + Date.now(), {
+        // Include current version in request for admin tracking
+        const response = await fetch(`/api/version?current_version=${this.currentVersion}&t=${Date.now()}`, {
           cache: 'no-cache',
           headers: {
             'Cache-Control': 'no-cache, no-store, must-revalidate',
@@ -67,6 +72,10 @@ class AutoUpdater {
           }
         });
         const data = await response.json();
+        
+        // Report to admin that we checked for updates
+        console.log(`🔍 Version check: current=${this.currentVersion}, server=${data.version}`);
+        
         return data.version;
       } catch (error) {
         console.warn('Version check failed:', error);
@@ -74,11 +83,32 @@ class AutoUpdater {
       }
     }
   
+    async reportVersionToAdmin() {
+      try {
+        // Report current version to admin system
+        await fetch('/api/user-updated', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            version: this.currentVersion,
+            timestamp: Date.now(),
+            user_agent: navigator.userAgent,
+            url: window.location.href
+          })
+        });
+      } catch (error) {
+        console.warn('Failed to report version to admin:', error);
+      }
+    }
+  
     async checkForUpdates() {
       const serverVersion = await this.getCurrentServerVersion();
       
       if (serverVersion && serverVersion !== this.currentVersion) {
-        console.log('New version detected, auto-reloading...');
+        console.log(`🚀 New version detected: ${serverVersion} (current: ${this.currentVersion})`);
+        console.log('📱 Auto-reloading to update...');
         this.triggerAutoReload();
         return true;
       }
@@ -105,7 +135,25 @@ class AutoUpdater {
     }
   
     async performAutoReload() {
-      console.log('Auto-reloading due to version update...');
+      console.log('🔄 Auto-reloading due to version update...');
+      
+      try {
+        // Report successful update to admin before reloading
+        const response = await fetch(`/api/version?current_version=${this.currentVersion}`, { cache: 'no-cache' });
+        const data = await response.json();
+        
+        await fetch('/api/user-updated', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            version: data.version,
+            timestamp: Date.now(),
+            updated_from: this.currentVersion
+          })
+        });
+      } catch (error) {
+        console.warn('Failed to report update to admin:', error);
+      }
       
       // Clear caches
       if ('caches' in window) {
@@ -122,11 +170,17 @@ class AutoUpdater {
     }
   
     startVersionCheck() {
+      // Initial check
+      this.checkForUpdates();
+      
+      // Periodic checks
       setInterval(() => {
         this.checkForUpdates();
       }, this.checkInterval);
       
-      console.log('Auto-updater initialized - website will refresh automatically on updates');
+      console.log('✅ Auto-updater initialized - website will refresh automatically on updates');
+      console.log(`📊 Current version: ${this.currentVersion}`);
+      console.log(`🔄 Checking for updates every ${this.checkInterval/1000} seconds`);
     }
   }
   
