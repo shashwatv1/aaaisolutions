@@ -94,6 +94,7 @@ jobs:
           
           echo "✅ Deployment completed successfully with version: $BUILD_TIMESTAMP"
     
+
     - name: Notify auto-update system about new version
       uses: appleboy/ssh-action@v1.0.0
       with:
@@ -107,23 +108,13 @@ jobs:
           
           echo "🔔 Notifying auto-update system about new version: $BUILD_TIMESTAMP"
           
-          # Try multiple possible endpoints (adjust URLs to match your setup)
-          curl -X POST http://localhost:5000/api/version \
+          # Call the correct FastAPI endpoint (note the /admin prefix)
+          curl -X POST https://aaai.solutions/admin/api/version \
             -H "Content-Type: application/json" \
             -d "{\"version\":\"$BUILD_TIMESTAMP\"}" \
-            -s --max-time 10 || echo "⚠️  Main app endpoint not responding"
+            -s --max-time 10 || echo "⚠️  Update notification failed"
           
-          curl -X POST http://localhost:8080/api/version \
-            -H "Content-Type: application/json" \
-            -d "{\"version\":\"$BUILD_TIMESTAMP\"}" \
-            -s --max-time 10 || echo "⚠️  Alternative endpoint not responding"
-          
-          curl -X POST https://aaai.solutions/api/version \
-            -H "Content-Type: application/json" \
-            -d "{\"version\":\"$BUILD_TIMESTAMP\"}" \
-            -s --max-time 10 || echo "⚠️  Public endpoint not responding"
-          
-          echo "📡 Version notification attempts completed"
+          echo "📡 Version notification completed"
           echo "🔄 All user browsers will automatically refresh within 2 minutes!"
           
     - name: Verify deployment and auto-update setup

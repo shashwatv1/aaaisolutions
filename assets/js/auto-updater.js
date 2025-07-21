@@ -1,4 +1,4 @@
-// Enhanced auto-updater.js with admin tracking
+// Updated auto-updater.js with correct FastAPI endpoints
 class AutoUpdater {
     constructor() {
       this.currentVersion = window.BUILD_TIMESTAMP || Date.now().toString();
@@ -63,8 +63,8 @@ class AutoUpdater {
   
     async getCurrentServerVersion() {
       try {
-        // Include current version in request for admin tracking
-        const response = await fetch(`/api/version?current_version=${this.currentVersion}&t=${Date.now()}`, {
+        // Updated endpoint: /admin/api/version (not /api/version)
+        const response = await fetch(`/admin/api/version?current_version=${this.currentVersion}&t=${Date.now()}`, {
           cache: 'no-cache',
           headers: {
             'Cache-Control': 'no-cache, no-store, must-revalidate',
@@ -85,8 +85,8 @@ class AutoUpdater {
   
     async reportVersionToAdmin() {
       try {
-        // Report current version to admin system
-        await fetch('/api/user-updated', {
+        // Updated endpoint: /admin/api/user-updated
+        await fetch('/admin/api/user-updated', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json'
@@ -139,10 +139,10 @@ class AutoUpdater {
       
       try {
         // Report successful update to admin before reloading
-        const response = await fetch(`/api/version?current_version=${this.currentVersion}`, { cache: 'no-cache' });
+        const response = await fetch(`/admin/api/version?current_version=${this.currentVersion}`, { cache: 'no-cache' });
         const data = await response.json();
         
-        await fetch('/api/user-updated', {
+        await fetch('/admin/api/user-updated', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
