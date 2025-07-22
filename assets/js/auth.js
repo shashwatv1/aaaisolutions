@@ -29,38 +29,43 @@ const AuthService = {
         try {
             this._log('🚀 Initializing AuthService...');
             
-            // Try to restore from cookie-based session
-            await this._initializeFromCookies();
+            // Try to restore from cookie-based session (this is optional)
+            const sessionRestored = await this._initializeFromCookies();
             
             // Start proactive refresh if authenticated
             if (this.authenticated && this.accessToken) {
                 this._scheduleProactiveRefresh();
                 this._log('✅ AuthService initialized with valid session');
+            } else if (sessionRestored === false) {
+                this._log('ℹ️ AuthService initialized - no existing session (this is normal)');
             } else {
-                this._log('ℹ️ AuthService initialized - no active session');
+                this._log('ℹ️ AuthService initialized - ready for authentication');
             }
             
         } catch (error) {
-            this._error('Failed to initialize AuthService:', error);
+            // Only log actual errors, not normal "no session" states
+            this._error('AuthService initialization error:', error);
             this._clearAuthState();
         }
     },
 
     /**
      * Initialize from cookies (silent session restoration)
+     * Returns: true (restored), false (no session), or throws on actual errors
      */
     async _initializeFromCookies() {
         try {
             // Check if we have authentication indicators
             if (!this._hasCookieAuth()) {
-                this._log('No cookie-based authentication found');
-                return false;
+                this._log('No existing session found (this is normal for first-time users)');
+                return false; // Not an error, just no existing session
             }
 
             // Get user info from cookie
             const userInfo = this._getUserInfoFromCookie();
             if (!userInfo?.email || !userInfo?.id) {
-                this._log('Invalid user info in cookie');
+                this._log('Invalid session data found, clearing cookies');
+                this._clearInvalidCookies();
                 return false;
             }
 
@@ -73,13 +78,15 @@ const AuthService = {
                 this._log('✅ Session restored from cookies with fresh access token');
                 return true;
             } else {
-                this._log('❌ Failed to restore session - refresh token may be expired');
+                this._log('❌ Session restoration failed - refresh token may be expired');
+                this._clearInvalidCookies();
                 return false;
             }
             
         } catch (error) {
-            this._error('Error initializing from cookies:', error);
-            return false;
+            this._error('Session restoration error:', error);
+            this._clearInvalidCookies();
+            return false; // Don't throw, just return false
         }
     },
 
@@ -214,10 +221,11 @@ const AuthService = {
             });
             
             if (!response.ok) {
-                this._log('❌ Refresh failed:', response.status);
                 if (response.status === 401) {
-                    this._log('Refresh token expired or invalid');
+                    this._log('Refresh token expired or invalid (this is normal after 7 days)');
                     this._clearAuthState(); // Clear invalid session
+                } else {
+                    this._log('Refresh failed with status:', response.status);
                 }
                 return false;
             }
@@ -249,7 +257,12 @@ const AuthService = {
             }
             
         } catch (error) {
-            this._error('Refresh endpoint error:', error);
+            // Don't log network errors as errors during initialization - they're expected
+            if (error.message.includes('fetch')) {
+                this._log('Network error during token refresh (this may be normal):', error.message);
+            } else {
+                this._error('Refresh endpoint error:', error);
+            }
             return false;
         }
     },
@@ -417,13 +430,23 @@ const AuthService = {
     },
 
     _hasCookieAuth() {
-        return document.cookie.includes('authenticated=true');
+        try {
+            return document.cookie.includes('authenticated=true');
+        } catch (error) {
+            this._log('Could not check cookie auth:', error);
+            return false;
+        }
     },
 
     _hasRefreshTokenCookie() {
-        const cookieString = document.cookie;
-        return cookieString.includes('refresh_token=') && 
-               !cookieString.includes('refresh_token=;');
+        try {
+            const cookieString = document.cookie;
+            return cookieString.includes('refresh_token=') && 
+                   !cookieString.includes('refresh_token=;');
+        } catch (error) {
+            this._log('Could not check refresh token cookie:', error);
+            return false;
+        }
     },
 
     _getUserInfoFromCookie() {
@@ -445,6 +468,17 @@ const AuthService = {
         if (this.refreshTimer) {
             clearTimeout(this.refreshTimer);
             this.refreshTimer = null;
+        }
+    },
+
+    _clearInvalidCookies() {
+        // Clear invalid session cookies by setting them to expire immediately
+        try {
+            document.cookie = 'authenticated=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;';
+            document.cookie = 'user_info=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;';
+            this._log('Cleared invalid session cookies');
+        } catch (error) {
+            this._log('Could not clear cookies:', error);
         }
     },
 
