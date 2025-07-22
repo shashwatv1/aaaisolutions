@@ -104,14 +104,26 @@ const AuthService = {
     },
 
     /**
-     * Check if user is authenticated
+     * FIXED: Check if user is authenticated with debug logging
      */
     isAuthenticated() {
-        return this.authenticated && 
-               this.accessToken && 
-               this._isAccessTokenValid() && 
-               this.userEmail && 
-               this.userId;
+        const hasToken = this.accessToken && this._isAccessTokenValid();
+        const hasUserInfo = this.userEmail && this.userId;
+        const result = this.authenticated && hasToken && hasUserInfo;
+        
+        // FIXED: Debug logging for authentication check
+        if (!result && this.options.debug) {
+            this._log('Authentication check failed:', {
+                authenticated: this.authenticated,
+                hasValidToken: hasToken,
+                hasUserInfo: hasUserInfo,
+                accessToken: this.accessToken ? `${this.accessToken.substring(0, 20)}...` : null,
+                tokenExpiry: this.tokenExpiry ? new Date(this.tokenExpiry) : null,
+                userEmail: this.userEmail
+            });
+        }
+        
+        return result;
     },
 
     /**
@@ -123,25 +135,42 @@ const AuthService = {
     },
 
     /**
-     * Execute function with automatic token refresh
+     * FIXED: Execute function with smart authentication handling
      */
     async executeFunction(functionName, inputData) {
-        if (!this.authenticated) {
-            throw new Error('Authentication required');
-        }
-        
-        // Ensure we have a valid access token
+        // FIXED: Better check for authentication state - don't require authenticated flag initially
         let accessToken = this.getToken();
+        
+        // If no token, try to get one via refresh (for session restoration)
         if (!accessToken) {
-            this._log('No valid access token, attempting refresh...');
+            this._log('No access token found, attempting to restore session...');
             const refreshed = await this._quickRefresh();
-            if (!refreshed) {
-                throw new Error('No valid access token available');
+            if (refreshed) {
+                accessToken = this.accessToken;
             }
-            accessToken = this.accessToken;
         }
         
-        this._log('Executing function:', functionName);
+        // If still no token and not authenticated, require authentication
+        if (!accessToken && !this.authenticated) {
+            throw new Error('Authentication required - please log in first');
+        }
+        
+        // Final check - if we have a token but not marked as authenticated, fix the state
+        if (accessToken && !this.authenticated) {
+            this._log('Have token but not marked authenticated - fixing state...');
+            // Try to get user info from cookie to restore full auth state
+            const userInfo = this._getUserInfoFromCookie();
+            if (userInfo?.email && userInfo?.id) {
+                this._setUserInfo(userInfo);
+                this._log('✅ Authentication state restored from cookie');
+            }
+        }
+        
+        this._log('Executing function:', functionName, 'with auth state:', {
+            authenticated: this.authenticated,
+            hasToken: !!accessToken,
+            userEmail: this.userEmail
+        });
         
         try {
             const controller = new AbortController();
@@ -294,12 +323,13 @@ const AuthService = {
     },
 
     /**
-     * Verify OTP and establish session
+     * FIXED: Verify OTP and establish session with better state management
      */
     async verifyOTP(email, otp) {
         try {
             this._log(`Verifying OTP for: ${email}`);
             
+            // Clear any old authentication state
             this._clearAuthState();
             
             const response = await fetch(`${this.AUTH_BASE_URL}/auth/verify-otp`, {
@@ -310,27 +340,58 @@ const AuthService = {
             });
             
             if (!response.ok) {
-                const data = await response.json();
-                throw new Error(data.error || 'Invalid OTP');
+                const data = await response.json().catch(() => ({}));
+                const errorMsg = data.error || data.message || `HTTP ${response.status}`;
+                this._error('OTP verification failed:', errorMsg);
+                throw new Error(errorMsg);
             }
             
             const data = await response.json();
+            this._log('OTP verification response:', data);
+            
             const { user, tokens } = data;
             
-            if (!user?.id || !user?.email || !tokens?.access_token) {
-                throw new Error('Invalid authentication response - missing user or tokens');
+            // FIXED: Better validation of response data
+            if (!user || !user.id || !user.email) {
+                this._error('Invalid user data in response:', user);
+                throw new Error('Invalid user data received from server');
             }
+            
+            if (!tokens || !tokens.access_token) {
+                this._error('Missing tokens in response:', tokens);
+                throw new Error('No access token received from server');
+            }
+            
+            this._log('✅ Valid OTP response received, setting up session...');
             
             // Set authentication state in memory
             this._storeAccessToken(tokens.access_token, tokens.expires_in || 21600, user);
             
+            // FIXED: Ensure authentication flag is properly set
+            this.authenticated = true;
+            
             // Start proactive refresh
             this._scheduleProactiveRefresh();
             
-            this._log('✅ Authentication successful');
+            // FIXED: Verify the authentication state was set correctly
+            const verifyState = {
+                authenticated: this.authenticated,
+                hasToken: !!this.accessToken,
+                hasUser: !!this.userEmail,
+                isAuthenticated: this.isAuthenticated()
+            };
+            this._log('✅ Authentication state after OTP verification:', verifyState);
+            
+            if (!this.isAuthenticated()) {
+                this._error('❌ Authentication state check failed after OTP verification');
+                throw new Error('Failed to establish authenticated session');
+            }
+            
+            this._log('✅ Authentication successful - user logged in');
             return data;
             
         } catch (error) {
+            this._error('OTP verification error:', error.message);
             this._clearAuthState();
             throw new Error(`OTP verification failed: ${error.message}`);
         }
@@ -422,6 +483,28 @@ const AuthService = {
         return await this._quickRefresh();
     },
 
+    /**
+     * FIXED: Debug method to check authentication state
+     */
+    debugAuthState() {
+        const state = {
+            authenticated: this.authenticated,
+            accessToken: this.accessToken ? `${this.accessToken.substring(0, 20)}...` : null,
+            tokenExpiry: this.tokenExpiry ? new Date(this.tokenExpiry) : null,
+            tokenValid: this._isAccessTokenValid(),
+            userEmail: this.userEmail,
+            userId: this.userId,
+            sessionId: this.sessionId,
+            isAuthenticated: this.isAuthenticated(),
+            hasCookieAuth: this._hasCookieAuth(),
+            hasRefreshToken: this._hasRefreshTokenCookie(),
+            userInfoFromCookie: this._getUserInfoFromCookie()
+        };
+        
+        console.table(state);
+        return state;
+    },
+
     // Private helper methods
     _setAccessToken(token, expiresIn) {
         this.accessToken = token;
@@ -429,11 +512,24 @@ const AuthService = {
     },
 
     _storeAccessToken(token, expiresIn, user) {
-        // FIXED: Added missing _storeAccessToken method
+        // FIXED: Enhanced _storeAccessToken method with better state management
+        this._log('Storing access token and user info...', {
+            tokenLength: token ? token.length : 0,
+            expiresIn: expiresIn,
+            hasUser: !!user,
+            userEmail: user?.email
+        });
+        
+        // Set the access token and expiry
         this._setAccessToken(token, expiresIn);
+        
+        // Set user information and authentication flag
         if (user) {
             this._setUserInfo(user);
         }
+        
+        // FIXED: Ensure authenticated flag is set
+        this.authenticated = true;
         
         // Cache the auth state
         this._cacheAuthState({
@@ -441,6 +537,15 @@ const AuthService = {
             token: token,
             expiresIn: expiresIn || 21600,
             timestamp: Date.now()
+        });
+        
+        // FIXED: Verify the state was set correctly
+        this._log('✅ Access token stored, auth state:', {
+            authenticated: this.authenticated,
+            hasToken: !!this.accessToken,
+            tokenExpiry: this.tokenExpiry ? new Date(this.tokenExpiry) : null,
+            userEmail: this.userEmail,
+            isAuthenticated: this.isAuthenticated()
         });
     },
 
