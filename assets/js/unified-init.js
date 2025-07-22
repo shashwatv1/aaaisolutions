@@ -1,6 +1,6 @@
 /**
- * High-Performance Unified Application Initialization for AAAI Solutions
- * Enhanced timing and integration setup with direct API approach
+ * UPDATED: High-Performance Unified Application Initialization for AAAI Solutions
+ * Enhanced with promise-based AuthService integration and robust authentication
  */
 
 (function() {
@@ -9,6 +9,7 @@
     // Simplified global application state
     window.AAAI_APP = {
         initialized: false,
+        authReady: false,
         services: {},
         config: window.AAAI_CONFIG || {},
         debug: false,
@@ -19,7 +20,7 @@
     const CORE_SERVICES = ['AuthService', 'ProjectService', 'NavigationManager', 'ChatIntegration'];
     
     /**
-     * Fast initialization with minimal blocking
+     * UPDATED: Fast initialization with enhanced auth handling
      */
     async function initializeApplication() {
         try {
@@ -32,8 +33,8 @@
             const currentPage = getCurrentPageTypeFast();
             console.log('📄 Page type:', currentPage);
             
-            // Fast page authentication
-            const authResult = await handlePageAuthenticationFast(currentPage);
+            // UPDATED: Enhanced page authentication with proper waiting
+            const authResult = await handlePageAuthenticationEnhanced(currentPage);
             if (!authResult.success) {
                 if (authResult.redirect) {
                     return; // Page will handle redirect
@@ -44,7 +45,7 @@
             console.log('✅ Authentication ready, continuing...');
             
             // Initialize core services only
-            await initializeCoreServices();
+            await initializeCoreServicesEnhanced();
             
             // Page-specific initialization (non-blocking)
             initializePageSpecificFast(currentPage);
@@ -69,28 +70,30 @@
     }
     
     /**
-     * Fast page authentication with minimal checks
+     * UPDATED: Enhanced page authentication with promise-based AuthService
      */
-    async function handlePageAuthenticationFast(pageType) {
-        console.log('🔐 Fast authentication check for:', pageType);
+    async function handlePageAuthenticationEnhanced(pageType) {
+        console.log('🔐 Enhanced authentication check for:', pageType);
         
         try {
-            // Initialize AuthService quickly
+            // UPDATED: Ensure AuthService is available
             if (!window.AuthService) {
                 throw new Error('AuthService not available');
             }
             
-            const authInitResult = window.AuthService.init();
-            console.log('🔐 AuthService init result:', authInitResult);
+            // UPDATED: Wait for AuthService to be properly initialized
+            console.log('🔐 Waiting for AuthService initialization...');
+            await window.AuthService.waitForInit();
+            window.AAAI_APP.authReady = true;
             
-            // Handle based on page type with fast logic
+            // Handle based on page type with enhanced logic
             switch (pageType) {
                 case 'login':
-                    return handleLoginPageAuthFast();
+                    return await handleLoginPageAuthEnhanced();
                     
                 case 'project':
                 case 'chat':
-                    return handleProtectedPageAuthFast();
+                    return await handleProtectedPageAuthEnhanced();
                     
                 default:
                     return { 
@@ -100,71 +103,98 @@
             }
             
         } catch (error) {
-            console.error('🔐 Fast authentication error:', error);
+            console.error('🔐 Enhanced authentication error:', error);
             return { success: false, reason: error.message };
         }
     }
 
-    async function handleProtectedPageAuthFast() {
-        console.log('🔐 Fast protected page auth check');
+    /**
+     * UPDATED: Enhanced protected page authentication with multiple attempts
+     */
+    async function handleProtectedPageAuthEnhanced() {
+        console.log('🔐 Enhanced protected page auth check');
         
-        // Quick authentication check
-        if (window.AuthService.isAuthenticated()) {
-            console.log('🔐 Already authenticated');
-            return { success: true, authenticated: true };
-        }
+        // UPDATED: Multiple authentication attempts with delays
+        let authSuccess = false;
+        const maxAttempts = 3;
         
-        // Quick session check
-        if (!window.AuthService.hasPersistentSession()) {
-            console.log('🔐 No session, redirecting to login');
-            window.location.href = 'login.html';
-            return { success: false, redirect: true };
-        }
-        
-        // Try quick refresh
-        console.log('🔐 Attempting quick session restore');
-        try {
-            const refreshed = await window.AuthService.refreshTokenIfNeeded();
+        for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+            console.log(`🔐 Authentication attempt ${attempt}/${maxAttempts}`);
             
-            if (refreshed && window.AuthService.isAuthenticated()) {
-                console.log('🔐 Session restored quickly');
-                return { success: true, authenticated: true };
-            } else {
-                console.log('🔐 Session restore failed, redirecting');
-                window.location.href = 'login.html';
-                return { success: false, redirect: true };
+            // Quick authentication check
+            if (window.AuthService.isAuthenticated()) {
+                console.log('🔐 Already authenticated');
+                authSuccess = true;
+                break;
             }
             
-        } catch (error) {
-            console.error('🔐 Session restore error:', error);
+            // Try session restoration if available
+            if (window.AuthService.hasPersistentSession()) {
+                console.log('🔐 Attempting session restoration...');
+                
+                try {
+                    const refreshed = await window.AuthService.refreshTokenIfNeeded();
+                    
+                    if (refreshed && window.AuthService.isAuthenticated()) {
+                        console.log('🔐 Session restored successfully');
+                        authSuccess = true;
+                        break;
+                    }
+                    
+                    // Wait before next attempt (except last)
+                    if (attempt < maxAttempts) {
+                        console.log(`🔐 Attempt ${attempt} failed, waiting before retry...`);
+                        await new Promise(resolve => setTimeout(resolve, 500));
+                    }
+                } catch (error) {
+                    console.error('🔐 Session restoration failed:', error);
+                    
+                    // Wait before next attempt (except last)
+                    if (attempt < maxAttempts) {
+                        await new Promise(resolve => setTimeout(resolve, 500));
+                    }
+                }
+            } else {
+                console.log('🔐 No persistent session available');
+                break; // No point in retrying without session
+            }
+        }
+        
+        if (!authSuccess) {
+            console.log('🔐 All authentication attempts failed, redirecting to login');
             window.location.href = 'login.html';
             return { success: false, redirect: true };
         }
+        
+        return { success: true, authenticated: true };
     }
 
-    async function handleLoginPageAuthFast() {
-        console.log('🔐 Fast login page auth check');
+    /**
+     * UPDATED: Enhanced login page authentication
+     */
+    async function handleLoginPageAuthEnhanced() {
+        console.log('🔐 Enhanced login page auth check');
         
         // Quick check if already authenticated
         if (window.AuthService.isAuthenticated()) {
-            console.log('🔐 Already authenticated, redirecting');
+            console.log('🔐 Already authenticated, redirecting to projects');
             window.location.href = 'project.html';
             return { success: false, redirect: true };
         }
         
-        // Quick session restore attempt
+        // Try session restore if available
         if (window.AuthService.hasPersistentSession()) {
-            console.log('🔐 Quick session restore attempt');
+            console.log('🔐 Attempting session restore on login page');
             
             try {
                 const refreshed = await window.AuthService.refreshTokenIfNeeded();
                 if (refreshed && window.AuthService.isAuthenticated()) {
-                    console.log('🔐 Session restored, redirecting');
+                    console.log('🔐 Session restored, redirecting to projects');
                     window.location.href = 'project.html';
                     return { success: false, redirect: true };
                 }
             } catch (error) {
-                console.warn('🔐 Session restore failed:', error);
+                console.warn('🔐 Login page session restore failed:', error);
             }
         }
         
@@ -172,10 +202,10 @@
     }
 
     /**
-     * Enhanced core services initialization with direct API approach
+     * UPDATED: Enhanced core services initialization with async support
      */
-    async function initializeCoreServices() {
-        console.log('🔧 Fast core services initialization...');
+    async function initializeCoreServicesEnhanced() {
+        console.log('🔧 Enhanced core services initialization...');
         
         for (const serviceName of CORE_SERVICES) {
             try {
@@ -189,35 +219,56 @@
                     continue;
                 }
                 
-                console.log(`🔧 Quick init ${serviceName}...`);
+                console.log(`🔧 Enhanced init ${serviceName}...`);
                 
                 let service = window[serviceName];
                 
                 switch (serviceName) {
                     case 'AuthService':
-                        // Already initialized
+                        // Already initialized via waitForInit()
                         window.AAAI_APP.services[serviceName] = service;
                         break;
                         
                     case 'ProjectService':
+                        // UPDATED: Use async initialization if available
                         if (typeof service.init === 'function' && !service.isInitialized) {
-                            service.init(window.AAAI_APP.services.AuthService, {
-                                debug: window.AAAI_APP.debug,
-                                autoSync: true,
-                                enableRealTimeUpdates: true,
-                                syncInterval: 60000
-                            });
+                            try {
+                                // Use async init if supported
+                                const initResult = service.init(window.AAAI_APP.services.AuthService, {
+                                    debug: window.AAAI_APP.debug,
+                                    autoSync: true,
+                                    enableRealTimeUpdates: true,
+                                    syncInterval: 60000
+                                });
+                                
+                                // Wait for initialization if it returns a promise
+                                if (initResult && typeof initResult.then === 'function') {
+                                    await initResult;
+                                }
+                            } catch (error) {
+                                console.error(`❌ ProjectService init failed:`, error);
+                                // Continue without ProjectService
+                            }
                         }
                         window.AAAI_APP.services[serviceName] = service;
                         break;
                         
                     case 'NavigationManager':
                         if (typeof service.init === 'function' && !service.isInitialized) {
-                            service.init(
-                                window.AAAI_APP.services.AuthService,
-                                window.AAAI_APP.services.ProjectService,
-                                { debug: window.AAAI_APP.debug }
-                            );
+                            try {
+                                const initResult = service.init(
+                                    window.AAAI_APP.services.AuthService,
+                                    window.AAAI_APP.services.ProjectService,
+                                    { debug: window.AAAI_APP.debug }
+                                );
+                                
+                                // Wait if it returns a promise
+                                if (initResult && typeof initResult.then === 'function') {
+                                    await initResult;
+                                }
+                            } catch (error) {
+                                console.error(`❌ NavigationManager init failed:`, error);
+                            }
                         }
                         window.AAAI_APP.services[serviceName] = service;
                         break;
@@ -232,7 +283,7 @@
                         break;
                 }
                 
-                console.log(`✅ ${serviceName} initialized quickly`);
+                console.log(`✅ ${serviceName} initialized successfully`);
                 
             } catch (error) {
                 console.error(`❌ Failed to initialize ${serviceName}:`, error);
@@ -240,7 +291,7 @@
             }
         }
         
-        console.log('✅ Core services initialized');
+        console.log('✅ Enhanced core services initialized');
     }
         
     /**
@@ -253,11 +304,11 @@
         setTimeout(() => {
             switch (pageType) {
                 case 'project':
-                    initializeProjectPageFast();
+                    initializeProjectPageEnhanced();
                     break;
                     
                 case 'chat':
-                    initializeChatPage();
+                    initializeChatPageEnhanced();
                     break;
                     
                 default:
@@ -268,11 +319,11 @@
     }
     
     /**
-     * Fast project page initialization
+     * UPDATED: Enhanced project page initialization
      */
-    function initializeProjectPageFast() {
+    function initializeProjectPageEnhanced() {
         try {
-            console.log('📂 Fast project page init...');
+            console.log('📂 Enhanced project page init...');
             
             const authService = window.AAAI_APP.services.AuthService;
             const projectService = window.AAAI_APP.services.ProjectService;
@@ -281,26 +332,35 @@
                 throw new Error('Authentication required');
             }
             
-            // Load context asynchronously (non-blocking)
+            // UPDATED: Load context asynchronously with better error handling
             if (projectService) {
-                projectService.getCurrentContext().catch(error => {
-                    console.warn('⚠️ Context load failed:', error);
-                });
+                // Check if ProjectService is properly initialized
+                if (projectService.isInitialized || typeof projectService.getCurrentContext === 'function') {
+                    projectService.getCurrentContext()
+                        .then(context => {
+                            console.log('✅ Project context loaded:', context);
+                        })
+                        .catch(error => {
+                            console.warn('⚠️ Context load failed (non-critical):', error);
+                        });
+                } else {
+                    console.warn('⚠️ ProjectService not properly initialized');
+                }
             }
             
-            console.log('✅ Project page initialized');
+            console.log('✅ Enhanced project page initialized');
             
         } catch (error) {
-            console.error('❌ Project page init failed:', error);
+            console.error('❌ Enhanced project page init failed:', error);
         }
     }
     
     /**
-     * Enhanced chat page initialization with direct API approach
-    */
-    function initializeChatPage() {
+     * UPDATED: Enhanced chat page initialization with better error handling
+     */
+    function initializeChatPageEnhanced() {
         try {
-            console.log('💬 Production chat page initialization');
+            console.log('💬 Enhanced chat page initialization');
             
             const authService = window.AAAI_APP.services.AuthService;
             const projectService = window.AAAI_APP.services.ProjectService;
@@ -322,24 +382,28 @@
                 return;
             }
             
-            // Switch project context in ProjectService
-            if (projectService) {
+            // UPDATED: Switch project context with better error handling
+            if (projectService && (projectService.isInitialized || typeof projectService.switchToProject === 'function')) {
                 projectService.switchToProject(
                     projectId, 
                     projectName ? decodeURIComponent(projectName) : null
-                ).then(() => {
-                    console.log('✅ Project context switched');
+                ).then(result => {
+                    console.log('✅ Project context switched:', result);
                 }).catch(error => {
                     console.error('❌ Project context switch failed:', error);
+                    // Don't redirect, user can still use chat
                 });
+            } else {
+                console.warn('⚠️ ProjectService not available for context switching');
             }
             
-            console.log('✅ Production chat page initialization completed');
+            console.log('✅ Enhanced chat page initialization completed');
             
         } catch (error) {
-            console.error('❌ Chat page init failed:', error);
+            console.error('❌ Enhanced chat page init failed:', error);
         }
     }
+    
     /**
      * Fast environment initialization
      */
@@ -428,7 +492,7 @@
     }
     
     /**
-     * Fast public API
+     * UPDATED: Enhanced public API with auth state checking
      */
     window.AAAI_APP.getService = function(serviceName) {
         return window.AAAI_APP.services[serviceName] || null;
@@ -438,8 +502,28 @@
         return window.AAAI_APP.initialized;
     };
     
+    window.AAAI_APP.isAuthReady = function() {
+        return window.AAAI_APP.authReady;
+    };
+    
     window.AAAI_APP.getConfig = function() {
         return window.AAAI_APP.config;
+    };
+    
+    /**
+     * UPDATED: Wait for both app and auth to be ready
+     */
+    window.AAAI_APP.waitForReady = async function() {
+        return new Promise((resolve) => {
+            const checkReady = () => {
+                if (window.AAAI_APP.initialized && window.AAAI_APP.authReady) {
+                    resolve(true);
+                } else {
+                    setTimeout(checkReady, 100);
+                }
+            };
+            checkReady();
+        });
     };
     
     // Initialize immediately when DOM is ready
@@ -450,6 +534,6 @@
         setTimeout(initializeApplication, 0);
     }
     
-    console.log('🎬 Fast AAAI initialization script loaded');
+    console.log('🎬 Enhanced AAAI initialization script loaded');
     
 })();

@@ -1,11 +1,12 @@
 /**
- * High-Performance Project Service for AAAI Solutions
- * Optimized for fast loading and minimal API calls
+ * Enhanced Project Service for AAAI Solutions
+ * Optimized with proper AuthService integration
  */
 const ProjectService = {
     // Core service state
     authService: null,
     isInitialized: false,
+    initPromise: null,
     
     // Performance-optimized cache
     projectCache: new Map(),
@@ -16,12 +17,12 @@ const ProjectService = {
     // Configuration - optimized with efficient real-time updates
     options: {
         cacheExpiry: 300000, // 5 minutes 
-        maxCacheSize: 100, // Reduced
+        maxCacheSize: 100,
         quickCacheExpiry: 30000, // 30 seconds for frequent operations
-        enableRealTimeUpdates: true, // Efficient real-time updates
-        autoSync: true, // Smart auto-sync enabled
-        syncInterval: 60000, // 1 minute (increased from 30s)
-        smartSync: true, // Only sync when page is visible
+        enableRealTimeUpdates: true,
+        autoSync: true,
+        syncInterval: 60000, // 1 minute
+        smartSync: true,
         debug: false
     },
     
@@ -37,9 +38,18 @@ const ProjectService = {
     updateListeners: [],
     
     /**
-     * Fast initialization with minimal checks
+     * FIXED: Enhanced initialization with proper auth waiting
      */
-    init(authService, options = {}) {
+    async init(authService, options = {}) {
+        if (this.initPromise) {
+            return this.initPromise;
+        }
+
+        this.initPromise = this._performInit(authService, options);
+        return this.initPromise;
+    },
+
+    async _performInit(authService, options = {}) {
         if (this.isInitialized) {
             return this;
         }
@@ -54,22 +64,110 @@ const ProjectService = {
         if (window.AAAI_CONFIG?.ENABLE_DEBUG) {
             this.options.debug = true;
         }
+
+        try {
+            // FIXED: Wait for AuthService to be properly initialized
+            this._log('Waiting for AuthService initialization...');
+            await this.authService.waitForInit();
+            
+            // FIXED: Check authentication status after auth service is ready
+            if (this.authService.isAuthenticated()) {
+                const user = this.authService.getCurrentUser();
+                if (user) {
+                    this.currentContext.user_id = user.id;
+                    this._log('User context initialized for:', user.email);
+                } else {
+                    this._log('Authentication detected but no user data available');
+                }
+            } else {
+                this._log('User not authenticated during ProjectService init');
+            }
+            
+            // Load context and setup services
+            this._loadQuickContext();
+            this._setupEfficientAutoSync();
+            this._setupCacheCleanup();
+            
+            this.isInitialized = true;
+            this._log('ProjectService initialized successfully');
+            
+        } catch (error) {
+            this._error('ProjectService initialization failed:', error);
+            throw error;
+        }
         
-        // Get user context only if authenticated
-        if (authService.isAuthenticated()) {
-            const user = authService.getCurrentUser();
+        return this;
+    },
+
+    /**
+     * FIXED: Enhanced auth requirement check with retry
+     */
+    async _requireAuth() {
+        // Wait for initialization if needed
+        if (!this.isInitialized && this.initPromise) {
+            await this.initPromise;
+        }
+        
+        if (!this.authService) {
+            throw new Error('AuthService not available');
+        }
+
+        // Wait for auth service to be ready
+        await this.authService.waitForInit();
+
+        // Check if authenticated
+        if (!this.authService.isAuthenticated()) {
+            // Try one refresh attempt
+            this._log('Not authenticated, attempting token refresh...');
+            const refreshed = await this.authService.refreshTokenIfNeeded();
+            
+            if (!refreshed || !this.authService.isAuthenticated()) {
+                throw new Error('Authentication required - please log in');
+            }
+            
+            this._log('Authentication restored via token refresh');
+        }
+
+        // Update user context if needed
+        if (!this.currentContext.user_id) {
+            const user = this.authService.getCurrentUser();
             if (user) {
                 this.currentContext.user_id = user.id;
             }
         }
+
+        return true;
+    },
+
+    /**
+     * FIXED: Enhanced function execution with better auth handling
+     */
+    async _executeFunction(functionName, inputData) {
+        await this._requireAuth();
         
-        this._loadQuickContext();
-        this._setupEfficientAutoSync(); // Smart auto-sync
-        this._setupCacheCleanup();
-        this.isInitialized = true;
+        this._log('Executing function:', functionName, 'with input:', inputData);
         
-        this._log('ProjectService initialized quickly');
-        return this;
+        try {
+            const result = await this.authService.executeFunction(functionName, inputData);
+            
+            // Log detailed response structure
+            this._logAPIResponse(functionName, result);
+            
+            return result;
+        } catch (error) {
+            // FIXED: Better error handling for auth failures
+            if (error.message.includes('Authentication') || error.message.includes('401')) {
+                this._log('Authentication error in function execution, clearing context');
+                this._clearUserContext();
+            }
+            
+            this._error('Function execution failed:', functionName, {
+                error: error.message,
+                stack: error.stack,
+                inputData: inputData
+            });
+            throw error;
+        }
     },
 
     /**
@@ -77,7 +175,7 @@ const ProjectService = {
      */
     async createProject(projectData) {
         try {
-            this._requireAuth();
+            await this._requireAuth();
             
             const user = this.authService.getCurrentUser();
             if (!user?.email) {
@@ -168,7 +266,7 @@ const ProjectService = {
      */
     async getProjects(options = {}) {
         try {
-            this._requireAuth();
+            await this._requireAuth();
             
             const {
                 limit = 20,
@@ -232,7 +330,7 @@ const ProjectService = {
      */
     async getProject(projectId, forceRefresh = false) {
         try {
-            this._requireAuth();
+            await this._requireAuth();
             
             if (!projectId) {
                 throw new Error('Project ID required');
@@ -275,7 +373,7 @@ const ProjectService = {
      */
     async switchToProject(projectId, projectName = null) {
         try {
-            this._requireAuth();
+            await this._requireAuth();
             
             const user = this.authService.getCurrentUser();
             if (!user?.email) {
@@ -345,7 +443,7 @@ const ProjectService = {
      */
     async getCurrentContext() {
         try {
-            this._requireAuth();
+            await this._requireAuth();
             
             // Use cached context if recent
             if (this.contextCache && this.lastCacheUpdate && 
@@ -422,6 +520,20 @@ const ProjectService = {
         return cleared;
     },
 
+    /**
+     * FIXED: Clear user context on auth failure
+     */
+    _clearUserContext() {
+        this.currentContext = {
+            user_id: null,
+            current_project: null,
+            chat_id: null,
+            project_name: null
+        };
+        this.contextCache = null;
+        this.lastCacheUpdate = null;
+    },
+
     onUpdate(callback) {
         if (typeof callback === 'function') {
             this.updateListeners.push(callback);
@@ -436,34 +548,6 @@ const ProjectService = {
     },
 
     // Private methods - optimized for speed
-
-    _requireAuth() {
-        if (!this.authService?.isAuthenticated()) {
-            throw new Error('Authentication required');
-        }
-    },
-
-    async _executeFunction(functionName, inputData) {
-        this._requireAuth();
-        
-        this._log('Executing function:', functionName, 'with input:', inputData);
-        
-        try {
-            const result = await this.authService.executeFunction(functionName, inputData);
-            
-            // Log detailed response structure
-            this._logAPIResponse(functionName, result);
-            
-            return result;
-        } catch (error) {
-            this._error('Function execution failed:', functionName, {
-                error: error.message,
-                stack: error.stack,
-                inputData: inputData
-            });
-            throw error;
-        }
-    },
 
     /**
      * Enhanced error logging with response details
@@ -743,8 +827,15 @@ const ProjectService = {
         
         const performSmartSync = async () => {
             // Only sync if page is visible and user is authenticated
-            if (document.visibilityState !== 'visible' || 
-                !this.authService?.isAuthenticated()) {
+            if (document.visibilityState !== 'visible') {
+                return;
+            }
+
+            // FIXED: Check auth properly
+            try {
+                await this._requireAuth();
+            } catch (error) {
+                this._log('Auto-sync skipped - authentication required');
                 return;
             }
             

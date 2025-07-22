@@ -14,6 +14,7 @@ const AuthService = {
     // Timers and cache
     refreshTimer: null,
     authCache: new Map(),
+    initPromise: null,  // Track initialization promise
     
     options: {
         debug: true,
@@ -23,42 +24,67 @@ const AuthService = {
     },
 
     /**
-     * Initialize the authentication service
+     * FIXED: Promise-based initialization
      */
     async init() {
+        // Return existing promise if already initializing
+        if (this.initPromise) {
+            return this.initPromise;
+        }
+
+        this.initPromise = this._performInit();
+        return this.initPromise;
+    },
+
+    /**
+     * FIXED: Split out initialization logic
+     */
+    async _performInit() {
         try {
             this._log('🚀 Initializing AuthService...');
             
-            // Try to restore from cookie-based session (this is optional)
+            // Try to restore from cookie-based session
             const sessionRestored = await this._initializeFromCookies();
             
             // Start proactive refresh if authenticated
             if (this.authenticated && this.accessToken) {
                 this._scheduleProactiveRefresh();
                 this._log('✅ AuthService initialized with valid session');
+                return { success: true, authenticated: true };
             } else if (sessionRestored === false) {
-                this._log('ℹ️ AuthService initialized - no existing session (this is normal)');
+                this._log('ℹ️ AuthService initialized - no existing session');
+                return { success: true, authenticated: false };
             } else {
                 this._log('ℹ️ AuthService initialized - ready for authentication');
+                return { success: true, authenticated: false };
             }
             
         } catch (error) {
-            // Only log actual errors, not normal "no session" states
             this._error('AuthService initialization error:', error);
             this._clearAuthState();
+            return { success: false, error: error.message };
         }
     },
 
     /**
-     * Initialize from cookies (silent session restoration)
-     * Returns: true (restored), false (no session), or throws on actual errors
+     * FIXED: Wait for initialization to complete
+     */
+    async waitForInit() {
+        if (this.initPromise) {
+            return await this.initPromise;
+        }
+        return { success: true, authenticated: this.authenticated };
+    },
+
+    /**
+     * FIXED: Enhanced cookie initialization with proper state setting
      */
     async _initializeFromCookies() {
         try {
             // Check if we have authentication indicators
             if (!this._hasCookieAuth()) {
-                this._log('No existing session found (this is normal for first-time users)');
-                return false; // Not an error, just no existing session
+                this._log('No existing session found');
+                return false;
             }
 
             // Get user info from cookie
@@ -69,12 +95,17 @@ const AuthService = {
                 return false;
             }
 
-            // FIXED: Directly try to get access token from standard refresh
+            // Try to refresh token
             this._log('Attempting to restore session with refresh token...');
             const refreshResult = await this._getAccessTokenFromStandardRefresh();
             
             if (refreshResult) {
+                // FIXED: Always restore user info after successful token refresh
                 this._setUserInfo(userInfo);
+                // FIXED: Ensure authenticated flag is set
+                this.authenticated = true;
+                this.lastValidation = Date.now();
+                
                 this._log('✅ Session restored from cookies with fresh access token');
                 return true;
             } else {
@@ -86,7 +117,7 @@ const AuthService = {
         } catch (error) {
             this._error('Session restoration error:', error);
             this._clearInvalidCookies();
-            return false; // Don't throw, just return false
+            return false;
         }
     },
 
@@ -104,26 +135,30 @@ const AuthService = {
     },
 
     /**
-     * FIXED: Check if user is authenticated with debug logging
+     * FIXED: Enhanced authentication check with auto-fix
      */
     isAuthenticated() {
         const hasToken = this.accessToken && this._isAccessTokenValid();
         const hasUserInfo = this.userEmail && this.userId;
-        const result = this.authenticated && hasToken && hasUserInfo;
         
-        // FIXED: Debug logging for authentication check
-        if (!result && this.options.debug) {
-            this._log('Authentication check failed:', {
-                authenticated: this.authenticated,
-                hasValidToken: hasToken,
-                hasUserInfo: hasUserInfo,
-                accessToken: this.accessToken ? `${this.accessToken.substring(0, 20)}...` : null,
-                tokenExpiry: this.tokenExpiry ? new Date(this.tokenExpiry) : null,
-                userEmail: this.userEmail
-            });
+        // FIXED: Primary check - if we have valid token and user info, we're authenticated
+        if (hasToken && hasUserInfo) {
+            // Auto-fix authenticated flag if we have valid data
+            if (!this.authenticated) {
+                this.authenticated = true;
+                this.lastValidation = Date.now();
+                this._log('🔧 Fixed authentication flag state');
+            }
+            return true;
         }
-        
-        return result;
+
+        // If missing any component, we're not authenticated
+        if (this.authenticated && (!hasToken || !hasUserInfo)) {
+            this._log('Authentication state inconsistent, clearing...');
+            this._clearAuthState();
+        }
+
+        return false;
     },
 
     /**
@@ -135,30 +170,31 @@ const AuthService = {
     },
 
     /**
-     * FIXED: Execute function with smart authentication handling
+     * FIXED: Enhanced function execution with proper auth waiting
      */
     async executeFunction(functionName, inputData) {
-        // FIXED: Better check for authentication state - don't require authenticated flag initially
+        // FIXED: Wait for initialization if needed
+        await this.waitForInit();
+        
         let accessToken = this.getToken();
         
         // If no token, try to get one via refresh (for session restoration)
         if (!accessToken) {
             this._log('No access token found, attempting to restore session...');
-            const refreshed = await this._quickRefresh();
+            const refreshed = await this.refreshTokenIfNeeded();
             if (refreshed) {
                 accessToken = this.accessToken;
             }
         }
         
-        // If still no token and not authenticated, require authentication
-        if (!accessToken && !this.authenticated) {
+        // If still no token, require authentication
+        if (!accessToken) {
             throw new Error('Authentication required - please log in first');
         }
-        
-        // Final check - if we have a token but not marked as authenticated, fix the state
+
+        // FIXED: Auto-fix authentication state if we have valid token but flag not set
         if (accessToken && !this.authenticated) {
             this._log('Have token but not marked authenticated - fixing state...');
-            // Try to get user info from cookie to restore full auth state
             const userInfo = this._getUserInfoFromCookie();
             if (userInfo?.email && userInfo?.id) {
                 this._setUserInfo(userInfo);
@@ -235,7 +271,7 @@ const AuthService = {
     },
 
     /**
-     * FIXED: Simplified to just call standard refresh endpoint
+     * FIXED: Enhanced token refresh with proper state restoration
      */
     async _getAccessTokenFromStandardRefresh() {
         try {
@@ -246,13 +282,13 @@ const AuthService = {
                 headers: {
                     'Content-Type': 'application/json'
                 },
-                credentials: 'include' // Sends httpOnly refresh token cookie
+                credentials: 'include'
             });
             
             if (!response.ok) {
                 if (response.status === 401) {
-                    this._log('Refresh token expired or invalid (this is normal after 7 days)');
-                    this._clearAuthState(); // Clear invalid session
+                    this._log('Refresh token expired or invalid');
+                    this._clearAuthState();
                 } else {
                     this._log('Refresh failed with status:', response.status);
                 }
@@ -261,34 +297,46 @@ const AuthService = {
             
             const data = await response.json();
             
-            // FIXED: Check for tokens in response body
+            // FIXED: Enhanced token response handling
             if (data.tokens?.access_token) {
-                this._storeAccessToken(data.tokens.access_token, data.tokens.expires_in || 21600, data.user);
-                this._log('✅ Got fresh access token from refresh endpoint');
+                // Store token
+                this._setAccessToken(data.tokens.access_token, data.tokens.expires_in || 21600);
                 
-                // Update user info if provided
-                if (!data.user && this.userEmail) {
-                    // If no user data in response, preserve existing user info
-                    const existingUser = {
-                        email: this.userEmail,
-                        id: this.userId,
-                        session_id: this.sessionId
-                    };
-                    this._setUserInfo(existingUser);
-                } else if (data.user) {
-                    this._setUserInfo(data.user);
+                // FIXED: Handle user data restoration properly
+                let userData = data.user;
+                if (!userData) {
+                    // Try to get user data from cookie if not in response
+                    userData = this._getUserInfoFromCookie();
+                    if (!userData && this.userEmail) {
+                        // Use existing user data as fallback
+                        userData = {
+                            email: this.userEmail,
+                            id: this.userId,
+                            session_id: this.sessionId
+                        };
+                    }
+                }
+
+                // FIXED: Always set user info and authentication state
+                if (userData) {
+                    this._setUserInfo(userData);
                 }
                 
+                // Ensure authenticated flag is set
+                this.authenticated = true;
+                this.lastValidation = Date.now();
+                
+                this._log('✅ Got fresh access token and restored auth state');
                 return true;
-            } else {
-                this._error('❌ Refresh response missing tokens:', data);
-                return false;
             }
             
+            this._log('❌ No access token in refresh response');
+            return false;
+            
         } catch (error) {
-            // Don't log network errors as errors during initialization - they're expected
+            // Better error handling
             if (error.message.includes('fetch')) {
-                this._log('Network error during token refresh (this may be normal):', error.message);
+                this._log('Network error during token refresh:', error.message);
             } else {
                 this._error('Refresh endpoint error:', error);
             }
@@ -474,13 +522,19 @@ const AuthService = {
     },
 
     /**
-     * FIXED: Refresh token if needed
+     * FIXED: Enhanced refresh token check
      */
     async refreshTokenIfNeeded() {
+        // If we have a valid token, no need to refresh
         if (this.accessToken && this._isAccessTokenValid()) {
             return true;
         }
-        return await this._quickRefresh();
+        
+        // Try to refresh
+        const refreshed = await this._quickRefresh();
+        
+        // FIXED: Validate final state after refresh
+        return refreshed && this.isAuthenticated();
     },
 
     /**
@@ -565,6 +619,7 @@ const AuthService = {
         this.accessToken = null;
         this.tokenExpiry = null;
         this.lastValidation = null;
+        this.initPromise = null;  // Reset init promise
         this._clearRefreshTimer();
     },
 
