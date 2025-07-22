@@ -1,4 +1,8 @@
-const cors = require('cors')({origin: true});
+const cors = require('cors')({
+  origin: 'https://aaai.solutions',
+  credentials: true, // ← FIXED: Enable credentials for CORS
+  optionsSuccessStatus: 200
+});
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 const {getSecret} = require('../utils/secret-manager');
@@ -7,7 +11,18 @@ let supabaseClient = null;
 
 async function verifyOTP(req, res) {
   return cors(req, res, async () => {
+    // FIXED: Explicitly set CORS headers for credentials
+    res.set({
+      'Access-Control-Allow-Origin': 'https://aaai.solutions',
+      'Access-Control-Allow-Credentials': 'true' // ← FIXED: Required for credentials: 'include'
+    });
+
     if (req.method === 'OPTIONS') {
+      res.set({
+        'Access-Control-Allow-Methods': 'POST, OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+        'Access-Control-Max-Age': '3600'
+      });
       res.status(204).send('');
       return;
     }
@@ -77,6 +92,7 @@ async function verifyOTP(req, res) {
       const responseTime = Date.now() - startTime;
       console.log(`✅ JWT authentication completed in ${responseTime}ms`);
       
+      // FIXED: Return tokens in response body for client-side access
       res.status(200).json({
         user: {
           id: userData.id,

@@ -8,14 +8,12 @@ let supabaseClient = null;
 let jwtSecretCache = null;
 let secretCacheExpiry = null;
 
-// Cookie parser middleware wrapper
 function parseCookies(req, res, next) {
   cookieParser()(req, res, next);
 }
 
 async function refreshToken(req, res) {
   return cors(req, res, async () => {
-    // Parse cookies first
     parseCookies(req, res, async () => {
       if (req.method === 'OPTIONS') {
         res.status(204).send('');
@@ -243,14 +241,149 @@ function clearAuthCookies(res) {
   console.log('✅ Auth cookies cleared');
 }
 
+// FIXED: Proper database verification implementation
 async function verifyRefreshTokenFast(token, userId) {
-  // Implementation depends on your database setup
-  return true; // Placeholder
+  try {
+    // Initialize Supabase client if needed
+    if (!supabaseClient) {
+      await initializeSupabaseClient();
+    }
+    
+    // Check if refresh token exists and is active
+    const { data, error } = await supabaseClient
+      .from('user_refresh_token')
+      .select('id, user_id, is_active, expires_at')
+      .eq('refresh_token', token)
+      .eq('user_id', userId)
+      .eq('is_active', true)
+      .gte('expires_at', new Date().toISOString())
+      .single();
+    
+    if (error || !data) {
+      console.log('❌ Refresh token not found or expired in database');
+      return false;
+    }
+    
+    // Update last_used_at timestamp asynchronously
+    updateTokenUsageAsync(token, data.id).catch(error => {
+      console.warn('⚠️ Failed to update token usage:', error);
+    });
+    
+    console.log('✅ Refresh token verified in database');
+    return true;
+    
+  } catch (error) {
+    console.error('❌ Database verification error:', error);
+    return false;
+  }
 }
 
+// FIXED: Proper database update implementation with token rotation
 async function updateRefreshTokenInDatabase(oldToken, newToken, userId) {
-  // Implementation depends on your database setup
-  console.log('✅ Updated refresh token in database');
+  try {
+    if (!supabaseClient) {
+      await initializeSupabaseClient();
+    }
+    
+    const now = new Date().toISOString();
+    const jwtSecret = await getFastJWTSecret();
+    const newPayload = jwt.verify(newToken, jwtSecret);
+    const newExpiresAt = new Date(newPayload.exp * 1000).toISOString();
+    
+    // Start transaction-like operations
+    // 1. Deactivate old refresh token
+    const { error: deactivateError } = await supabaseClient
+      .from('user_refresh_token')
+      .update({
+        is_active: false,
+        updated_at: now,
+        revoked_at: now
+      })
+      .eq('refresh_token', oldToken)
+      .eq('user_id', userId);
+    
+    if (deactivateError) {
+      console.warn('⚠️ Failed to deactivate old refresh token:', deactivateError);
+    }
+    
+    // 2. Insert new refresh token
+    const { error: insertError } = await supabaseClient
+      .from('user_refresh_token')
+      .insert({
+        user_id: userId,
+        email: newPayload.email,
+        refresh_token: newToken,
+        expires_at: newExpiresAt,
+        created_at: now,
+        updated_at: now,
+        device_info: {
+          session_id: newPayload.session_id,
+          created_via: 'token_refresh',
+          user_agent: 'web_client',
+          rotated_from: oldToken.substring(0, 10) + '...' // Store partial old token for audit
+        },
+        is_active: true,
+        last_used_at: now
+      });
+    
+    if (insertError) {
+      console.error('❌ Failed to insert new refresh token:', insertError);
+      throw new Error('Failed to store new refresh token');
+    }
+    
+    console.log('✅ Refresh token rotated successfully in database');
+    
+  } catch (error) {
+    console.error('❌ Refresh token database update error:', error);
+    // Don't throw here - token refresh should still work even if DB update fails
+  }
+}
+
+// Helper function to initialize Supabase client
+async function initializeSupabaseClient() {
+  try {
+    const [supabaseUrl, supabaseKey] = await Promise.all([
+      getSecret('supabase-url'),
+      getSecret('supabase-anon-key')
+    ]);
+    
+    if (!supabaseUrl || !supabaseKey) {
+      throw new Error('Supabase credentials not available');
+    }
+    
+    const { createClient } = require('@supabase/supabase-js');
+    supabaseClient = createClient(supabaseUrl, supabaseKey);
+    console.log('✅ Supabase client initialized for refresh token operations');
+    
+  } catch (error) {
+    console.error('❌ Failed to initialize Supabase client:', error);
+    throw error;
+  }
+}
+
+// Helper function to update token usage asynchronously
+async function updateTokenUsageAsync(refreshToken, tokenId) {
+  try {
+    const now = new Date().toISOString();
+    
+    // Update by ID for better performance
+    const { error } = await supabaseClient
+      .from('user_refresh_token')
+      .update({
+        last_used_at: now,
+        updated_at: now
+      })
+      .eq('id', tokenId);
+    
+    if (error) {
+      console.warn('⚠️ Failed to update token usage:', error);
+    } else {
+      console.log('✅ Token usage timestamp updated');
+    }
+    
+  } catch (error) {
+    console.warn('⚠️ Token usage update error:', error);
+  }
 }
 
 module.exports = refreshToken;

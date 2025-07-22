@@ -226,14 +226,20 @@ const AuthService = {
             
             // FIXED: Check for tokens in response body
             if (data.tokens?.access_token) {
-                this._setAccessToken(data.tokens.access_token, data.tokens.expires_in || 21600);
+                this._storeAccessToken(data.tokens.access_token, data.tokens.expires_in || 21600, data.user);
                 this._log('✅ Got fresh access token from refresh endpoint');
                 
                 // Update user info if provided
-                if (data.user) {
-                    this.userEmail = data.user.email;
-                    this.userId = data.user.id;
-                    this.sessionId = data.user.session_id;
+                if (!data.user && this.userEmail) {
+                    // If no user data in response, preserve existing user info
+                    const existingUser = {
+                        email: this.userEmail,
+                        id: this.userId,
+                        session_id: this.sessionId
+                    };
+                    this._setUserInfo(existingUser);
+                } else if (data.user) {
+                    this._setUserInfo(data.user);
                 }
                 
                 return true;
@@ -303,8 +309,7 @@ const AuthService = {
             }
             
             // Set authentication state in memory
-            this._setAccessToken(tokens.access_token, tokens.expires_in || 21600);
-            this._setUserInfo(user);
+            this._storeAccessToken(tokens.access_token, tokens.expires_in || 21600, user);
             
             // Start proactive refresh
             this._scheduleProactiveRefresh();
@@ -376,6 +381,22 @@ const AuthService = {
         this.tokenExpiry = Date.now() + (expiresIn * 1000);
     },
 
+    _storeAccessToken(token, expiresIn, user) {
+        // FIXED: Added missing _storeAccessToken method
+        this._setAccessToken(token, expiresIn);
+        if (user) {
+            this._setUserInfo(user);
+        }
+        
+        // Cache the auth state
+        this._cacheAuthState({
+            user: user,
+            token: token,
+            expiresIn: expiresIn || 21600,
+            timestamp: Date.now()
+        });
+    },
+
     _setUserInfo(user) {
         this.authenticated = true;
         this.userEmail = user.email;
@@ -425,6 +446,22 @@ const AuthService = {
             clearTimeout(this.refreshTimer);
             this.refreshTimer = null;
         }
+    },
+
+    _cacheAuthState(state) {
+        // FIXED: Added missing _cacheAuthState method
+        this.authCache.set('auth_state', {
+            ...state,
+            cached: Date.now()
+        });
+    },
+
+    _getCachedAuthState() {
+        const cached = this.authCache.get('auth_state');
+        if (cached && (Date.now() - cached.cached) < this.options.cacheTimeout) {
+            return cached;
+        }
+        return null;
     },
 
     _log(...args) {

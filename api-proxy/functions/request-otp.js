@@ -1,4 +1,8 @@
-const cors = require('cors')({origin: true});
+const cors = require('cors')({
+  origin: 'https://aaai.solutions',
+  credentials: true, // ← This is crucial for credentials: 'include'
+  optionsSuccessStatus: 200
+});
 const {getSecret} = require('../utils/secret-manager');
 
 // Cache API key for performance
@@ -6,12 +10,22 @@ let apiKeyCache = null;
 let apiKeyCacheExpiry = null;
 
 /**
- * High-Performance OTP Request
- * Optimized for fast response times
+ * FIXED: High-Performance OTP Request with proper CORS credentials
  */
 async function requestOTP(req, res) {
   return cors(req, res, async () => {
+    // FIXED: Explicitly set CORS headers for all responses
+    res.set({
+      'Access-Control-Allow-Origin': 'https://aaai.solutions',
+      'Access-Control-Allow-Credentials': 'true' // ← This fixes the CORS error
+    });
+
     if (req.method === 'OPTIONS') {
+      res.set({
+        'Access-Control-Allow-Methods': 'POST, OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+        'Access-Control-Max-Age': '3600'
+      });
       res.status(204).send('');
       return;
     }
@@ -81,37 +95,32 @@ async function requestOTP(req, res) {
       console.error('💥 Fast OTP request error:', error);
       
       if (error.name === 'AbortError') {
-        res.status(408).json({
-          error: 'Request timeout - please try again',
-          code: 'REQUEST_TIMEOUT'
-        });
-      } else {
-        res.status(500).json({
-          error: 'Internal server error during OTP request',
-          code: 'INTERNAL_ERROR',
-          timestamp: new Date().toISOString()
+        return res.status(408).json({
+          error: 'Request timeout',
+          code: 'TIMEOUT'
         });
       }
+      
+      res.status(500).json({
+        error: 'Internal server error',
+        code: 'INTERNAL_ERROR'
+      });
     }
   });
 }
 
-/**
- * Get API key with caching for performance
- */
 async function getFastAPIKey() {
-  // Use cached API key if still valid (cache for 10 minutes)
   if (apiKeyCache && apiKeyCacheExpiry && Date.now() < apiKeyCacheExpiry) {
     return apiKeyCache;
   }
   
   try {
     apiKeyCache = await getSecret('api-key');
-    apiKeyCacheExpiry = Date.now() + (10 * 60 * 1000); // 10 minutes
+    apiKeyCacheExpiry = Date.now() + (30 * 60 * 1000); // 30 minutes
     return apiKeyCache;
   } catch (error) {
-    console.error('Failed to get API key:', error);
-    throw new Error('API key not available');
+    console.error('❌ API key retrieval failed:', error);
+    throw new Error('API key unavailable');
   }
 }
 
