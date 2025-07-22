@@ -388,6 +388,40 @@ const AuthService = {
         }
     },
 
+    /**
+     * FIXED: Get current user information
+     */
+    getCurrentUser() {
+        if (!this.isAuthenticated()) {
+            return null;
+        }
+        
+        return {
+            id: this.userId,
+            email: this.userEmail,
+            sessionId: this.sessionId,
+            authenticated: this.authenticated,
+            tokenExpiry: this.tokenExpiry
+        };
+    },
+
+    /**
+     * FIXED: Check if user has persistent session
+     */
+    hasPersistentSession() {
+        return this._hasRefreshTokenCookie();
+    },
+
+    /**
+     * FIXED: Refresh token if needed
+     */
+    async refreshTokenIfNeeded() {
+        if (this.accessToken && this._isAccessTokenValid()) {
+            return true;
+        }
+        return await this._quickRefresh();
+    },
+
     // Private helper methods
     _setAccessToken(token, expiresIn) {
         this.accessToken = token;
