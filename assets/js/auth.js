@@ -11,20 +11,18 @@ const AuthService = {
     // Configuration
     AUTH_BASE_URL: 'https://aaai-gateway-754x89jf.uc.gateway.dev',
     
-    // Timers and cache
-    refreshTimer: null,
-    authCache: new Map(),
+    // State management
+    isInitialized: false,
     initPromise: null,
     
     options: {
         debug: true,
         cacheTimeout: 5 * 60 * 1000,
-        refreshBuffer: 5 * 60 * 1000,
-        maxRetries: 3
+        refreshBuffer: 5 * 60 * 1000
     },
 
     /**
-     * FIXED: Single initialization entry point
+     * GLOBAL INITIALIZATION - Called once when script loads
      */
     async init() {
         if (this.initPromise) {
@@ -35,287 +33,165 @@ const AuthService = {
         return this.initPromise;
     },
 
-    /**
-     * FIXED: Simplified initialization without aggressive cookie clearing
-     */
     async _performInit() {
+        if (this.isInitialized) {
+            return { success: true, authenticated: this.authenticated };
+        }
+
         try {
-            this._log('🚀 Initializing AuthService...');
+            this._log('🚀 AuthService initializing globally...');
             
-            // Try to restore from cookies
-            const sessionRestored = await this._initializeFromCookies();
+            // Try to restore session from any available source
+            const restored = await this._restoreSession();
             
-            if (this.authenticated && this.accessToken) {
-                this._scheduleProactiveRefresh();
-                this._log('✅ AuthService initialized with valid session');
+            this.isInitialized = true;
+            
+            if (restored) {
+                this._log('✅ AuthService initialized with existing session');
                 return { success: true, authenticated: true };
             } else {
-                this._log('ℹ️ AuthService initialized - no existing session');
+                this._log('✅ AuthService initialized - no existing session');
                 return { success: true, authenticated: false };
             }
             
         } catch (error) {
-            this._error('AuthService initialization error:', error);
+            this._error('AuthService initialization failed:', error);
+            this.isInitialized = true; // Mark as initialized even if failed
             return { success: false, error: error.message };
         }
     },
 
     /**
-     * FIXED: Cookie restoration without aggressive clearing
+     * ENHANCED SESSION RESTORATION
      */
-    async _initializeFromCookies() {
+    async _restoreSession() {
         try {
-            this._log('🔍 Enhanced cookie check with debugging...');
+            // Method 1: Try localStorage backup first (most reliable)
+            if (this._restoreFromLocalStorage()) {
+                this._log('✅ Session restored from localStorage');
+                return true;
+            }
             
-            // CRITICAL: Debug all available cookies
+            // Method 2: Try cookies
+            if (await this._restoreFromCookies()) {
+                this._log('✅ Session restored from cookies');
+                return true;
+            }
+            
+            // Method 3: Try refresh token
+            if (await this._restoreFromRefreshToken()) {
+                this._log('✅ Session restored from refresh token');
+                return true;
+            }
+            
+            this._log('ℹ️ No session to restore');
+            return false;
+            
+        } catch (error) {
+            this._error('Session restoration failed:', error);
+            return false;
+        }
+    },
+
+    /**
+     * RESTORE FROM LOCALSTORAGE BACKUP
+     */
+    _restoreFromLocalStorage() {
+        try {
+            const backupAuth = localStorage.getItem('aaai_backup_auth');
+            if (!backupAuth) return false;
+            
+            const parsed = JSON.parse(backupAuth);
+            const isRecent = (Date.now() - parsed.timestamp) < (24 * 60 * 60 * 1000);
+            const isNotExpired = Date.now() < parsed.expires;
+            
+            if (isRecent && isNotExpired && parsed.user && parsed.token) {
+                this._setUserInfo(parsed.user);
+                this._setAccessToken(parsed.token, Math.floor((parsed.expires - Date.now()) / 1000));
+                this.authenticated = true;
+                this.lastValidation = Date.now();
+                return true;
+            } else {
+                // Clean up expired backup
+                localStorage.removeItem('aaai_backup_auth');
+                return false;
+            }
+        } catch (error) {
+            this._log('localStorage restore failed:', error);
+            return false;
+        }
+    },
+
+    /**
+     * RESTORE FROM COOKIES
+     */
+    async _restoreFromCookies() {
+        try {
             const allCookies = document.cookie;
-            this._log('📋 All available cookies:', allCookies);
+            this._log('🔍 All available cookies:', allCookies);
             
             if (!allCookies || allCookies.trim() === '') {
-                this._log('❌ No cookies found at all');
+                this._log('No cookies found');
                 return false;
             }
             
-            // Parse cookies manually for better debugging
             const cookieArray = allCookies.split(';').map(c => c.trim());
-            this._log('🍪 Parsed cookies:', cookieArray);
-            
-            // Look for authentication indicators
-            const authCookie = cookieArray.find(c => c.startsWith('authenticated='));
+            const authCookie = cookieArray.find(c => c.startsWith('authenticated=true'));
             const userInfoCookie = cookieArray.find(c => c.startsWith('user_info='));
-            const accessTokenCookie = cookieArray.find(c => c.startsWith('access_token='));
-            const refreshTokenCookie = cookieArray.find(c => c.startsWith('refresh_token='));
             
-            this._log('🔍 Auth cookies found:', {
-                authenticated: !!authCookie,
-                userInfo: !!userInfoCookie,
-                accessToken: !!accessTokenCookie,
-                refreshToken: !!refreshTokenCookie
-            });
-            
-            if (!authCookie || !authCookie.includes('authenticated=true')) {
-                this._log('❌ No authenticated=true cookie found');
+            if (!authCookie || !userInfoCookie) {
+                this._log('Required auth cookies not found');
                 return false;
             }
             
-            if (!userInfoCookie) {
-                this._log('❌ No user_info cookie found');
+            // Parse user info
+            const userInfoValue = userInfoCookie.split('=')[1];
+            const userInfo = JSON.parse(decodeURIComponent(userInfoValue));
+            
+            if (!userInfo.email || !userInfo.id) {
+                this._log('Invalid user info in cookie');
                 return false;
             }
             
-            // Extract and parse user info
-            let userInfo;
-            try {
-                const userInfoValue = userInfoCookie.split('=')[1];
-                this._log('🔍 Raw user_info value:', userInfoValue);
-                
-                userInfo = JSON.parse(decodeURIComponent(userInfoValue));
-                this._log('✅ Parsed user info:', userInfo);
-                
-                if (!userInfo.email || !userInfo.id) {
-                    this._log('❌ Invalid user info structure:', userInfo);
-                    return false;
-                }
-            } catch (parseError) {
-                this._log('❌ Failed to parse user_info cookie:', parseError);
-                return false;
-            }
-            
-            // CRITICAL: Set AuthService state from cookies
-            this._log('🔧 Setting AuthService state from cookies...');
+            // Set session from cookies
             this._setUserInfo(userInfo);
             this.authenticated = true;
             this.lastValidation = Date.now();
             
-            // Try to get access token from cookie if available
+            // Try to get access token from cookie
+            const accessTokenCookie = cookieArray.find(c => c.startsWith('access_token='));
             if (accessTokenCookie) {
-                try {
-                    const tokenValue = accessTokenCookie.split('=')[1];
-                    if (tokenValue && tokenValue !== '') {
-                        // Set token with default expiry (6 hours)
-                        this._setAccessToken(tokenValue, 21600);
-                        this._log('✅ Access token restored from cookie');
-                    }
-                } catch (tokenError) {
-                    this._log('⚠️ Could not restore access token:', tokenError);
+                const tokenValue = accessTokenCookie.split('=')[1];
+                if (tokenValue && tokenValue !== '') {
+                    this._setAccessToken(tokenValue, 21600); // 6 hours default
                 }
             }
-            
-            // Try token refresh if refresh token available
-            if (refreshTokenCookie) {
-                this._log('🔄 Attempting token refresh...');
-                try {
-                    const refreshed = await this._getAccessTokenFromStandardRefresh();
-                    if (refreshed) {
-                        this._log('✅ Token refreshed successfully');
-                    } else {
-                        this._log('⚠️ Token refresh failed, but session valid from cookies');
-                    }
-                } catch (error) {
-                    this._log('⚠️ Token refresh error (non-critical):', error.message);
-                }
-            }
-            
-            // Final state verification
-            const finalState = {
-                authenticated: this.authenticated,
-                userEmail: this.userEmail,
-                userId: this.userId,
-                hasToken: !!this.accessToken,
-                isAuthenticated: this.isAuthenticated()
-            };
-            
-            this._log('✅ Final AuthService state:', finalState);
             
             return true;
             
         } catch (error) {
-            this._error('❌ Cookie initialization error:', error);
+            this._log('Cookie restore failed:', error);
             return false;
         }
     },
 
     /**
-     * Wait for initialization to complete
+     * RESTORE FROM REFRESH TOKEN
      */
-    async waitForInit() {
-        if (this.initPromise) {
-            return await this.initPromise;
-        }
-        return { success: true, authenticated: this.authenticated };
-    },
-
-    /**
-     * Enhanced authentication check
-     */
-    isAuthenticated() {
-        const hasToken = this.accessToken && this._isAccessTokenValid();
-        const hasUserInfo = this.userEmail && this.userId;
-        
-        if (hasToken && hasUserInfo) {
-            if (!this.authenticated) {
-                this.authenticated = true;
-                this.lastValidation = Date.now();
-            }
-            return true;
-        }
-
-        // Only clear if we're certain there's no valid data
-        if (this.authenticated && (!hasUserInfo)) {
-            this._log('Authentication state inconsistent, clearing...');
-            this._clearAuthState();
-        }
-
-        return false;
-    },
-
-    /**
-     * Get current user information
-     */
-    getCurrentUser() {
-        if (!this.isAuthenticated()) {
-            return null;
-        }
-        
-        return {
-            id: this.userId,
-            email: this.userEmail,
-            sessionId: this.sessionId,
-            authenticated: this.authenticated,
-            tokenExpiry: this.tokenExpiry
-        };
-    },
-
-    /**
-     * Store access token and user info
-     */
-    _storeAccessToken(token, expiresIn, user) {
-        this._log('Storing access token and user info...', {
-            tokenLength: token ? token.length : 0,
-            expiresIn: expiresIn,
-            hasUser: !!user
-        });
-        
-        this._setAccessToken(token, expiresIn);
-        
-        if (user) {
-            this._setUserInfo(user);
-        }
-        
-        this.authenticated = true;
-        
-        this._cacheAuthState({
-            user: user,
-            token: token,
-            expiresIn: expiresIn || 21600,
-            timestamp: Date.now()
-        });
-    },
-
-    _setUserInfo(user) {
-        this.authenticated = true;
-        this.userEmail = user.email;
-        this.userId = user.id;
-        this.sessionId = user.session_id;
-        this.lastValidation = Date.now();
-    },
-
-    _setAccessToken(token, expiresIn) {
-        this.accessToken = token;
-        this.tokenExpiry = Date.now() + (expiresIn * 1000);
-    },
-
-    _clearAuthState() {
-        this.authenticated = false;
-        this.userEmail = null;
-        this.userId = null;
-        this.sessionId = null;
-        this.accessToken = null;
-        this.tokenExpiry = null;
-        this.lastValidation = null;
-        this.initPromise = null;
-        this._clearRefreshTimer();
-    },
-
-    _hasCookieAuth() {
+    async _restoreFromRefreshToken() {
         try {
-            return document.cookie.includes('authenticated=true');
+            const refreshResult = await this._attemptTokenRefresh();
+            return refreshResult;
         } catch (error) {
+            this._log('Refresh token restore failed:', error);
             return false;
         }
     },
 
-    _hasRefreshTokenCookie() {
-        try {
-            const cookieString = document.cookie;
-            return cookieString.includes('refresh_token=') && 
-                   !cookieString.includes('refresh_token=;');
-        } catch (error) {
-            return false;
-        }
-    },
-
-    _getUserInfoFromCookie() {
-        try {
-            const cookies = document.cookie.split(';');
-            for (const cookie of cookies) {
-                const [name, value] = cookie.trim().split('=');
-                if (name === 'user_info' && value) {
-                    return JSON.parse(decodeURIComponent(value));
-                }
-            }
-        } catch (error) {
-            this._log('Failed to parse user_info cookie:', error);
-        }
-        return null;
-    },
-
-    _isAccessTokenValid() {
-        return this.accessToken && this.tokenExpiry && Date.now() < this.tokenExpiry;
-    },
-
-    // Refresh token functionality
-    async _getAccessTokenFromStandardRefresh() {
+    /**
+     * TOKEN REFRESH
+     */
+    async _attemptTokenRefresh() {
         try {
             const response = await fetch(`${this.AUTH_BASE_URL}/auth/refresh`, {
                 method: 'POST',
@@ -323,29 +199,15 @@ const AuthService = {
                 credentials: 'include'
             });
             
-            if (!response.ok) {
-                return false;
-            }
+            if (!response.ok) return false;
             
             const data = await response.json();
             
             if (data.tokens?.access_token) {
                 this._setAccessToken(data.tokens.access_token, data.tokens.expires_in || 21600);
                 
-                let userData = data.user;
-                if (!userData) {
-                    userData = this._getUserInfoFromCookie();
-                    if (!userData && this.userEmail) {
-                        userData = {
-                            email: this.userEmail,
-                            id: this.userId,
-                            session_id: this.sessionId
-                        };
-                    }
-                }
-
-                if (userData) {
-                    this._setUserInfo(userData);
+                if (data.user) {
+                    this._setUserInfo(data.user);
                 }
                 
                 this.authenticated = true;
@@ -357,59 +219,37 @@ const AuthService = {
             return false;
             
         } catch (error) {
-            this._error('Refresh endpoint error:', error);
+            this._log('Token refresh failed:', error);
             return false;
         }
     },
 
-    // Proactive refresh scheduling
-    _scheduleProactiveRefresh() {
-        this._clearRefreshTimer();
+    /**
+     * AUTHENTICATION CHECK
+     */
+    isAuthenticated() {
+        const hasValidToken = this.accessToken && this._isAccessTokenValid();
+        const hasUserInfo = this.userEmail && this.userId;
+        const isMarkedAuth = this.authenticated;
         
-        if (!this.tokenExpiry) return;
-        
-        const refreshTime = this.tokenExpiry - Date.now() - this.options.refreshBuffer;
-        
-        if (refreshTime > 0) {
-            this.refreshTimer = setTimeout(async () => {
-                this._log('🔄 Proactive token refresh triggered');
-                await this._getAccessTokenFromStandardRefresh();
-            }, refreshTime);
-        }
+        return isMarkedAuth && hasUserInfo && (hasValidToken || this._hasRefreshCapability());
     },
 
-    _clearRefreshTimer() {
-        if (this.refreshTimer) {
-            clearTimeout(this.refreshTimer);
-            this.refreshTimer = null;
-        }
+    _isAccessTokenValid() {
+        return this.accessToken && this.tokenExpiry && Date.now() < this.tokenExpiry;
     },
 
-    _cacheAuthState(state) {
-        this.authCache.set('auth_state', {
-            ...state,
-            cached: Date.now()
-        });
-    },
-
-    // Helper methods
-    hasPersistentSession() {
-        return this._hasRefreshTokenCookie();
-    },
-
-    async refreshTokenIfNeeded() {
-        if (this.accessToken && this._isAccessTokenValid()) {
-            return true;
-        }
-        
-        if (!this._hasRefreshTokenCookie()) {
+    _hasRefreshCapability() {
+        try {
+            return document.cookie.includes('refresh_token=');
+        } catch {
             return false;
         }
-        
-        return await this._getAccessTokenFromStandardRefresh();
     },
 
-    // OTP methods (existing)
+    /**
+     * LOGIN METHODS
+     */
     async requestOTP(email) {
         try {
             const response = await fetch(`${this.AUTH_BASE_URL}/auth/request-otp`, {
@@ -442,14 +282,69 @@ const AuthService = {
                 throw new Error('Invalid verification code');
             }
             
-            return await response.json();
+            const data = await response.json();
+            
+            // Store authentication data immediately
+            if (data.user && data.tokens) {
+                this.storeAuthData(data.tokens.access_token, data.tokens.expires_in || 21600, data.user);
+            }
+            
+            return data;
         } catch (error) {
             this._error('OTP verification failed:', error);
             throw error;
         }
     },
 
-    // Function execution (existing)
+    /**
+     * STORE AUTHENTICATION DATA
+     */
+    storeAuthData(token, expiresIn, user) {
+        try {
+            this._log('📝 Storing authentication data...');
+            
+            // Set AuthService state
+            this._setAccessToken(token, expiresIn);
+            this._setUserInfo(user);
+            this.authenticated = true;
+            this.lastValidation = Date.now();
+            
+            // Store backup in localStorage
+            const backupData = {
+                user: user,
+                token: token,
+                expires: Date.now() + (expiresIn * 1000),
+                timestamp: Date.now()
+            };
+            
+            localStorage.setItem('aaai_backup_auth', JSON.stringify(backupData));
+            
+            this._log('✅ Authentication data stored successfully');
+            
+        } catch (error) {
+            this._error('Failed to store auth data:', error);
+        }
+    },
+
+    /**
+     * GET CURRENT USER
+     */
+    getCurrentUser() {
+        if (!this.isAuthenticated()) {
+            return null;
+        }
+        
+        return {
+            id: this.userId,
+            email: this.userEmail,
+            sessionId: this.sessionId,
+            authenticated: this.authenticated
+        };
+    },
+
+    /**
+     * FUNCTION EXECUTION
+     */
     async executeFunction(functionName, inputData) {
         if (!this.isAuthenticated()) {
             throw new Error('Authentication required');
@@ -479,7 +374,9 @@ const AuthService = {
         }
     },
 
-    // Logout
+    /**
+     * LOGOUT
+     */
     async logout() {
         try {
             await fetch(`${this.AUTH_BASE_URL}/auth/logout`, {
@@ -493,6 +390,37 @@ const AuthService = {
         this._clearAuthState();
     },
 
+    /**
+     * PRIVATE METHODS
+     */
+    _setUserInfo(user) {
+        this.userEmail = user.email;
+        this.userId = user.id;
+        this.sessionId = user.session_id;
+    },
+
+    _setAccessToken(token, expiresIn) {
+        this.accessToken = token;
+        this.tokenExpiry = Date.now() + (expiresIn * 1000);
+    },
+
+    _clearAuthState() {
+        this.authenticated = false;
+        this.userEmail = null;
+        this.userId = null;
+        this.sessionId = null;
+        this.accessToken = null;
+        this.tokenExpiry = null;
+        this.lastValidation = null;
+        
+        // Clear localStorage backup
+        try {
+            localStorage.removeItem('aaai_backup_auth');
+        } catch (error) {
+            this._log('Could not clear localStorage:', error);
+        }
+    },
+
     _log(...args) {
         if (this.options.debug) {
             console.log('[AuthService]', ...args);
@@ -504,11 +432,21 @@ const AuthService = {
     }
 };
 
-// FIXED: Only expose to global scope, don't auto-initialize
-if (typeof window !== 'undefined') {
-    window.AuthService = AuthService;
+// ========================================
+// GLOBAL INITIALIZATION - HAPPENS IMMEDIATELY
+// ========================================
+
+// Initialize AuthService immediately when script loads
+window.AuthService = AuthService;
+
+// Auto-initialize when DOM is ready
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () => {
+        AuthService.init();
+    });
+} else {
+    // DOM already ready, initialize immediately
+    AuthService.init();
 }
 
-if (typeof module !== 'undefined' && module.exports) {
-    module.exports = AuthService;
-}
+console.log('🔧 AuthService loaded and will initialize globally');
