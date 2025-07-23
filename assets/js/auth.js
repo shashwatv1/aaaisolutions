@@ -420,7 +420,7 @@ const AuthService = {
 
         try {
             // FIXED: Use /api/execute instead of /execute to go through nginx proxy
-            const response = await fetch(`${this.AUTH_BASE_URL}/api/execute`, {
+            const response = await fetch(`${this.AUTH_BASE_URL}/api/function/execute`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
