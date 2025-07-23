@@ -9,7 +9,9 @@ const AuthService = {
     lastValidation: null,
     
     // Configuration
-    AUTH_BASE_URL: 'https://aaai-gateway-754x89jf.uc.gateway.dev',
+    get AUTH_BASE_URL() {
+        return window.AAAI_CONFIG ? window.AAAI_CONFIG.API_BASE_URL : window.location.origin;
+    },
     
     // State management
     isInitialized: false,
