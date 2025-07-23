@@ -77,13 +77,13 @@ const AuthService = {
     },
 
     /**
-     * FIXED: Enhanced cookie initialization with proper state setting
+     * FIXED: Initialize from cookies with graceful new session handling
      */
     async _initializeFromCookies() {
         try {
             // Check if we have authentication indicators
             if (!this._hasCookieAuth()) {
-                this._log('No existing session found');
+                this._log('No existing session found (normal for new users)');
                 return false;
             }
 
@@ -100,24 +100,25 @@ const AuthService = {
             const refreshResult = await this._getAccessTokenFromStandardRefresh();
             
             if (refreshResult) {
-                // FIXED: Always restore user info after successful token refresh
+                // Always restore user info after successful token refresh
                 this._setUserInfo(userInfo);
-                // FIXED: Ensure authenticated flag is set
                 this.authenticated = true;
                 this.lastValidation = Date.now();
                 
                 this._log('✅ Session restored from cookies with fresh access token');
                 return true;
             } else {
-                this._log('❌ Session restoration failed - refresh token may be expired');
+                // FIXED: Don't treat this as an error for new sessions
+                this._log('ℹ️ Session restoration not available (normal for new logins)');
                 this._clearInvalidCookies();
                 return false;
             }
             
         } catch (error) {
-            this._error('Session restoration error:', error);
+            // FIXED: Better error handling - don't crash on session restore failures
+            this._log('Session restoration attempt failed (this may be normal):', error.message);
             this._clearInvalidCookies();
-            return false;
+            return false; // Return false instead of throwing
         }
     },
 
@@ -435,6 +436,13 @@ const AuthService = {
                 throw new Error('Failed to establish authenticated session');
             }
             
+            // ADDED: Setup new session context (non-blocking)
+            setTimeout(() => {
+                this.setupNewSession().catch(error => {
+                    this._log('⚠️ Session setup failed (non-critical):', error.message);
+                });
+            }, 100);
+            
             this._log('✅ Authentication successful - user logged in');
             return data;
             
@@ -522,7 +530,7 @@ const AuthService = {
     },
 
     /**
-     * FIXED: Enhanced refresh token check
+     * FIXED: Enhanced refresh with new session fallback
      */
     async refreshTokenIfNeeded() {
         // If we have a valid token, no need to refresh
@@ -530,11 +538,53 @@ const AuthService = {
             return true;
         }
         
+        // If no refresh token available, that's OK for new sessions
+        if (!this._hasRefreshTokenCookie()) {
+            this._log('No refresh token available (normal for new sessions)');
+            return false; // Don't crash, just return false
+        }
+        
         // Try to refresh
         const refreshed = await this._quickRefresh();
         
-        // FIXED: Validate final state after refresh
+        // Validate final state after refresh
         return refreshed && this.isAuthenticated();
+    },
+
+    /**
+     * NEW: Setup session context after successful login
+     */
+    async setupNewSession() {
+        try {
+            this._log('🔧 Setting up new session context...');
+            
+            if (!this.isAuthenticated()) {
+                throw new Error('Cannot setup session - not authenticated');
+            }
+            
+            const user = this.getCurrentUser();
+            if (!user) {
+                throw new Error('Cannot setup session - no user data');
+            }
+            
+            // Initialize user context if ProjectService is available
+            if (window.ProjectService && typeof window.ProjectService.initializeUserContext === 'function') {
+                try {
+                    await window.ProjectService.initializeUserContext(user);
+                    this._log('✅ User context initialized in ProjectService');
+                } catch (error) {
+                    this._log('⚠️ ProjectService context initialization failed (non-critical):', error.message);
+                }
+            }
+            
+            // Setup any other session-specific data here
+            this._log('✅ New session setup completed');
+            return true;
+            
+        } catch (error) {
+            this._error('❌ New session setup failed:', error);
+            return false;
+        }
     },
 
     /**
