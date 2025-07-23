@@ -448,7 +448,7 @@ const AuthService = {
             const controller = new AbortController();
             const timeoutId = setTimeout(() => controller.abort(), 30000); // 30s timeout
             
-            const response = await fetch(`${this.AUTH_BASE_URL}/api/function/${functionName}`, {
+            const response = await fetch(`${this.AUTH_BASE_URL}/api/functions/${functionName}`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
