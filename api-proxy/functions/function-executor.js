@@ -120,12 +120,7 @@ async function functionExecutor(req, res) {
       
       // Prepare request body quickly
       const requestBody = { ...req.body };
-      delete requestBody.function_name;
-      
-      // Add debug logging for project creation
-      if (functionName === 'create_project_with_context') {
-        console.log('📝 Creating project with data:', JSON.stringify(requestBody, null, 2));
-      }
+      delete requestBody.function_name
       
       // Fast API execution with timeout
       const controller = new AbortController();
