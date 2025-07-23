@@ -8,14 +8,8 @@ const AuthService = {
     tokenExpiry: null,
     lastValidation: null,
     
-    // Configuration - FIXED: Use proper base URL from config instead of hardcoded gateway
-    get AUTH_BASE_URL() {
-        // Use AAAI_CONFIG if available, otherwise fallback to current origin
-        if (window.AAAI_CONFIG && window.AAAI_CONFIG.API_BASE_URL) {
-            return window.AAAI_CONFIG.API_BASE_URL;
-        }
-        return window.location.origin; // This will be https://aaai.solutions in production
-    },
+    // Configuration
+    AUTH_BASE_URL: 'https://aaai-gateway-754x89jf.uc.gateway.dev',
     
     // State management
     isInitialized: false,
