@@ -8,11 +8,8 @@ const AuthService = {
     tokenExpiry: null,
     lastValidation: null,
     
-    // Configuration
-    get AUTH_BASE_URL() {
-        return window.AAAI_CONFIG ? window.AAAI_CONFIG.API_BASE_URL : window.location.origin;
-    },
-    
+    AUTH_BASE_URL: '',
+        
     // State management
     isInitialized: false,
     initPromise: null,
@@ -27,6 +24,7 @@ const AuthService = {
      * GLOBAL INITIALIZATION - Called once when script loads
      */
     async init() {
+        
         if (this.initPromise) {
             return this.initPromise;
         }
