@@ -134,8 +134,8 @@ const AuthService = {
             this._log('🔍 All available cookies:', allCookies);
             
             if (!allCookies || allCookies.trim() === '') {
-                this._log('No cookies found, trying silent refresh...');
-                return await this._attemptSilentRefresh();
+                this._log('No cookies found');
+                return false;
             }
             
             const cookieArray = allCookies.split(';').map(c => c.trim());
@@ -143,8 +143,8 @@ const AuthService = {
             const userInfoCookie = cookieArray.find(c => c.startsWith('user_info='));
             
             if (!authCookie || !userInfoCookie) {
-                this._log('Required auth cookies not found, trying silent refresh...');
-                return await this._attemptSilentRefresh();
+                this._log('Required auth cookies not found');
+                return false;
             }
             
             // Parse user info
@@ -192,40 +192,7 @@ const AuthService = {
     },
 
     /**
-     * SILENT REFRESH - FIXED: Use proper nginx proxy route
-     */
-    async _attemptSilentRefresh() {
-        try {
-            this._log('Attempting silent refresh...');
-            const response = await fetch(`${this.AUTH_BASE_URL}/auth/refresh-silent`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                credentials: 'include'
-            });
-            
-            if (!response.ok) {
-                this._log('Silent refresh failed:', response.status);
-                return false;
-            }
-            
-            const data = await response.json();
-            
-            if (data.success && data.user && data.tokens) {
-                this.storeAuthData(data.tokens.access_token, data.tokens.expires_in || 21600, data.user);
-                this._log('✅ Silent refresh successful');
-                return true;
-            }
-            
-            return false;
-            
-        } catch (error) {
-            this._log('Silent refresh error:', error);
-            return false;
-        }
-    },
-
-    /**
-     * TOKEN REFRESH - FIXED: Use proper nginx proxy route
+     * TOKEN REFRESH - Use standard refresh endpoint
      */
     async _attemptTokenRefresh() {
         try {
@@ -235,7 +202,10 @@ const AuthService = {
                 credentials: 'include'
             });
             
-            if (!response.ok) return false;
+            if (!response.ok) {
+                this._log('Token refresh failed:', response.status);
+                return false;
+            }
             
             const data = await response.json();
             
@@ -249,6 +219,16 @@ const AuthService = {
                 this.authenticated = true;
                 this.lastValidation = Date.now();
                 
+                // Update localStorage backup
+                const backupData = {
+                    user: data.user || { email: this.userEmail, id: this.userId },
+                    token: data.tokens.access_token,
+                    expires: Date.now() + ((data.tokens.expires_in || 21600) * 1000),
+                    timestamp: Date.now()
+                };
+                localStorage.setItem('aaai_backup_auth', JSON.stringify(backupData));
+                
+                this._log('✅ Token refresh successful');
                 return true;
             }
             
@@ -256,6 +236,30 @@ const AuthService = {
             
         } catch (error) {
             this._log('Token refresh failed:', error);
+            return false;
+        }
+    },
+
+    /**
+     * QUICK REFRESH - Use only standard refresh
+     */
+    async _quickRefresh() {
+        try {
+            this._log('Quick refresh attempt...');
+            
+            const tokenResult = await this._attemptTokenRefresh();
+            if (tokenResult) {
+                this._log('✅ Quick refresh successful');
+                return true;
+            }
+            
+            this._log('❌ Quick refresh failed - clearing auth state');
+            this._clearAuthState();
+            return false;
+            
+        } catch (error) {
+            this._error('Quick refresh error:', error);
+            this._clearAuthState();
             return false;
         }
     },
@@ -275,7 +279,10 @@ const AuthService = {
      */
     async refreshTokenIfNeeded() {
         try {
-            if (!this.tokenExpiry) return false;
+            if (!this.tokenExpiry) {
+                this._log('No token expiry set, attempting refresh...');
+                return await this._attemptTokenRefresh();
+            }
             
             const timeUntilExpiry = this.tokenExpiry - Date.now();
             if (timeUntilExpiry > this.options.refreshBuffer) {
@@ -283,12 +290,22 @@ const AuthService = {
             }
             
             this._log('Token needs refresh, attempting...');
-            return await this._attemptSilentRefresh();
+            return await this._attemptTokenRefresh();
             
         } catch (error) {
             this._error('Token refresh error:', error);
             return false;
         }
+    },
+
+    /**
+     * GET TOKEN WITH VALIDATION
+     */
+    getToken() {
+        if (this._isAccessTokenValid()) {
+            return this.accessToken;
+        }
+        return null;
     },
 
     /**
@@ -410,37 +427,72 @@ const AuthService = {
     },
 
     /**
-     * FUNCTION EXECUTION - FIXED: Use /api/execute through nginx proxy
+     * FUNCTION EXECUTION - FIXED: Use /api/function/{functionName} through nginx proxy
      */
     async executeFunction(functionName, inputData) {
         if (!this.isAuthenticated()) {
             throw new Error('Authentication required');
         }
+        
+        // Get token (ensure we have a valid one)
+        const accessToken = this.getToken();
+        if (!accessToken) {
+            // Try refresh once
+            const refreshed = await this.refreshTokenIfNeeded();
+            if (!refreshed) {
+                throw new Error('No valid access token available');
+            }
+        }
 
-        // Refresh token if needed before executing function
-        await this.refreshTokenIfNeeded();
-
+        this._log('Executing function:', functionName, 'with input:', inputData);
+        
         try {
-            // FIXED: Use /api/execute instead of /execute to go through nginx proxy
-            const response = await fetch(`${this.AUTH_BASE_URL}/api/function/execute`, {
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 30000); // 30s timeout
+            
+            const response = await fetch(`${this.AUTH_BASE_URL}/api/function/${functionName}`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
                     'Authorization': `Bearer ${this.accessToken}`
                 },
-                body: JSON.stringify({
-                    function_name: functionName,
-                    input_data: inputData
-                })
+                body: JSON.stringify(inputData),
+                credentials: 'include',
+                signal: controller.signal
             });
-
+            
+            clearTimeout(timeoutId);
+            
+            this._log('Response status:', response.status, response.statusText);
+            
             if (!response.ok) {
-                throw new Error(`Function execution failed: ${response.status}`);
+                if (response.status === 401) {
+                    // Try refresh once
+                    const refreshed = await this._quickRefresh();
+                    if (refreshed) {
+                        // Retry the function call with new token
+                        return this.executeFunction(functionName, inputData);
+                    }
+                    this._clearAuthState();
+                    throw new Error('Session expired');
+                }
+                
+                const errorData = await response.json().catch(() => ({}));
+                this._error('API error response:', errorData);
+                throw new Error(errorData.error || errorData.detail || `Function execution failed with status ${response.status}`);
             }
-
-            return await response.json();
+            
+            const result = await response.json();
+            this._log('Function response:', functionName, JSON.stringify(result, null, 2));
+            
+            return result;
+            
         } catch (error) {
-            this._error('Function execution error:', error);
+            if (error.name === 'AbortError') {
+                this._error('Function execution timeout:', functionName);
+                throw new Error('Function execution timed out');
+            }
+            this._error('Function execution error:', functionName, error);
             throw error;
         }
     },
