@@ -441,6 +441,40 @@ const ProjectService = {
     /**
      * Fast context retrieval with caching
      */
+    /**
+     * NEW: Initialize user context for new sessions
+     */
+    async initializeUserContext(user) {
+        try {
+            this._log('🔧 Initializing user context for new session...');
+            
+            // Update current context with user info
+            this.currentContext.user_id = user.id;
+            
+            // Try to get user's default context (don't crash if it fails)
+            try {
+                const contextResult = await this.getCurrentContext();
+                if (contextResult && contextResult.success) {
+                    this._log('✅ User context loaded successfully');
+                } else {
+                    this._log('ℹ️ No existing context found (normal for new users)');
+                }
+            } catch (error) {
+                this._log('ℹ️ Context loading failed (normal for new users):', error.message);
+            }
+            
+            // Save quick context
+            this._saveQuickContext();
+            
+            this._log('✅ User context initialization completed');
+            return true;
+            
+        } catch (error) {
+            this._log('⚠️ User context initialization failed (non-critical):', error.message);
+            return false;
+        }
+    },
+
     async getCurrentContext() {
         try {
             await this._requireAuth();
@@ -484,10 +518,51 @@ const ProjectService = {
                 return contextResult;
             }
             
+            // UPDATED: Handle case where user has no context yet (new user)
+            if (result?.status === 'success' && result?.data?.success === false) {
+                this._log('ℹ️ No existing context found for user (normal for new users)');
+                
+                // Return empty but valid context for new users
+                const emptyContextResult = {
+                    success: true,
+                    context: null,
+                    current_project: null,
+                    user_id: user.id,
+                    isNewUser: true
+                };
+                
+                // Update local context for new user
+                this.currentContext = {
+                    user_id: user.id,
+                    current_project: null,
+                    chat_id: null,
+                    project_name: null
+                };
+                
+                this._saveQuickContext();
+                return emptyContextResult;
+            }
+            
             throw new Error(result?.data?.message || 'Failed to get user context');
             
         } catch (error) {
             this._error('Error getting context:', error);
+            
+            // UPDATED: For new users, return empty context instead of failure
+            if (error.message.includes('not found') || error.message.includes('no context')) {
+                const user = this.authService.getCurrentUser();
+                if (user) {
+                    this._log('ℹ️ Returning empty context for new user');
+                    return {
+                        success: true,
+                        context: null,
+                        current_project: null,
+                        user_id: user.id,
+                        isNewUser: true
+                    };
+                }
+            }
+            
             return { success: false, error: error.message };
         }
     },
