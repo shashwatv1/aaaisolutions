@@ -319,9 +319,9 @@
     }
     
     /**
-     * UPDATED: Enhanced project page initialization
+     * UPDATED: Enhanced project page initialization with new user handling
      */
-    function initializeProjectPageEnhanced() {
+    async function initializeProjectPageEnhanced() {
         try {
             console.log('📂 Enhanced project page init...');
             
@@ -332,19 +332,30 @@
                 throw new Error('Authentication required');
             }
             
-            // UPDATED: Load context asynchronously with better error handling
+            // UPDATED: Load context with new user handling
             if (projectService) {
-                // Check if ProjectService is properly initialized
-                if (projectService.isInitialized || typeof projectService.getCurrentContext === 'function') {
-                    projectService.getCurrentContext()
-                        .then(context => {
-                            console.log('✅ Project context loaded:', context);
-                        })
-                        .catch(error => {
-                            console.warn('⚠️ Context load failed (non-critical):', error);
-                        });
-                } else {
-                    console.warn('⚠️ ProjectService not properly initialized');
+                try {
+                    if (projectService.isInitialized || typeof projectService.getCurrentContext === 'function') {
+                        const context = await projectService.getCurrentContext();
+                        
+                        if (context && context.success) {
+                            if (context.isNewUser) {
+                                console.log('👋 Welcome! New user detected - no existing projects');
+                                // Show welcome message or empty state
+                                showWelcomeMessage();
+                            } else {
+                                console.log('✅ Project context loaded:', context);
+                            }
+                        } else {
+                            console.log('ℹ️ No context available (new user)');
+                            showWelcomeMessage();
+                        }
+                    } else {
+                        console.warn('⚠️ ProjectService not properly initialized');
+                    }
+                } catch (error) {
+                    console.log('ℹ️ Context load failed (likely new user):', error.message);
+                    showWelcomeMessage();
                 }
             }
             
@@ -352,6 +363,25 @@
             
         } catch (error) {
             console.error('❌ Enhanced project page init failed:', error);
+        }
+    }
+    
+    /**
+     * Helper function for new users
+     */
+    function showWelcomeMessage() {
+        // Show empty state or welcome message for new users
+        const projectsGrid = document.getElementById('projectsGrid');
+        if (projectsGrid) {
+            projectsGrid.innerHTML = `
+                <div class="welcome-state">
+                    <h3>👋 Welcome to AAAI Solutions!</h3>
+                    <p>You don't have any projects yet. Create your first project to get started.</p>
+                    <button class="btn btn-primary" onclick="showNewProjectModal()">
+                        Create Your First Project
+                    </button>
+                </div>
+            `;
         }
     }
     
