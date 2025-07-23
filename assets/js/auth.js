@@ -8,8 +8,14 @@ const AuthService = {
     tokenExpiry: null,
     lastValidation: null,
     
-    // Configuration
-    AUTH_BASE_URL: 'https://aaai-gateway-754x89jf.uc.gateway.dev',
+    // Configuration - FIXED: Use proper base URL from config instead of hardcoded gateway
+    get AUTH_BASE_URL() {
+        // Use AAAI_CONFIG if available, otherwise fallback to current origin
+        if (window.AAAI_CONFIG && window.AAAI_CONFIG.API_BASE_URL) {
+            return window.AAAI_CONFIG.API_BASE_URL;
+        }
+        return window.location.origin; // This will be https://aaai.solutions in production
+    },
     
     // State management
     isInitialized: false,
@@ -40,6 +46,7 @@ const AuthService = {
 
         try {
             this._log('🚀 AuthService initializing globally...');
+            this._log('Using AUTH_BASE_URL:', this.AUTH_BASE_URL);
             
             // Try to restore session from any available source
             const restored = await this._restoreSession();
@@ -131,8 +138,8 @@ const AuthService = {
             this._log('🔍 All available cookies:', allCookies);
             
             if (!allCookies || allCookies.trim() === '') {
-                this._log('No cookies found');
-                return false;
+                this._log('No cookies found, trying silent refresh...');
+                return await this._attemptSilentRefresh();
             }
             
             const cookieArray = allCookies.split(';').map(c => c.trim());
@@ -140,8 +147,8 @@ const AuthService = {
             const userInfoCookie = cookieArray.find(c => c.startsWith('user_info='));
             
             if (!authCookie || !userInfoCookie) {
-                this._log('Required auth cookies not found');
-                return false;
+                this._log('Required auth cookies not found, trying silent refresh...');
+                return await this._attemptSilentRefresh();
             }
             
             // Parse user info
@@ -189,7 +196,40 @@ const AuthService = {
     },
 
     /**
-     * TOKEN REFRESH
+     * SILENT REFRESH - FIXED: Use proper nginx proxy route
+     */
+    async _attemptSilentRefresh() {
+        try {
+            this._log('Attempting silent refresh...');
+            const response = await fetch(`${this.AUTH_BASE_URL}/auth/refresh-silent`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'include'
+            });
+            
+            if (!response.ok) {
+                this._log('Silent refresh failed:', response.status);
+                return false;
+            }
+            
+            const data = await response.json();
+            
+            if (data.success && data.user && data.tokens) {
+                this.storeAuthData(data.tokens.access_token, data.tokens.expires_in || 21600, data.user);
+                this._log('✅ Silent refresh successful');
+                return true;
+            }
+            
+            return false;
+            
+        } catch (error) {
+            this._log('Silent refresh error:', error);
+            return false;
+        }
+    },
+
+    /**
+     * TOKEN REFRESH - FIXED: Use proper nginx proxy route
      */
     async _attemptTokenRefresh() {
         try {
@@ -225,6 +265,37 @@ const AuthService = {
     },
 
     /**
+     * WAIT FOR INITIALIZATION
+     */
+    async waitForInit() {
+        if (this.initPromise) {
+            await this.initPromise;
+        }
+        return this.isInitialized;
+    },
+
+    /**
+     * REFRESH TOKEN IF NEEDED
+     */
+    async refreshTokenIfNeeded() {
+        try {
+            if (!this.tokenExpiry) return false;
+            
+            const timeUntilExpiry = this.tokenExpiry - Date.now();
+            if (timeUntilExpiry > this.options.refreshBuffer) {
+                return true; // Token is still valid
+            }
+            
+            this._log('Token needs refresh, attempting...');
+            return await this._attemptSilentRefresh();
+            
+        } catch (error) {
+            this._error('Token refresh error:', error);
+            return false;
+        }
+    },
+
+    /**
      * AUTHENTICATION CHECK
      */
     isAuthenticated() {
@@ -241,14 +312,14 @@ const AuthService = {
 
     _hasRefreshCapability() {
         try {
-            return document.cookie.includes('refresh_token=');
+            return document.cookie.includes('refresh_token=') || document.cookie.includes('authenticated=true');
         } catch {
             return false;
         }
     },
 
     /**
-     * LOGIN METHODS
+     * LOGIN METHODS - FIXED: Use proper nginx proxy routes
      */
     async requestOTP(email) {
         try {
@@ -343,15 +414,19 @@ const AuthService = {
     },
 
     /**
-     * FUNCTION EXECUTION
+     * FUNCTION EXECUTION - FIXED: Use /api/execute through nginx proxy
      */
     async executeFunction(functionName, inputData) {
         if (!this.isAuthenticated()) {
             throw new Error('Authentication required');
         }
 
+        // Refresh token if needed before executing function
+        await this.refreshTokenIfNeeded();
+
         try {
-            const response = await fetch(`${this.AUTH_BASE_URL}/execute`, {
+            // FIXED: Use /api/execute instead of /execute to go through nginx proxy
+            const response = await fetch(`${this.AUTH_BASE_URL}/api/execute`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -375,7 +450,7 @@ const AuthService = {
     },
 
     /**
-     * LOGOUT
+     * LOGOUT - FIXED: Use proper nginx proxy route
      */
     async logout() {
         try {

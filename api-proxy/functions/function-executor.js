@@ -1,4 +1,8 @@
-const cors = require('cors')({origin: true});
+const cors = require('cors')({
+  origin: 'https://aaai.solutions',
+  credentials: true, // ← FIXED: Enable credentials for CORS
+  optionsSuccessStatus: 200
+});
 const {getSecret} = require('../utils/secret-manager');
 
 // Cache for performance
@@ -13,11 +17,21 @@ async function functionExecutor(req, res) {
   let functionName = null;
   
   return cors(req, res, async () => {
+    res.set({
+      'Access-Control-Allow-Origin': 'https://aaai.solutions',
+      'Access-Control-Allow-Credentials': 'true' // ← FIXED: Required for credentials: 'include'
+    });
+
     if (req.method === 'OPTIONS') {
+      res.set({
+        'Access-Control-Allow-Methods': 'POST, OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+        'Access-Control-Max-Age': '3600'
+      });
       res.status(204).send('');
       return;
     }
-    
+
     const startTime = Date.now();
     
     try {

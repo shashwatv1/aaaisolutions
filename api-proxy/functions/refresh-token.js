@@ -1,4 +1,8 @@
-const cors = require('cors')({origin: true});
+const cors = require('cors')({
+  origin: 'https://aaai.solutions',
+  credentials: true, // ← FIXED: Enable credentials for CORS
+  optionsSuccessStatus: 200
+});
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 const cookieParser = require('cookie-parser');
@@ -14,6 +18,22 @@ function parseCookies(req, res, next) {
 
 async function refreshToken(req, res) {
   return cors(req, res, async () => {
+      
+    res.set({
+      'Access-Control-Allow-Origin': 'https://aaai.solutions',
+      'Access-Control-Allow-Credentials': 'true' // ← FIXED: Required for credentials: 'include'
+    });
+
+    if (req.method === 'OPTIONS') {
+      res.set({
+        'Access-Control-Allow-Methods': 'POST, OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+        'Access-Control-Max-Age': '3600'
+      });
+      res.status(204).send('');
+      return;
+    }
+
     parseCookies(req, res, async () => {
       if (req.method === 'OPTIONS') {
         res.status(204).send('');
