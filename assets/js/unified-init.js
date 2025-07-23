@@ -217,23 +217,40 @@
     }
     
     /**
-     * Setup environment indicators
+     * FIXED: Setup environment indicators with better null checking
      */
     function setupEnvironmentIndicators() {
         try {
+            // Check if page already has environment setup (like login.html)
+            if (document.querySelector('.env-indicator')) {
+                console.log('ℹ️ Page already has environment indicators, skipping unified setup');
+                return;
+            }
+            
             const envIndicator = document.getElementById('envIndicator');
             const envText = document.getElementById('envText');
             
-            if (window.AAAI_CONFIG?.ENVIRONMENT && envIndicator && envText) {
-                const environment = window.AAAI_CONFIG.ENVIRONMENT;
-                envText.textContent = environment.toUpperCase();
-                envIndicator.style.display = environment !== 'production' ? 'block' : 'none';
+            // More thorough null checking
+            if (window.AAAI_CONFIG?.ENVIRONMENT && envIndicator && envText && 
+                typeof envText.textContent !== 'undefined') {
                 
-                if (environment === 'development') {
-                    envIndicator.style.backgroundColor = '#28a745';
-                } else if (environment === 'staging') {
-                    envIndicator.style.backgroundColor = '#ffc107';
+                const environment = window.AAAI_CONFIG.ENVIRONMENT;
+                
+                // Safe textContent setting
+                try {
+                    envText.textContent = environment.toUpperCase();
+                    envIndicator.style.display = environment !== 'production' ? 'block' : 'none';
+                    
+                    if (environment === 'development') {
+                        envIndicator.style.backgroundColor = '#28a745';
+                    } else if (environment === 'staging') {
+                        envIndicator.style.backgroundColor = '#ffc107';
+                    }
+                } catch (textError) {
+                    console.warn('⚠️ Failed to set environment text:', textError);
                 }
+            } else {
+                console.log('ℹ️ Environment indicators not available or already configured');
             }
         } catch (error) {
             console.warn('⚠️ Environment indicator setup failed:', error);

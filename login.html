@@ -426,65 +426,93 @@
     <!-- Login application script -->
   <script>
   document.addEventListener('DOMContentLoaded', function() {
-    // Initialize environment features
+    // FIXED: Safe environment setup with null checking
     function initEnvironmentFeatures() {
-        const hasConfig = window.AAAI_CONFIG && window.AAAI_CONFIG.ENVIRONMENT;
-        
-        if (hasConfig) {
-            const environment = window.AAAI_CONFIG.ENVIRONMENT;
+        try {
+            const hasConfig = window.AAAI_CONFIG && window.AAAI_CONFIG.ENVIRONMENT;
             
-            if (environment !== 'production') {
-                const envIndicator = document.getElementById('envIndicator');
-                const envText = document.getElementById('envText');
+            if (hasConfig) {
+                const environment = window.AAAI_CONFIG.ENVIRONMENT;
                 
-                envIndicator.className = `env-indicator ${environment}`;
-                envText.textContent = `${environment.toUpperCase()} Environment`;
-                document.body.classList.add('with-env-indicator');
+                if (environment !== 'production') {
+                    const envIndicator = document.getElementById('envIndicator');
+                    const envText = document.getElementById('envText');
+                    
+                    // FIXED: Thorough null checking before setting properties
+                    if (envIndicator && envText) {
+                        try {
+                            envIndicator.className = `env-indicator ${environment}`;
+                            envText.textContent = `${environment.toUpperCase()} Environment`;
+                            document.body.classList.add('with-env-indicator');
+                            console.log('✅ Environment indicators set up successfully');
+                        } catch (textError) {
+                            console.warn('⚠️ Failed to set environment indicator text:', textError);
+                        }
+                    } else {
+                        console.warn('⚠️ Environment indicator elements not found:', {
+                            envIndicator: !!envIndicator,
+                            envText: !!envText
+                        });
+                    }
+                }
             }
             
             if (window.AAAI_LOGGER) {
                 window.AAAI_LOGGER.info('Environment features initialized', {
-                    environment: environment,
-                    version: window.AAAI_CONFIG.VERSION || 'unknown'
+                    environment: window.AAAI_CONFIG?.ENVIRONMENT || 'production',
+                    version: window.AAAI_CONFIG?.VERSION || 'unknown'
                 });
             }
+        } catch (error) {
+            console.error('❌ Environment setup failed:', error);
         }
     }
     
-    // Initialize AuthService
+    // FIXED: Safe AuthService check
     function initializeAuthService() {
-        if (!window.AAAI_CONFIG) {
-            window.AAAI_CONFIG = {
-                ENVIRONMENT: 'production',
-                ENABLE_DEBUG: false
-            };
-            
-            window.AAAI_LOGGER = {
-                debug: console.log.bind(console, '[DEBUG]'),
-                info: console.info.bind(console, '[INFO]'),
-                warn: console.warn.bind(console, '[WARN]'),
-                error: console.error.bind(console, '[ERROR]')
-            };
-        }
-        
         try {
-            return AuthService.init();
+            if (!window.AAAI_CONFIG) {
+                window.AAAI_CONFIG = {
+                    ENVIRONMENT: 'production',
+                    ENABLE_DEBUG: false
+                };
+                
+                window.AAAI_LOGGER = {
+                    debug: console.log.bind(console, '[DEBUG]'),
+                    info: console.info.bind(console, '[INFO]'),
+                    warn: console.warn.bind(console, '[WARN]'),
+                    error: console.error.bind(console, '[ERROR]')
+                };
+            }
+            
+            // FIXED: Don't initialize AuthService automatically
+            // Let the page handle authentication when needed
+            return true;
+            
         } catch (error) {
-            console.error('Failed to initialize AuthService:', error);
+            console.error('Failed to setup auth environment:', error);
             return false;
         }
     }
     
-    // Initialize environment features
+    // Initialize environment features first
     initEnvironmentFeatures();
     
-    // Check if already authenticated
-    if (initializeAuthService() && window.AuthService.isAuthenticated()) {
-        window.location.href = 'project.html';
-        return;
+    // Setup auth environment
+    initializeAuthService();
+    
+    // FIXED: Simple auth check without auto-initialization
+    try {
+        if (window.AuthService && window.AuthService.authenticated && window.AuthService.isAuthenticated()) {
+            console.log('🔐 Already authenticated, redirecting to projects');
+            window.location.href = 'project.html';
+            return;
+        }
+    } catch (error) {
+        console.log('ℹ️ Auth check failed (normal for login page):', error.message);
     }
     
-    // Get DOM elements
+    // Get DOM elements with null checking
     const authSection = document.getElementById('authSection');
     const otpSection = document.getElementById('otpSection');
     const authForm = document.getElementById('authForm');
@@ -499,169 +527,177 @@
     const verifyOtpBtn = document.getElementById('verifyOtpBtn');
     const resendOtpBtn = document.getElementById('resendOtpBtn');
     
+    // Check if required elements exist
+    const requiredElements = {
+        authSection, otpSection, authForm, otpForm, 
+        emailInput, otpInput, requestOtpBtn, verifyOtpBtn
+    };
+    
+    const missingElements = Object.entries(requiredElements)
+        .filter(([name, element]) => !element)
+        .map(([name]) => name);
+    
+    if (missingElements.length > 0) {
+        console.error('❌ Missing required DOM elements:', missingElements);
+        return;
+    }
+    
     let userEmail = '';
     
     // Event: Request OTP
-    authForm.addEventListener('submit', async function(e) {
-        e.preventDefault();
-        
-        userEmail = emailInput.value.trim();
-        if (!userEmail) {
-            showError(authError, 'Please enter your email address');
-            return;
-        }
-        
-        const button = requestOtpBtn;
-        const originalText = button.querySelector('span').textContent;
-        
-        try {
-            clearMessages();
-            setButtonLoading(button, 'Sending...');
+    if (authForm) {
+        authForm.addEventListener('submit', async function(e) {
+            e.preventDefault();
             
-            await AuthService.requestOTP(userEmail);
+            userEmail = emailInput.value.trim();
+            if (!userEmail) {
+                showError(authError, 'Please enter your email address');
+                return;
+            }
             
-            showSuccess(authSuccess, 'Verification code sent successfully!');
+            const button = requestOtpBtn;
+            const originalText = button.querySelector('span')?.textContent || 'Send Code';
             
-            // Show OTP section after delay
-            setTimeout(() => {
-                authSection.style.display = 'none';
-                otpSection.style.display = 'block';
-                otpInput.focus();
-                startResendCountdown();
-            }, 1000);
-            
-        } catch (error) {
-            console.error('OTP request error:', error);
-            showError(authError, error.message || 'Failed to send verification code. Please try again.');
-        } finally {
-            setButtonLoading(button, originalText, false);
-        }
-    });
+            try {
+                clearMessages();
+                setButtonLoading(button, 'Sending...');
+                
+                // Initialize AuthService if not already done
+                if (!window.AuthService.initPromise) {
+                    await window.AuthService.init();
+                }
+                
+                await window.AuthService.requestOTP(userEmail);
+                
+                showSuccess(authSuccess, 'Verification code sent successfully!');
+                
+                // Show OTP section after delay
+                setTimeout(() => {
+                    authSection.style.display = 'none';
+                    otpSection.style.display = 'block';
+                    otpInput.focus();
+                    startResendCountdown();
+                }, 1000);
+                
+            } catch (error) {
+                console.error('OTP request error:', error);
+                showError(authError, error.message || 'Failed to send verification code. Please try again.');
+            } finally {
+                setButtonLoading(button, originalText, false);
+            }
+        });
+    }
     
     // Event: Verify OTP
-    otpForm.addEventListener('submit', async function(e) {
-        e.preventDefault();
-        
-        const otp = otpInput.value.trim();
-        if (!otp) {
-            showError(otpError, 'Please enter the verification code');
-            return;
-        }
-        
-        if (otp.length !== 6) {
-            showError(otpError, 'Verification code must be 6 digits');
-            return;
-        }
-        
-        const button = verifyOtpBtn;
-        const originalText = button.querySelector('span').textContent;
-        
-        try {
-            clearMessages();
-            setButtonLoading(button, 'Verifying...');
+    if (otpForm) {
+        otpForm.addEventListener('submit', async function(e) {
+            e.preventDefault();
             
-            const data = await AuthService.verifyOTP(userEmail, otp);
+            const otp = otpInput.value.trim();
+            if (!otp) {
+                showError(otpError, 'Please enter the verification code');
+                return;
+            }
             
-            // Use the new success handler
-            await handleOTPVerificationSuccess(data);
+            if (otp.length !== 6) {
+                showError(otpError, 'Verification code must be 6 digits');
+                return;
+            }
             
-        } catch (error) {
-            console.error('OTP verification error:', error);
-            showError(otpError, error.message || 'Invalid verification code. Please try again.');
-        } finally {
-            setButtonLoading(button, originalText, false);
-        }
-    });
+            const button = verifyOtpBtn;
+            const originalText = button.querySelector('span')?.textContent || 'Verify';
+            
+            try {
+                clearMessages();
+                setButtonLoading(button, 'Verifying...');
+                
+                const data = await window.AuthService.verifyOTP(userEmail, otp);
+                
+                // Use the enhanced success handler
+                await handleOTPVerificationSuccess(data);
+                
+            } catch (error) {
+                console.error('OTP verification error:', error);
+                showError(otpError, error.message || 'Invalid verification code. Please try again.');
+            } finally {
+                setButtonLoading(button, originalText, false);
+            }
+        });
+    }
     
     // Event: Resend OTP
-    resendOtpBtn.addEventListener('click', async function(e) {
-        e.preventDefault();
-        
-        if (this.classList.contains('disabled')) {
-            return;
-        }
-        
-        try {
-            await AuthService.requestOTP(userEmail);
-            showSuccess(otpSuccess, 'Verification code sent again!');
-            startResendCountdown();
-        } catch (error) {
-            console.error('Resend OTP error:', error);
-            showError(otpError, 'Failed to resend code. Please try again.');
-        }
-    });
+    if (resendOtpBtn) {
+        resendOtpBtn.addEventListener('click', async function(e) {
+            e.preventDefault();
+            
+            if (this.classList.contains('disabled')) {
+                return;
+            }
+            
+            try {
+                await window.AuthService.requestOTP(userEmail);
+                showSuccess(otpSuccess, 'Verification code sent again!');
+                startResendCountdown();
+            } catch (error) {
+                console.error('Resend OTP error:', error);
+                showError(otpError, 'Failed to resend code. Please try again.');
+            }
+        });
+    }
     
-    // Helper functions
+    // Helper functions (add these if they don't exist)
     function showError(element, message) {
-        element.textContent = message;
-        element.style.display = 'block';
-        setTimeout(() => {
-            element.style.display = 'none';
-        }, 5000);
+        if (element) {
+            element.textContent = message;
+            element.style.display = 'block';
+        }
     }
     
     function showSuccess(element, message) {
-        element.textContent = message;
-        element.style.display = 'block';
-        setTimeout(() => {
-            element.style.display = 'none';
-        }, 3000);
+        if (element) {
+            element.textContent = message;
+            element.style.display = 'block';
+        }
     }
     
-    function showToast(message, type = 'success') {
-        // Remove existing toasts
-        document.querySelectorAll('.toast').forEach(toast => toast.remove());
-        
+    function showToast(message, type = 'info') {
+        // Simple toast implementation
         const toast = document.createElement('div');
-        toast.className = `toast ${type}`;
-        toast.textContent = message;
+        toast.style.cssText = `
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            padding: 12px 20px;
+            border-radius: 6px;
+            color: white;
+            font-weight: 500;
+            z-index: 10000;
+            max-width: 300px;
+            word-wrap: break-word;
+        `;
         
-        // Add toast styles if not already present
-        if (!document.getElementById('toast-styles')) {
-            const style = document.createElement('style');
-            style.id = 'toast-styles';
-            style.textContent = `
-                .toast {
-                    position: fixed;
-                    top: 20px;
-                    right: 20px;
-                    padding: 12px 20px;
-                    border-radius: 6px;
-                    color: white;
-                    font-weight: 500;
-                    z-index: 10000;
-                    transform: translateX(100%);
-                    transition: transform 0.3s ease;
-                    max-width: 300px;
-                }
-                .toast.show {
-                    transform: translateX(0);
-                }
-                .toast.success {
-                    background-color: #2ecc71;
-                }
-                .toast.error {
-                    background-color: #e74c3c;
-                }
-            `;
-            document.head.appendChild(style);
+        switch (type) {
+            case 'success':
+                toast.style.background = '#4CAF50';
+                break;
+            case 'error':
+                toast.style.background = '#f44336';
+                break;
+            default:
+                toast.style.background = '#2196F3';
         }
         
+        toast.textContent = message;
         document.body.appendChild(toast);
         
-        // Show toast
-        setTimeout(() => toast.classList.add('show'), 100);
-        
-        // Hide toast after 5 seconds
         setTimeout(() => {
-            toast.classList.remove('show');
-            setTimeout(() => toast.remove(), 300);
+            if (toast.parentNode) {
+                toast.parentNode.removeChild(toast);
+            }
         }, 5000);
     }
     
-    /**
-     * FIXED: Enhanced login success handling with cookie verification
-     */
+    // FIXED: Enhanced OTP verification success handler
     async function handleOTPVerificationSuccess(data) {
         try {
             console.log('✅ Login successful, setting up session...');
@@ -674,94 +710,44 @@
             // Show immediate success message
             showToast('Login successful! Setting up session...', 'success');
             
-            // CRITICAL FIX: Wait longer for backend cookies to be written
+            // FIXED: Ensure AuthService is available
+            if (!window.AuthService) {
+                throw new Error('AuthService not available');
+            }
+            
+            // FIXED: Store the authentication data in AuthService
+            console.log('🔧 Setting up AuthService state...');
+            window.AuthService._storeAccessToken(
+                data.tokens.access_token,
+                data.tokens.expires_in || 21600,
+                data.user
+            );
+            
+            // Verify the state was set correctly
+            const authState = {
+                authenticated: window.AuthService.authenticated,
+                hasToken: !!window.AuthService.accessToken,
+                hasUserInfo: !!(window.AuthService.userEmail && window.AuthService.userId),
+                isAuthenticated: window.AuthService.isAuthenticated()
+            };
+            
+            console.log('🔍 AuthService state after login:', authState);
+            
+            if (!window.AuthService.isAuthenticated()) {
+                console.error('❌ Authentication state not properly set after login');
+                throw new Error('Failed to establish authenticated session');
+            }
+            
+            // FIXED: Wait for backend cookies to be fully written
             console.log('⏳ Waiting for backend cookies to be set...');
-            await new Promise(resolve => setTimeout(resolve, 2500)); // Increased from 1000ms
-            
-            // Verify cookies are present with retry logic
-            const maxAttempts = 5;
-            let attempt = 0;
-            let cookiesValid = false;
-            
-            while (attempt < maxAttempts && !cookiesValid) {
-                attempt++;
-                console.log(`🔍 Cookie verification attempt ${attempt}/${maxAttempts}`);
-                
-                // Check for required cookies
-                const userInfo = getCookieValue('user_info');
-                const authenticated = getCookieValue('authenticated');
-                
-                cookiesValid = authenticated === 'true' && !!userInfo;
-                
-                if (cookiesValid) {
-                    try {
-                        // Verify user info is valid JSON
-                        const parsed = JSON.parse(decodeURIComponent(userInfo));
-                        cookiesValid = !!(parsed.email && parsed.id);
-                        console.log('✅ Cookies verified successfully!', parsed);
-                    } catch (e) {
-                        console.error('❌ Invalid user_info cookie:', e);
-                        cookiesValid = false;
-                    }
-                }
-                
-                if (!cookiesValid && attempt < maxAttempts) {
-                    console.log('⏳ Cookies not ready, waiting...');
-                    await new Promise(resolve => setTimeout(resolve, 1000));
-                }
-            }
-            
-            if (!cookiesValid) {
-                console.warn('⚠️ Cookie verification failed, setting fallback auth state...');
-                
-                // Set cookies manually as fallback
-                try {
-                    const expires = new Date(Date.now() + 24 * 60 * 60 * 1000);
-                    const cookieOptions = `expires=${expires.toUTCString()}; path=/; SameSite=Lax`;
-                    
-                    const userInfo = JSON.stringify({
-                        id: data.user.id,
-                        email: data.user.email
-                    });
-                    
-                    document.cookie = `user_info=${encodeURIComponent(userInfo)}; ${cookieOptions}`;
-                    document.cookie = `authenticated=true; ${cookieOptions}`;
-                    
-                    console.log('✅ Fallback cookies set manually');
-                } catch (e) {
-                    console.error('❌ Failed to set fallback cookies:', e);
-                }
-            }
-            
-            // Update AuthService state
-            if (window.AuthService) {
-                window.AuthService.userEmail = data.user.email;
-                window.AuthService.userId = data.user.id;
-                window.AuthService.authenticated = true;
-                
-                if (data.tokens && data.tokens.access_token) {
-                    window.AuthService.accessToken = data.tokens.access_token;
-                    
-                    // Store in localStorage as additional backup
-                    try {
-                        localStorage.setItem('backup_auth_token', data.tokens.access_token);
-                        localStorage.setItem('backup_user_email', data.user.email);
-                        localStorage.setItem('backup_user_id', data.user.id);
-                        localStorage.setItem('backup_auth_timestamp', Date.now().toString());
-                    } catch (e) {
-                        console.warn('Could not store backup auth data:', e);
-                    }
-                }
-            }
+            await new Promise(resolve => setTimeout(resolve, 1500));
             
             // Final success message
             showToast('Session established! Redirecting...', 'success');
             
-            // Redirect with controlled timing
+            // Redirect to project page
             console.log('🔄 Redirecting to project page...');
-            setTimeout(() => {
-                window.location.href = 'project.html';
-            }, 1000);
+            window.location.href = 'project.html';
             
         } catch (error) {
             console.error('❌ Login success handling failed:', error);
@@ -772,38 +758,37 @@
     
     function clearMessages() {
         [authError, authSuccess, otpError, otpSuccess].forEach(el => {
-            el.style.display = 'none';
-            el.textContent = '';
+            if (el) {
+                el.style.display = 'none';
+                el.textContent = '';
+            }
         });
     }
     
     function setButtonLoading(button, text, loading = true) {
+        if (!button) return;
+        
         const span = button.querySelector('span');
         if (span) {
             span.textContent = text;
         }
         button.disabled = loading;
-        if (loading) {
-            button.classList.add('loading');
-        } else {
-            button.classList.remove('loading');
-        }
     }
     
     function startResendCountdown() {
-        let countdown = 60;
-        resendOtpBtn.classList.add('disabled');
-        resendOtpBtn.style.color = 'rgba(255, 255, 255, 0.5)';
+        if (!resendOtpBtn) return;
         
-        const countdownInterval = setInterval(() => {
+        let countdown = 30;
+        resendOtpBtn.classList.add('disabled');
+        
+        const interval = setInterval(() => {
+            resendOtpBtn.textContent = `Resend (${countdown}s)`;
             countdown--;
-            resendOtpBtn.querySelector('span').textContent = `Resend (${countdown}s)`;
             
-            if (countdown <= 0) {
-                clearInterval(countdownInterval);
+            if (countdown < 0) {
+                clearInterval(interval);
+                resendOtpBtn.textContent = 'Resend Code';
                 resendOtpBtn.classList.remove('disabled');
-                resendOtpBtn.style.color = '';
-                resendOtpBtn.querySelector('span').textContent = 'Resend Code';
             }
         }, 1000);
     }
@@ -843,7 +828,7 @@
         }
     }
     
-    console.log('✓ Login application initialized successfully');
+    console.log('✅ Login page initialized successfully');
   });
   </script>
 </body>
