@@ -1096,1059 +1096,846 @@
       contextIndicator: document.getElementById('contextIndicator'),
       contextInfo: document.getElementById('contextInfo')
     };
-      
-      /**
-       * FIXED: Coordinated initialization with unified-init.js
-       */
-      async function initializeApp() {
-          try {
-              console.log('🚀 Unified Projects Application starting...');
-              
-              // Wait for unified-init to complete its setup
-              if (window.AAAI_APP && !window.AAAI_APP.isInitialized()) {
-                  console.log('⏳ Waiting for unified initialization...');
-                  await window.AAAI_APP.waitForReady();
-              }
-              
-              // Initialize environment first
-              initializeEnvironment();
-              
-              // FIXED: Single authentication initialization (no competing processes)
-              const authResult = await initializeAuthentication();
-              if (!authResult.success) {
-                  console.log('❌ Authentication failed:', authResult.reason);
-                  console.log('🔄 Redirecting to login...');
-                  window.location.href = 'login.html';
-                  return;
-              }
-              
-              // Mark authentication as ready for coordination
-              if (window.AAAI_APP && window.AAAI_APP.markAuthReady) {
-                  window.AAAI_APP.markAuthReady();
-              }
-              
-              console.log('✅ Authentication confirmed, continuing initialization...');
-
-              // Initialize services with coordination
-              await initializeServices();
-              
-              // Initialize UI
-              initializeUI();
-              
-              // Load projects
-              await loadProjects();
-              
-              // Setup event listeners
-              setupEventListeners();
-              
-              console.log('✅ Unified Projects Application initialized successfully');
-              
-          } catch (error) {
-              console.error('❌ Failed to initialize application:', error);
-              showToast(`Failed to initialize: ${error.message}`, 'error');
-              
-              // Show error UI
-              const loadingContainer = document.getElementById('loadingContainer');
-              if (loadingContainer) {
-                  loadingContainer.innerHTML = `
-                      <div style="text-align: center; color: #fff; padding: 40px;">
-                          <h3>Application Error</h3>
-                          <p>Failed to initialize: ${error.message}</p>
-                          <button onclick="window.location.reload()" style="padding: 10px 20px; margin: 10px; background: #007acc; color: white; border: none; border-radius: 4px; cursor: pointer;">
-                              Refresh Page
-                          </button>
-                          <button onclick="window.location.href='login.html'" style="padding: 10px 20px; margin: 10px; background: #dc3545; color: white; border: none; border-radius: 4px; cursor: pointer;">
-                              Go to Login
-                          </button>
-                      </div>
-                  `;
-              }
-              
-              // If it's an auth error, redirect to login after delay
-              if (error.message.includes('authentication') || error.message.includes('login')) {
-                  setTimeout(() => {
-                      window.location.href = 'login.html';
-                  }, 5000);
-              }
-          }
-      }
-      
-      /**
-       * FIXED: Single authentication initialization (no competition)
-       */
-      async function initializeAuthentication() {
-          console.log('🔐 Initializing authentication (single process)...');
-          
-          try {
-              // Check if AuthService is available
-              if (!window.AuthService) {
-                  throw new Error('AuthService not available');
-              }
-              
-              // Initialize AuthService (this is the ONLY place it should be initialized)
-              console.log('🔐 Starting AuthService initialization...');
-              const authInitResult = await window.AuthService.init();
-              
-              console.log('🔐 AuthService initialization result:', authInitResult);
-              
-              // Check if authenticated
-              if (!window.AuthService.isAuthenticated()) {
-                  console.log('🔐 Not authenticated - checking for session restoration...');
-                  
-                  // Try to restore session if refresh token exists
-                  if (window.AuthService.hasPersistentSession()) {
-                      console.log('🔐 Persistent session found, attempting restoration...');
-                      
-                      try {
-                          const refreshed = await window.AuthService.refreshTokenIfNeeded();
-                          if (!refreshed || !window.AuthService.isAuthenticated()) {
-                              return { success: false, reason: 'Session restoration failed' };
-                          }
-                          console.log('🔐 Session restored successfully');
-                      } catch (error) {
-                          console.error('🔐 Session restoration failed:', error);
-                          return { success: false, reason: 'Session restoration error' };
-                      }
-                  } else {
-                      return { success: false, reason: 'No authentication found' };
-                  }
-              }
-              
-              // Verify user information
-              const user = window.AuthService.getCurrentUser();
-              if (!user || !user.email || !user.id) {
-                  console.error('🔐 User information incomplete:', user);
-                  return { success: false, reason: 'Incomplete user information' };
-              }
-              
-              console.log('✅ Authentication successful:', {
-                  email: user.email,
-                  id: user.id
-              });
-              
-              return { success: true, user: user };
-              
-          } catch (error) {
-              console.error('🔐 Authentication initialization error:', error);
-              return { success: false, reason: error.message };
-          }
-      }
-      
-      /**
-       * FIXED: Service initialization with coordination
-       */
-      async function initializeServices() {
-          try {
-              console.log('🔧 Initializing services with coordination...');
-              
-              // Get services from unified-init coordination
-              const authService = window.AAAI_APP?.getService('AuthService') || window.AuthService;
-              const projectService = window.AAAI_APP?.getService('ProjectService') || window.ProjectService;
-              const navigationManager = window.AAAI_APP?.getService('NavigationManager') || window.NavigationManager;
-              
-              // Initialize ProjectService
-              if (projectService && !projectService.isInitialized) {
-                  console.log('🔧 Initializing ProjectService...');
-                  try {
-                      const initResult = projectService.init(authService, {
-                          debug: window.AAAI_CONFIG?.ENABLE_DEBUG || false,
-                          autoSync: true,
-                          enableRealTimeUpdates: true,
-                          syncInterval: 60000
-                      });
-                      
-                      // Wait for initialization if it returns a promise
-                      if (initResult && typeof initResult.then === 'function') {
-                          await initResult;
-                      }
-                      
-                      console.log('✅ ProjectService initialized');
-                  } catch (error) {
-                      console.error('❌ ProjectService initialization failed:', error);
-                      // Continue without ProjectService
-                  }
-              }
-              
-              // Initialize NavigationManager
-              if (navigationManager && !navigationManager.isInitialized) {
-                  console.log('🔧 Initializing NavigationManager...');
-                  try {
-                      const initResult = navigationManager.init(authService, projectService, {
-                          debug: window.AAAI_CONFIG?.ENABLE_DEBUG || false
-                      });
-                      
-                      // Wait if it returns a promise
-                      if (initResult && typeof initResult.then === 'function') {
-                          await initResult;
-                      }
-                      
-                      console.log('✅ NavigationManager initialized');
-                  } catch (error) {
-                      console.error('❌ NavigationManager initialization failed:', error);
-                  }
-              }
-              
-              console.log('✅ Services initialized successfully');
-              
-          } catch (error) {
-              console.error('❌ Service initialization failed:', error);
-              throw error;
-          }
-      }
-      
-      /**
-       * FIXED: Environment initialization (coordinated)
-       */
-      function initializeEnvironment() {
-          try {
-              // Use unified-init environment if available
-              if (window.AAAI_APP?.getConfig()) {
-                  const config = window.AAAI_APP.getConfig();
-                  console.log('🌍 Using coordinated environment config:', config.ENVIRONMENT);
-              } else {
-                  // Fallback environment setup
-                  console.log('🌍 Setting up fallback environment...');
-              }
-              
-              console.log('✅ Environment initialized');
-          } catch (error) {
-              console.warn('⚠️ Environment initialization failed:', error);
-          }
-      }
-      
-      /**
-       * Initialize UI components
-       */
-      function initializeUI() {
-          try {
-              // Hide loading container
-              const loadingContainer = document.getElementById('loadingContainer');
-              if (loadingContainer) {
-                  loadingContainer.style.display = 'none';
-              }
-              
-              // Show main content
-              const mainContent = document.querySelector('.main-content');
-              if (mainContent) {
-                  mainContent.style.display = 'block';
-              }
-              
-              // Update user display
-              const user = window.AuthService.getCurrentUser();
-              if (user) {
-                  const userEmailDisplay = document.getElementById('userEmailDisplay');
-                  if (userEmailDisplay) {
-                      userEmailDisplay.textContent = user.email;
-                  }
-              }
-              
-              console.log('✅ UI initialized');
-          } catch (error) {
-              console.error('❌ UI initialization failed:', error);
-          }
-      }
-      
-      /**
-       * Load user credits
-       */
-      async function loadUserCredits() {
+    
+    /**
+    * SIMPLIFIED: Main initialization - AuthService already initialized globally
+    */
+    async function initializeApp() {
         try {
-          // const credits = await window.AuthService.getUserCredits();
-          elements.creditsDisplay.textContent = `Credits: 0`;
-        } catch (error) {
-          console.warn('Could not load user credits:', error);
-          elements.creditsDisplay.textContent = 'Credits: --';
-        }
-      }
-      
-      /**
-       * Load current context
-       */
-      async function loadCurrentContext() {
-        try {
-          if (window.ProjectService) {
-            const contextResult = await window.ProjectService.getCurrentContext();
-            if (contextResult.success) {
-              currentContext = contextResult;
-              updateContextIndicator(contextResult);
-              console.log('✅ Current context loaded:', contextResult);
+            console.log('📄 Project page initializing...');
+            
+            // Wait for AuthService to be ready (should already be initialized)
+            if (window.AuthService && !window.AuthService.isInitialized) {
+                console.log('⏳ Waiting for AuthService...');
+                await window.AuthService.init();
             }
-          }
+            
+            // Simple authentication check
+            if (!window.AuthService || !window.AuthService.isAuthenticated()) {
+                console.log('❌ Not authenticated, redirecting to login');
+                window.location.href = 'login.html';
+                return;
+            }
+            
+            console.log('✅ Authenticated, initializing app...');
+            
+            // Hide loading, show content
+            hideLoading();
+            
+            // Update user display
+            updateUserDisplay();
+            
+            // Initialize other services if available
+            await initializeOtherServices();
+            
+            // Load projects
+            await loadProjects();
+            
+            // Setup event listeners
+            setupEventListeners();
+            
+            console.log('✅ Project page initialized successfully');
+            
         } catch (error) {
-          console.warn('Could not load current context:', error);
+            console.error('❌ Project page initialization failed:', error);
+            showErrorPage(error.message);
         }
-      }
-      
-      /**
-       * Update context indicator
-       */
-      function updateContextIndicator(context) {
-        if (context && context.current_project) {
-          elements.contextInfo.innerHTML = `
-            <strong>Active Project:</strong> ${context.current_project.name}<br>
-            <strong>Chat ID:</strong> <code>${context.current_project.id}</code>
-          `;
-          elements.contextIndicator.classList.remove('hidden');
-        } else {
-          elements.contextIndicator.classList.add('hidden');
+    }
+    
+    /**
+    * SIMPLIFIED: Hide loading and show content
+    */
+    function hideLoading() {
+        if (elements.loadingContainer) {
+            elements.loadingContainer.style.display = 'none';
         }
+        
+        const mainContent = document.querySelector('.main-content');
+        if (mainContent) {
+            mainContent.style.display = 'block';
+        }
+    }
+    
+    /**
+    * SIMPLIFIED: Update user display
+    */
+    function updateUserDisplay() {
+        const user = window.AuthService.getCurrentUser();
+        if (user && elements.userEmailDisplay) {
+            elements.userEmailDisplay.textContent = user.email;
+        }
+        
+        // Load credits
+        loadUserCredits();
+    }
+    
+    /**
+    * SIMPLIFIED: Initialize other services
+    */
+    async function initializeOtherServices() {
+        try {
+            // Initialize ProjectService if available
+            if (window.ProjectService && !window.ProjectService.isInitialized) {
+                await window.ProjectService.init(window.AuthService, {
+                    debug: false,
+                    autoSync: true
+                });
+                console.log('✅ ProjectService initialized');
+            }
+            
+            // Initialize NavigationManager if available
+            if (window.NavigationManager && !window.NavigationManager.isInitialized) {
+                window.NavigationManager.init(
+                    window.AuthService, 
+                    window.ProjectService, 
+                    { debug: false }
+                );
+                console.log('✅ NavigationManager initialized');
+            }
+            
+        } catch (error) {
+            console.warn('⚠️ Service initialization failed:', error);
+        }
+    }
+    
+    /**
+    * Load user credits
+    */
+    async function loadUserCredits() {
+    try {
+      elements.creditsDisplay.textContent = `Credits: 0`;
+      } catch (error) {
+        console.warn('Could not load user credits:', error);
+        elements.creditsDisplay.textContent = 'Credits: --';
       }
-      
-      /**
-       * FIXED: Enhanced project loading with new user handling
-       */
-      async function loadProjects() {
-          try {
-              console.log('📂 Loading projects...');
-              
-              const projectService = window.AAAI_APP?.getService('ProjectService') || window.ProjectService;
-              
-              if (!projectService || !projectService.isInitialized) {
-                  console.warn('⚠️ ProjectService not available, showing welcome state');
-                  if (window.showWelcomeMessage) {
-                      window.showWelcomeMessage();
-                  }
-                  return;
-              }
-              
-              try {
-                  // Try to load user projects
-                  const context = await projectService.getCurrentContext();
-                  
-                  if (context && context.success) {
-                      if (context.isNewUser) {
-                          console.log('👋 Welcome! New user detected - no existing projects');
-                          if (window.showWelcomeMessage) {
-                              window.showWelcomeMessage();
-                          }
-                      } else {
-                          console.log('✅ Project context loaded:', context);
-                          // Continue with normal project loading...
-                          // Your existing project loading code here
-                      }
-                  } else {
-                      console.log('ℹ️ No context available (new user)');
-                      if (window.showWelcomeMessage) {
-                          window.showWelcomeMessage();
-                      }
-                  }
-              } catch (error) {
-                  console.log('ℹ️ Project loading failed (likely new user):', error.message);
-                  if (window.showWelcomeMessage) {
-                      window.showWelcomeMessage();
-                  }
-              }
-              
-              console.log('✅ Project loading completed');
-              
-          } catch (error) {
-              console.error('❌ Project loading failed:', error);
+    }
+
+    /**
+    * Load current context
+    */
+    async function loadCurrentContext() {
+      try {
+        if (window.ProjectService) {
+          const contextResult = await window.ProjectService.getCurrentContext();
+          if (contextResult.success) {
+            currentContext = contextResult;
+            updateContextIndicator(contextResult);
+            console.log('✅ Current context loaded:', contextResult);
           }
-      }
-      
-      /**
-       * Render projects based on current view
-       */
-      function renderProjects() {
-        if (filteredProjects.length === 0) {
-          if (projects.length === 0) {
-            showEmptyState(true);
-          } else {
-            showNoResults();
-          }
-          return;
         }
-        
-        showEmptyState(false);
-        
-        if (currentView === 'grid') {
-          renderProjectsGrid();
+      } catch (error) {
+        console.warn('Could not load current context:', error);
+      }
+    }
+
+    /**
+    * Update context indicator
+    */
+    function updateContextIndicator(context) {
+      if (context && context.current_project) {
+        elements.contextInfo.innerHTML = `
+          <strong>Active Project:</strong> ${context.current_project.name}<br>
+          <strong>Chat ID:</strong> <code>${context.current_project.id}</code>
+        `;
+        elements.contextIndicator.classList.remove('hidden');
+      } else {
+        elements.contextIndicator.classList.add('hidden');
+      }
+    }
+
+    /**
+    * SIMPLIFIED: Load projects
+    */
+    async function loadProjects() {
+        try {
+            console.log('📂 Loading projects...');
+            
+            // Show welcome message for now (since we don't have real project data)
+            showWelcomeMessage();
+            
+            console.log('✅ Project loading completed');
+            
+        } catch (error) {
+            console.error('❌ Project loading failed:', error);
+        }
+    }
+
+    /**
+    * Show welcome message for new users
+    */
+    function showWelcomeMessage() {
+        if (elements.projectsGrid) {
+            elements.projectsGrid.innerHTML = `
+                <div class="welcome-state" style="text-align: center; padding: 40px; color: #fff;">
+                    <h3>👋 Welcome to AAAI Solutions!</h3>
+                    <p>You don't have any projects yet. Create your first project to get started.</p>
+                    <button class="btn btn-primary" onclick="showNewProjectModal()" style="padding: 10px 20px; background: #007acc; color: white; border: none; border-radius: 4px; cursor: pointer;">
+                        Create Your First Project
+                    </button>
+                </div>
+            `;
+        }
+    }
+
+    /**
+    * Show error page
+    */
+    function showErrorPage(message) {
+        if (elements.loadingContainer) {
+            elements.loadingContainer.innerHTML = `
+                <div style="text-align: center; color: #fff; padding: 40px;">
+                    <h3>Error</h3>
+                    <p>${message}</p>
+                    <button onclick="window.location.reload()" style="padding: 10px 20px; margin: 10px; background: #007acc; color: white; border: none; border-radius: 4px; cursor: pointer;">
+                        Refresh
+                    </button>
+                    <button onclick="window.location.href='login.html'" style="padding: 10px 20px; margin: 10px; background: #dc3545; color: white; border: none; border-radius: 4px; cursor: pointer;">
+                        Login
+                    </button>
+                </div>
+            `;
+        }
+    }
+
+    /**
+    * Render projects based on current view
+    */
+    function renderProjects() {
+      if (filteredProjects.length === 0) {
+        if (projects.length === 0) {
+          showEmptyState(true);
         } else {
-          renderProjectsList();
+          showNoResults();
         }
+        return;
       }
       
-      /**
-       * Render projects grid
-       */
-      function renderProjectsGrid() {
-        elements.projectsGrid.innerHTML = '';
-        
-        filteredProjects.forEach(project => {
-          const projectCard = createProjectCard(project);
-          elements.projectsGrid.appendChild(projectCard);
-        });
-      }
+      showEmptyState(false);
       
-      /**
-       * Render projects list
-       */
-      function renderProjectsList() {
-        elements.projectsList.innerHTML = '';
-        
-        filteredProjects.forEach(project => {
-          const projectItem = createProjectListItem(project);
-          elements.projectsList.appendChild(projectItem);
-        });
+      if (currentView === 'grid') {
+        renderProjectsGrid();
+      } else {
+        renderProjectsList();
       }
+    }
+
+    /**
+    * Render projects grid
+    */
+    function renderProjectsGrid() {
+      elements.projectsGrid.innerHTML = '';
       
-      /**
-       * Create project card
-       */
-      function createProjectCard(project) {
-        const card = document.createElement('div');
-        card.className = 'project-card';
-        card.onclick = () => openProject(project.id, project.name);
-        
-        const chatId = project.id;
-        
-        card.innerHTML = `
-          <div class="project-header">
-            <h3 class="project-title">${escapeHtml(project.name)}</h3>
+      filteredProjects.forEach(project => {
+        const projectCard = createProjectCard(project);
+        elements.projectsGrid.appendChild(projectCard);
+      });
+    }
+
+    /**
+    * Render projects list
+    */
+    function renderProjectsList() {
+      elements.projectsList.innerHTML = '';
+      
+      filteredProjects.forEach(project => {
+        const projectItem = createProjectListItem(project);
+        elements.projectsList.appendChild(projectItem);
+      });
+    }
+
+    /**
+    * Create project card
+    */
+    function createProjectCard(project) {
+      const card = document.createElement('div');
+      card.className = 'project-card';
+      card.onclick = () => openProject(project.id, project.name);
+      
+      const chatId = project.id;
+      
+      card.innerHTML = `
+        <div class="project-header">
+          <h3 class="project-title">${escapeHtml(project.name)}</h3>
+          <button class="project-menu" onclick="event.stopPropagation(); showProjectMenu('${project.id}', event)" data-project-id="${project.id}">⋮</button>
+        </div>
+        <p class="project-description">${escapeHtml(project.description || 'No description provided')}</p>
+        <div class="project-stats">
+          <div class="project-stats-left">
+            <div class="project-stat">
+              <ion-icon name="chatbubbles-outline"></ion-icon>
+              <span>${project.message_count || 0} messages</span>
+            </div>
+            <div class="project-stat">
+              <ion-icon name="time-outline"></ion-icon>
+              <span>${formatDate(project.created_at)}</span>
+            </div>
+          </div>
+          <div class="project-last-activity">${formatRelativeTime(project.last_accessed_at || project.created_at)}</div>
+        </div>
+        <div class="chat-id-indicator" title="Chat ID for this project">
+          ID: ${chatId.substring(0, 8)}...
+        </div>
+      `;
+      
+      return card;
+    }
+
+    /**
+    * Create project list item
+    */
+    function createProjectListItem(project) {
+      const item = document.createElement('div');
+      item.className = 'project-list-item';
+      item.onclick = () => openProject(project.id, project.name);
+      
+      const chatId = project.id;
+      
+      item.innerHTML = `
+        <div class="project-list-header">
+          <h3 class="project-list-title">${escapeHtml(project.name)}</h3>
+          <div class="project-list-stats">
+            <span>${project.message_count || 0} messages</span>
+            <span>${formatDate(project.created_at)}</span>
+            <span>${formatRelativeTime(project.last_accessed_at || project.created_at)}</span>
+            <span title="Chat ID">ID: ${chatId.substring(0, 8)}...</span>
             <button class="project-menu" onclick="event.stopPropagation(); showProjectMenu('${project.id}', event)" data-project-id="${project.id}">⋮</button>
           </div>
-          <p class="project-description">${escapeHtml(project.description || 'No description provided')}</p>
-          <div class="project-stats">
-            <div class="project-stats-left">
-              <div class="project-stat">
-                <ion-icon name="chatbubbles-outline"></ion-icon>
-                <span>${project.message_count || 0} messages</span>
-              </div>
-              <div class="project-stat">
-                <ion-icon name="time-outline"></ion-icon>
-                <span>${formatDate(project.created_at)}</span>
-              </div>
-            </div>
-            <div class="project-last-activity">${formatRelativeTime(project.last_accessed_at || project.created_at)}</div>
-          </div>
-          <div class="chat-id-indicator" title="Chat ID for this project">
-            ID: ${chatId.substring(0, 8)}...
-          </div>
-        `;
-        
-        return card;
-      }
+        </div>
+        <p class="project-description">${escapeHtml(project.description || 'No description provided')}</p>
+      `;
       
-      /**
-       * Create project list item
-       */
-      function createProjectListItem(project) {
-        const item = document.createElement('div');
-        item.className = 'project-list-item';
-        item.onclick = () => openProject(project.id, project.name);
-        
-        const chatId = project.id;
-        
-        item.innerHTML = `
-          <div class="project-list-header">
-            <h3 class="project-list-title">${escapeHtml(project.name)}</h3>
-            <div class="project-list-stats">
-              <span>${project.message_count || 0} messages</span>
-              <span>${formatDate(project.created_at)}</span>
-              <span>${formatRelativeTime(project.last_accessed_at || project.created_at)}</span>
-              <span title="Chat ID">ID: ${chatId.substring(0, 8)}...</span>
-              <button class="project-menu" onclick="event.stopPropagation(); showProjectMenu('${project.id}', event)" data-project-id="${project.id}">⋮</button>
-            </div>
-          </div>
-          <p class="project-description">${escapeHtml(project.description || 'No description provided')}</p>
-        `;
-        
-        return item;
-      }
+      return item;
+    }
+
+    /**
+    * Setup event listeners
+    */
+    function setupEventListeners() {
+      // User actions
+      elements.logoutBtn?.addEventListener('click', handleLogout);
       
-      /**
-       * Setup event listeners
-       */
-      function setupEventListeners() {
-        // User actions
-        elements.logoutBtn?.addEventListener('click', handleLogout);
-        
-        // Search and view controls
-        elements.searchInput?.addEventListener('input', handleSearch);
-        elements.gridViewBtn?.addEventListener('click', () => switchView('grid'));
-        elements.listViewBtn?.addEventListener('click', () => switchView('list'));
-        
-        // Project creation
-        elements.newProjectBtn?.addEventListener('click', showNewProjectModal);
-        elements.newProjectForm?.addEventListener('submit', handleCreateProject);
-        
-        // Project editing
-        elements.editProjectForm?.addEventListener('submit', handleUpdateProject);
-        
-        // Project deletion
-        elements.confirmDeleteBtn?.addEventListener('click', handleDeleteProject);
-        
-        // Modal controls
-        elements.newProjectModal?.addEventListener('click', function(e) {
-          if (e.target === elements.newProjectModal) {
-            hideNewProjectModal();
-          }
-        });
-        
-        elements.editProjectModal?.addEventListener('click', function(e) {
-          if (e.target === elements.editProjectModal) {
-            hideEditProjectModal();
-          }
-        });
-        
-        elements.deleteConfirmModal?.addEventListener('click', function(e) {
-          if (e.target === elements.deleteConfirmModal) {
-            hideDeleteConfirmModal();
-          }
-        });
-        
-        // Close context menu when clicking outside (but not on menu items)
-        document.addEventListener('click', function(e) {
-          if (!elements.projectContextMenu.contains(e.target) && 
-              !e.target.classList.contains('project-menu') &&
-              !e.target.closest('.context-menu-item')) {
-            hideContextMenu();
-          }
-        });
-      }
+      // Search and view controls
+      elements.searchInput?.addEventListener('input', handleSearch);
+      elements.gridViewBtn?.addEventListener('click', () => switchView('grid'));
+      elements.listViewBtn?.addEventListener('click', () => switchView('list'));
       
-      /**
-       * Show project context menu
-       */
-      function showProjectMenu(projectId, event) {
-        event.preventDefault();
-        event.stopPropagation();
-        
-        selectedProjectId = projectId;
-        selectedProject = projects.find(p => p.id === projectId);
-        
-        if (!selectedProject) {
-          console.error('Project not found:', projectId);
-          showToast('Project not found', 'error');
-          return;
+      // Project creation
+      elements.newProjectBtn?.addEventListener('click', showNewProjectModal);
+      elements.newProjectForm?.addEventListener('submit', handleCreateProject);
+      
+      // Project editing
+      elements.editProjectForm?.addEventListener('submit', handleUpdateProject);
+      
+      // Project deletion
+      elements.confirmDeleteBtn?.addEventListener('click', handleDeleteProject);
+      
+      // Modal controls
+      elements.newProjectModal?.addEventListener('click', function(e) {
+        if (e.target === elements.newProjectModal) {
+          hideNewProjectModal();
         }
-        
-        console.log('Showing context menu for project:', selectedProject.name, selectedProject);
-        
-        const rect = event.target.getBoundingClientRect();
-        const menu = elements.projectContextMenu;
-        
-        // Position the menu
-        menu.style.display = 'block';
-        menu.style.left = (rect.left + window.scrollX - menu.offsetWidth + rect.width) + 'px';
-        menu.style.top = (rect.bottom + window.scrollY + 5) + 'px';
-        
-        // Adjust position if menu goes off screen
-        const menuRect = menu.getBoundingClientRect();
-        if (menuRect.right > window.innerWidth) {
-          menu.style.left = (rect.left + window.scrollX - menu.offsetWidth) + 'px';
-        }
-        if (menuRect.bottom > window.innerHeight) {
-          menu.style.top = (rect.top + window.scrollY - menu.offsetHeight - 5) + 'px';
-        }
-      }
-      
-      /**
-       * Hide context menu
-       */
-      function hideContextMenu() {
-        elements.projectContextMenu.style.display = 'none';
-        // Don't clear selectedProject here - let the action functions handle it
-      }
-      
-      /**
-       * Edit project
-       */
-      function editProject() {
-        console.log('Edit project called, selectedProject:', selectedProject);
-        
-        if (!selectedProject) {
-          console.error('No project selected for editing');
-          showToast('No project selected', 'error');
-          return;
-        }
-        
-        hideContextMenu();
-        
-        // Populate edit form
-        elements.editProjectName.value = selectedProject.name || '';
-        elements.editProjectDescription.value = selectedProject.description || '';
-        
-        // Show edit modal
-        elements.editProjectModal.style.display = 'flex';
-        elements.editProjectName.focus();
-      }
-      
-      /**
-       * Delete project
-       */
-      function deleteProject() {
-        console.log('Delete project called, selectedProject:', selectedProject);
-        
-        if (!selectedProject) {
-          console.error('No project selected for deletion');
-          showToast('No project selected', 'error');
-          return;
-        }
-        
-        hideContextMenu();
-        
-        // Show confirmation modal
-        elements.deleteProjectName.textContent = selectedProject.name;
-        elements.deleteConfirmModal.style.display = 'flex';
-      }
-      
-      /**
-       * Handle search
-       */
-      function handleSearch(e) {
-        const query = e.target.value.toLowerCase().trim();
-        
-        if (query === '') {
-          filteredProjects = [...projects];
-        } else {
-          filteredProjects = projects.filter(project => 
-            project.name.toLowerCase().includes(query) ||
-            (project.description && project.description.toLowerCase().includes(query)) ||
-            project.id.toLowerCase().includes(query)
-          );
-        }
-        
-        renderProjects();
-      }
-      
-      /**
-       * Switch view between grid and list
-       */
-      function switchView(view) {
-        currentView = view;
-        
-        // Update buttons
-        document.querySelectorAll('.view-toggle-btn').forEach(btn => {
-          btn.classList.remove('active');
-        });
-        
-        if (view === 'grid') {
-          elements.gridViewBtn.classList.add('active');
-          elements.projectsGrid.style.display = 'grid';
-          elements.projectsList.style.display = 'none';
-        } else {
-          elements.listViewBtn.classList.add('active');
-          elements.projectsGrid.style.display = 'none';
-          elements.projectsList.style.display = 'block';
-          elements.projectsList.classList.add('active');
-        }
-        
-        renderProjects();
-      }
-      
-      /**
-       * Show/hide new project modal
-       */
-      function showNewProjectModal() {
-        elements.newProjectModal.style.display = 'flex';
-        elements.projectName.focus();
-      }
-      
-      function hideNewProjectModal() {
-        elements.newProjectModal.style.display = 'none';
-        elements.newProjectForm.reset();
-      }
-      
-      /**
-       * Show/hide edit project modal
-       */
-      function hideEditProjectModal() {
-        elements.editProjectModal.style.display = 'none';
-        elements.editProjectForm.reset();
-        selectedProjectId = null;
-        selectedProject = null;
-      }
-      
-      /**
-       * Show/hide delete confirmation modal
-       */
-      function hideDeleteConfirmModal() {
-        elements.deleteConfirmModal.style.display = 'none';
-        selectedProjectId = null;
-        selectedProject = null;
-      }
-      
-      /**
-       * Handle project creation
-       */
-      async function handleCreateProject(e) {
-        e.preventDefault();
-        
-        const name = elements.projectName.value.trim();
-        const description = elements.projectDescription.value.trim();
-        
-        if (!name) {
-          showToast('Project name is required', 'error');
-          return;
-        }
-        
-        try {
-          setButtonLoading(elements.createProjectBtn, true);
-          
-          const projectData = {
-            name: name,
-            description: description,
-            tags: []
-          };
-          
-          console.log('📝 Creating new project with unified services:', projectData);
-          
-          // Use NavigationManager to create and navigate
-          const result = await window.NavigationManager.createProjectAndNavigate(projectData);
-          
-          if (result.success) {
-            // Update local state
-            projects.unshift(result.project);
-            filteredProjects = [...projects];
-            
-            hideNewProjectModal();
-            renderProjects();
-            
-            showToast(`Project "${name}" created successfully!`, 'success');
-            
-            // Update context indicator
-            updateContextIndicator({
-              current_project: result.project
-            });
-            
-            console.log('✅ Project created and navigation initiated');
-          }
-          
-        } catch (error) {
-          console.error('❌ Error creating project:', error);
-          showToast(`Failed to create project: ${error.message}`, 'error');
-        } finally {
-          setButtonLoading(elements.createProjectBtn, false);
-        }
-      }
-      
-      /**
-       * Handle project update
-       */
-      async function handleUpdateProject(e) {
-        e.preventDefault();
-        
-        if (!selectedProject) {
-          showToast('No project selected', 'error');
-          return;
-        }
-        
-        const name = elements.editProjectName.value.trim();
-        const description = elements.editProjectDescription.value.trim();
-        
-        if (!name) {
-          showToast('Project name is required', 'error');
-          return;
-        }
-        
-        try {
-          setButtonLoading(elements.updateProjectBtn, true);
-          
-          const updateData = {
-            project_id: selectedProject.id,
-            name: name,
-            description: description,
-            tags: selectedProject.tags || []
-          };
-          
-          console.log('📝 Updating project:', updateData);
-          
-          const result = await window.AuthService.executeFunction('update_project', updateData);
-          
-          if (result?.status === 'success' && result?.data?.success) {
-            // Update local state
-            const projectIndex = projects.findIndex(p => p.id === selectedProject.id);
-            if (projectIndex !== -1) {
-              projects[projectIndex] = { ...projects[projectIndex], name: name, description: description };
-              filteredProjects = [...projects];
-              renderProjects();
-            }
-            
-            hideEditProjectModal();
-            showToast(`Project "${name}" updated successfully!`, 'success');
-            
-            console.log('✅ Project updated successfully');
-          } else {
-            throw new Error(result?.data?.message || 'Failed to update project');
-          }
-          
-        } catch (error) {
-          console.error('❌ Error updating project:', error);
-          showToast(`Failed to update project: ${error.message}`, 'error');
-        } finally {
-          setButtonLoading(elements.updateProjectBtn, false);
-        }
-      }
-      
-      /**
-       * Handle project deletion
-       */
-      async function handleDeleteProject() {
-        if (!selectedProject) {
-          showToast('No project selected', 'error');
-          return;
-        }
-        
-        const projectToDelete = { ...selectedProject }; // Create a copy
-        
-        try {
-          setButtonLoading(elements.confirmDeleteBtn, true);
-          
-          const deleteData = {
-            project_id: projectToDelete.id
-          };
-          
-          console.log('🗑️ Deleting project:', deleteData);
-          
-          const result = await window.AuthService.executeFunction('delete_project', deleteData);
-          
-          if (result?.status === 'success' && result?.data?.success) {
-            // Update local state
-            projects = projects.filter(p => p.id !== projectToDelete.id);
-            filteredProjects = [...projects];
-            renderProjects();
-            
-            hideDeleteConfirmModal();
-            showToast(`Project "${projectToDelete.name}" deleted successfully!`, 'success');
-            
-            console.log('✅ Project deleted successfully');
-          } else {
-            throw new Error(result?.data?.message || 'Failed to delete project');
-          }
-          
-        } catch (error) {
-          console.error('❌ Error deleting project:', error);
-          showToast(`Failed to delete project: ${error.message}`, 'error');
-        } finally {
-          setButtonLoading(elements.confirmDeleteBtn, false);
-        }
-      }
-      
-      /**
-       * Open existing project
-       */
-      async function openProject(projectId, projectName) {
-        try {
-          console.log('📂 Opening project with unified services:', { projectId, projectName });
-          
-          // Use NavigationManager to open project
-          await window.NavigationManager.openProject(projectId, projectName);
-          
-        } catch (error) {
-          console.error('❌ Error opening project:', error);
-          showToast(`Failed to open project: ${error.message}`, 'error');
-        }
-      }
-      
-      /**
-       * Handle logout
-       */
-      async function handleLogout() {
-        if (confirm('Are you sure you want to sign out?')) {
-          try {
-            await window.AuthService.logout();
-            window.location.href = 'login.html';
-          } catch (error) {
-            console.error('Logout error:', error);
-            window.location.href = 'login.html';
-          }
-        }
-      }
-      
-      // Utility functions
-      
-      function showLoading(show) {
-        elements.loadingContainer.style.display = show ? 'flex' : 'none';
-        elements.projectsGrid.style.display = show ? 'none' : 'grid';
-        elements.projectsList.style.display = show ? 'none' : (currentView === 'list' ? 'block' : 'none');
-      }
-      
-      function showEmptyState(show) {
-        elements.emptyState.style.display = show ? 'block' : 'none';
-        elements.projectsGrid.style.display = show ? 'none' : (currentView === 'grid' ? 'grid' : 'none');
-        elements.projectsList.style.display = show ? 'none' : (currentView === 'list' ? 'block' : 'none');
-      }
-      
-      function showNoResults() {
-        const noResultsHtml = `
-          <div class="empty-state">
-            <div class="empty-state-icon">🔍</div>
-            <h3>No Projects Found</h3>
-            <p>No projects match your search criteria. Try adjusting your search terms.</p>
-          </div>
-        `;
-        
-        if (currentView === 'grid') {
-          elements.projectsGrid.innerHTML = noResultsHtml;
-        } else {
-          elements.projectsList.innerHTML = noResultsHtml;
-        }
-      }
-      
-      function setButtonLoading(button, loading) {
-        const span = button.querySelector('span');
-        if (loading) {
-          button.disabled = true;
-          button.classList.add('loading');
-          if (span) {
-            const originalText = span.textContent;
-            button.setAttribute('data-original-text', originalText);
-            span.textContent = 'Processing...';
-          }
-        } else {
-          button.disabled = false;
-          button.classList.remove('loading');
-          if (span) {
-            const originalText = button.getAttribute('data-original-text');
-            if (originalText) {
-              span.textContent = originalText;
-              button.removeAttribute('data-original-text');
-            }
-          }
-        }
-      }
-      
-      function showToast(message, type = 'success') {
-        // Remove existing toasts
-        document.querySelectorAll('.toast').forEach(toast => toast.remove());
-        
-        const toast = document.createElement('div');
-        toast.className = `toast ${type}`;
-        toast.textContent = message;
-        
-        document.body.appendChild(toast);
-        
-        // Show toast
-        setTimeout(() => toast.classList.add('show'), 100);
-        
-        // Hide toast after 5 seconds
-        setTimeout(() => {
-          toast.classList.remove('show');
-          setTimeout(() => toast.remove(), 300);
-        }, 5000);
-      }
-      
-      function escapeHtml(text) {
-        const div = document.createElement('div');
-        div.textContent = text;
-        return div.innerHTML;
-      }
-      
-      function formatDate(dateString) {
-        const date = new Date(dateString);
-        return date.toLocaleDateString('en-US', { 
-          year: 'numeric', 
-          month: 'short', 
-          day: 'numeric' 
-        });
-      }
-      
-      function formatRelativeTime(dateString) {
-        const date = new Date(dateString);
-        const now = new Date();
-        const diffInMinutes = Math.floor((now - date) / (1000 * 60));
-        
-        if (diffInMinutes < 1) return 'Just now';
-        if (diffInMinutes < 60) return `${diffInMinutes}m ago`;
-        
-        const diffInHours = Math.floor(diffInMinutes / 60);
-        if (diffInHours < 24) return `${diffInHours}h ago`;
-        
-        const diffInDays = Math.floor(diffInHours / 24);
-        if (diffInDays < 7) return `${diffInDays}d ago`;
-        
-        return formatDate(dateString);
-      }
-      
-      // FIXED: Debug function for project page
-      function debugProjectPageAuth() {
-          console.log('🔍 Project Page Auth Debug:');
-          
-          // Check cookies
-          const cookies = document.cookie.split(';');
-          console.log('- Total cookies:', cookies.length);
-          console.log('- All cookies:', document.cookie);
-          
-          // Check specific auth cookies
-          const authCookies = ['user_info', 'authenticated', 'access_token', 'refresh_token'];
-          authCookies.forEach(name => {
-              const value = getCookieValue(name);
-              console.log(`- ${name}:`, value ? 'PRESENT' : 'MISSING');
-              
-              if (name === 'user_info' && value) {
-                  try {
-                      const parsed = JSON.parse(decodeURIComponent(value));
-                      console.log(`  Parsed:`, parsed);
-                  } catch (e) {
-                      console.log(`  Parse error:`, e.message);
-                  }
-              }
-          });
-          
-          // Check AuthService state
-          if (window.AuthService) {
-              console.log('- AuthService authenticated:', window.AuthService.authenticated);
-              console.log('- AuthService user email:', window.AuthService.userEmail);
-              console.log('- AuthService user ID:', window.AuthService.userId);
-              console.log('- AuthService has token:', !!window.AuthService.accessToken);
-          } else {
-              console.log('- AuthService: NOT LOADED');
-          }
-          
-          // Check localStorage backup
-          const backupData = {
-              token: localStorage.getItem('backup_auth_token'),
-              email: localStorage.getItem('backup_user_email'),
-              id: localStorage.getItem('backup_user_id'),
-              timestamp: localStorage.getItem('backup_auth_timestamp')
-          };
-          console.log('- localStorage backup:', backupData);
-      }
-      
-      // Helper function to read cookies (duplicate for project page)
-      function getCookieValue(name) {
-          try {
-              const cookies = document.cookie.split(';');
-              for (const cookie of cookies) {
-                  const [cookieName, cookieValue] = cookie.trim().split('=');
-                  if (cookieName === name) {
-                      return cookieValue || null;
-                  }
-              }
-          } catch (error) {
-              console.error('Error reading cookie:', name, error);
-          }
-          return null;
-      }
-      
-      // Add debug function to window for easy access
-      window.debugProjectPageAuth = debugProjectPageAuth;
-      
-      // Global functions for onclick handlers
-      window.showNewProjectModal = showNewProjectModal;
-      window.hideNewProjectModal = hideNewProjectModal;
-      window.hideEditProjectModal = hideEditProjectModal;
-      window.hideDeleteConfirmModal = hideDeleteConfirmModal;
-      window.openProject = openProject;
-      window.showProjectMenu = showProjectMenu;
-      window.hideContextMenu = hideContextMenu;
-      window.editProject = editProject;
-      window.deleteProject = deleteProject;
-      
-      /**
-       * UPDATED: Main document ready handler with coordination
-       */
-      document.addEventListener('DOMContentLoaded', async function() {
-          console.log('📄 Project page loaded, starting coordinated initialization...');
-          
-          // Small delay to ensure all scripts are loaded
-          await new Promise(resolve => setTimeout(resolve, 200));
-          
-          // Start the coordinated initialization process
-          await initializeApp();
       });
-    </script>
+      
+      elements.editProjectModal?.addEventListener('click', function(e) {
+        if (e.target === elements.editProjectModal) {
+          hideEditProjectModal();
+        }
+      });
+      
+      elements.deleteConfirmModal?.addEventListener('click', function(e) {
+        if (e.target === elements.deleteConfirmModal) {
+          hideDeleteConfirmModal();
+        }
+      });
+      
+      // Close context menu when clicking outside
+      document.addEventListener('click', function(e) {
+        if (!elements.projectContextMenu.contains(e.target) && 
+            !e.target.classList.contains('project-menu') &&
+            !e.target.closest('.context-menu-item')) {
+          hideContextMenu();
+        }
+      });
+    }
+
+    /**
+    * Show project context menu
+    */
+    function showProjectMenu(projectId, event) {
+      event.preventDefault();
+      event.stopPropagation();
+      
+      selectedProjectId = projectId;
+      selectedProject = projects.find(p => p.id === projectId);
+      
+      if (!selectedProject) {
+        console.error('Project not found:', projectId);
+        showToast('Project not found', 'error');
+        return;
+      }
+      
+      console.log('Showing context menu for project:', selectedProject.name, selectedProject);
+      
+      const rect = event.target.getBoundingClientRect();
+      const menu = elements.projectContextMenu;
+      
+      // Position the menu
+      menu.style.display = 'block';
+      menu.style.left = (rect.left + window.scrollX - menu.offsetWidth + rect.width) + 'px';
+      menu.style.top = (rect.bottom + window.scrollY + 5) + 'px';
+      
+      // Adjust position if menu goes off screen
+      const menuRect = menu.getBoundingClientRect();
+      if (menuRect.right > window.innerWidth) {
+        menu.style.left = (rect.left + window.scrollX - menu.offsetWidth) + 'px';
+      }
+      if (menuRect.bottom > window.innerHeight) {
+        menu.style.top = (rect.top + window.scrollY - menu.offsetHeight - 5) + 'px';
+      }
+    }
+
+    /**
+    * Hide context menu
+    */
+    function hideContextMenu() {
+      elements.projectContextMenu.style.display = 'none';
+    }
+
+    /**
+    * Edit project
+    */
+    function editProject() {
+      console.log('Edit project called, selectedProject:', selectedProject);
+      
+      if (!selectedProject) {
+        console.error('No project selected for editing');
+        showToast('No project selected', 'error');
+        return;
+      }
+      
+      hideContextMenu();
+      
+      // Populate edit form
+      elements.editProjectName.value = selectedProject.name || '';
+      elements.editProjectDescription.value = selectedProject.description || '';
+      
+      // Show edit modal
+      elements.editProjectModal.style.display = 'flex';
+      elements.editProjectName.focus();
+    }
+
+    /**
+    * Delete project
+    */
+    function deleteProject() {
+      console.log('Delete project called, selectedProject:', selectedProject);
+      
+      if (!selectedProject) {
+        console.error('No project selected for deletion');
+        showToast('No project selected', 'error');
+        return;
+      }
+      
+      hideContextMenu();
+      
+      // Show confirmation modal
+      elements.deleteProjectName.textContent = selectedProject.name;
+      elements.deleteConfirmModal.style.display = 'flex';
+    }
+
+    /**
+    * Handle search
+    */
+    function handleSearch(e) {
+      const query = e.target.value.toLowerCase().trim();
+      
+      if (query === '') {
+        filteredProjects = [...projects];
+      } else {
+        filteredProjects = projects.filter(project => 
+          project.name.toLowerCase().includes(query) ||
+          (project.description && project.description.toLowerCase().includes(query)) ||
+          project.id.toLowerCase().includes(query)
+        );
+      }
+      
+      renderProjects();
+    }
+
+    /**
+    * Switch view between grid and list
+    */
+    function switchView(view) {
+      currentView = view;
+      
+      // Update buttons
+      document.querySelectorAll('.view-toggle-btn').forEach(btn => {
+        btn.classList.remove('active');
+      });
+      
+      if (view === 'grid') {
+        elements.gridViewBtn.classList.add('active');
+        elements.projectsGrid.style.display = 'grid';
+        elements.projectsList.style.display = 'none';
+      } else {
+        elements.listViewBtn.classList.add('active');
+        elements.projectsGrid.style.display = 'none';
+        elements.projectsList.style.display = 'block';
+        elements.projectsList.classList.add('active');
+      }
+      
+      renderProjects();
+    }
+
+    /**
+    * Show/hide new project modal
+    */
+    function showNewProjectModal() {
+      elements.newProjectModal.style.display = 'flex';
+      elements.projectName.focus();
+    }
+
+    function hideNewProjectModal() {
+      elements.newProjectModal.style.display = 'none';
+      elements.newProjectForm.reset();
+    }
+
+    /**
+    * Show/hide edit project modal
+    */
+    function hideEditProjectModal() {
+      elements.editProjectModal.style.display = 'none';
+      elements.editProjectForm.reset();
+      selectedProjectId = null;
+      selectedProject = null;
+    }
+
+    /**
+    * Show/hide delete confirmation modal
+    */
+    function hideDeleteConfirmModal() {
+      elements.deleteConfirmModal.style.display = 'none';
+      selectedProjectId = null;
+      selectedProject = null;
+    }
+
+    /**
+    * Handle project creation
+    */
+    async function handleCreateProject(e) {
+      e.preventDefault();
+      
+      const name = elements.projectName.value.trim();
+      const description = elements.projectDescription.value.trim();
+      
+      if (!name) {
+        showToast('Project name is required', 'error');
+        return;
+      }
+      
+      try {
+        setButtonLoading(elements.createProjectBtn, true);
+        
+        const projectData = {
+          name: name,
+          description: description,
+          tags: []
+        };
+        
+        console.log('📝 Creating new project:', projectData);
+        
+        // Use AuthService to create project
+        const result = await window.AuthService.executeFunction('create_project', projectData);
+        
+        if (result?.status === 'success' && result?.data?.success) {
+          // Update local state
+          const newProject = result.data.project;
+          projects.unshift(newProject);
+          filteredProjects = [...projects];
+          
+          hideNewProjectModal();
+          renderProjects();
+          
+          showToast(`Project "${name}" created successfully!`, 'success');
+          
+          console.log('✅ Project created successfully');
+        } else {
+          throw new Error(result?.data?.message || 'Failed to create project');
+        }
+        
+      } catch (error) {
+        console.error('❌ Error creating project:', error);
+        showToast(`Failed to create project: ${error.message}`, 'error');
+      } finally {
+        setButtonLoading(elements.createProjectBtn, false);
+      }
+    }
+
+    /**
+    * Handle project update
+    */
+    async function handleUpdateProject(e) {
+      e.preventDefault();
+      
+      if (!selectedProject) {
+        showToast('No project selected', 'error');
+        return;
+      }
+      
+      const name = elements.editProjectName.value.trim();
+      const description = elements.editProjectDescription.value.trim();
+      
+      if (!name) {
+        showToast('Project name is required', 'error');
+        return;
+      }
+      
+      try {
+        setButtonLoading(elements.updateProjectBtn, true);
+        
+        const updateData = {
+          project_id: selectedProject.id,
+          name: name,
+          description: description,
+          tags: selectedProject.tags || []
+        };
+        
+        console.log('📝 Updating project:', updateData);
+        
+        const result = await window.AuthService.executeFunction('update_project', updateData);
+        
+        if (result?.status === 'success' && result?.data?.success) {
+          // Update local state
+          const projectIndex = projects.findIndex(p => p.id === selectedProject.id);
+          if (projectIndex !== -1) {
+            projects[projectIndex] = { ...projects[projectIndex], name: name, description: description };
+            filteredProjects = [...projects];
+            renderProjects();
+          }
+          
+          hideEditProjectModal();
+          showToast(`Project "${name}" updated successfully!`, 'success');
+          
+          console.log('✅ Project updated successfully');
+        } else {
+          throw new Error(result?.data?.message || 'Failed to update project');
+        }
+        
+      } catch (error) {
+        console.error('❌ Error updating project:', error);
+        showToast(`Failed to update project: ${error.message}`, 'error');
+      } finally {
+        setButtonLoading(elements.updateProjectBtn, false);
+      }
+    }
+
+    /**
+    * Handle project deletion
+    */
+    async function handleDeleteProject() {
+      if (!selectedProject) {
+        showToast('No project selected', 'error');
+        return;
+      }
+      
+      const projectToDelete = { ...selectedProject };
+      
+      try {
+        setButtonLoading(elements.confirmDeleteBtn, true);
+        
+        const deleteData = {
+          project_id: projectToDelete.id
+        };
+        
+        console.log('🗑️ Deleting project:', deleteData);
+        
+        const result = await window.AuthService.executeFunction('delete_project', deleteData);
+        
+        if (result?.status === 'success' && result?.data?.success) {
+          // Update local state
+          projects = projects.filter(p => p.id !== projectToDelete.id);
+          filteredProjects = [...projects];
+          renderProjects();
+          
+          hideDeleteConfirmModal();
+          showToast(`Project "${projectToDelete.name}" deleted successfully!`, 'success');
+          
+          console.log('✅ Project deleted successfully');
+        } else {
+          throw new Error(result?.data?.message || 'Failed to delete project');
+        }
+        
+      } catch (error) {
+        console.error('❌ Error deleting project:', error);
+        showToast(`Failed to delete project: ${error.message}`, 'error');
+      } finally {
+        setButtonLoading(elements.confirmDeleteBtn, false);
+      }
+    }
+
+    /**
+    * Open existing project
+    */
+    async function openProject(projectId, projectName) {
+      try {
+        console.log('📂 Opening project:', { projectId, projectName });
+        
+        // Navigate to chat page
+        const chatUrl = `chat.html?project=${projectId}&project_name=${encodeURIComponent(projectName)}`;
+        window.location.href = chatUrl;
+        
+      } catch (error) {
+        console.error('❌ Error opening project:', error);
+        showToast(`Failed to open project: ${error.message}`, 'error');
+      }
+    }
+
+    /**
+    * Handle logout
+    */
+    async function handleLogout() {
+      if (confirm('Are you sure you want to sign out?')) {
+        try {
+          await window.AuthService.logout();
+          window.location.href = 'login.html';
+        } catch (error) {
+          console.error('Logout error:', error);
+          window.location.href = 'login.html';
+        }
+      }
+    }
+
+    // Utility functions
+
+    function showLoading(show) {
+      elements.loadingContainer.style.display = show ? 'flex' : 'none';
+      elements.projectsGrid.style.display = show ? 'none' : 'grid';
+      elements.projectsList.style.display = show ? 'none' : (currentView === 'list' ? 'block' : 'none');
+    }
+
+    function showEmptyState(show) {
+      elements.emptyState.style.display = show ? 'block' : 'none';
+      elements.projectsGrid.style.display = show ? 'none' : (currentView === 'grid' ? 'grid' : 'none');
+      elements.projectsList.style.display = show ? 'none' : (currentView === 'list' ? 'block' : 'none');
+    }
+
+    function showNoResults() {
+      const noResultsHtml = `
+        <div class="empty-state">
+          <div class="empty-state-icon">🔍</div>
+          <h3>No Projects Found</h3>
+          <p>No projects match your search criteria. Try adjusting your search terms.</p>
+        </div>
+      `;
+      
+      if (currentView === 'grid') {
+        elements.projectsGrid.innerHTML = noResultsHtml;
+      } else {
+        elements.projectsList.innerHTML = noResultsHtml;
+      }
+    }
+
+    function setButtonLoading(button, loading) {
+      const span = button.querySelector('span');
+      if (loading) {
+        button.disabled = true;
+        button.classList.add('loading');
+        if (span) {
+          const originalText = span.textContent;
+          button.setAttribute('data-original-text', originalText);
+          span.textContent = 'Processing...';
+        }
+      } else {
+        button.disabled = false;
+        button.classList.remove('loading');
+        if (span) {
+          const originalText = button.getAttribute('data-original-text');
+          if (originalText) {
+            span.textContent = originalText;
+            button.removeAttribute('data-original-text');
+          }
+        }
+      }
+    }
+
+    function showToast(message, type = 'success') {
+      // Remove existing toasts
+      document.querySelectorAll('.toast').forEach(toast => toast.remove());
+      
+      const toast = document.createElement('div');
+      toast.className = `toast ${type}`;
+      toast.textContent = message;
+      
+      document.body.appendChild(toast);
+      
+      // Show toast
+      setTimeout(() => toast.classList.add('show'), 100);
+      
+      // Hide toast after 5 seconds
+      setTimeout(() => {
+        toast.classList.remove('show');
+        setTimeout(() => toast.remove(), 300);
+      }, 5000);
+    }
+
+    function escapeHtml(text) {
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
+    }
+
+    function formatDate(dateString) {
+      const date = new Date(dateString);
+      return date.toLocaleDateString('en-US', { 
+        year: 'numeric', 
+        month: 'short', 
+        day: 'numeric' 
+      });
+    }
+
+    function formatRelativeTime(dateString) {
+      const date = new Date(dateString);
+      const now = new Date();
+      const diffInMinutes = Math.floor((now - date) / (1000 * 60));
+      
+      if (diffInMinutes < 1) return 'Just now';
+      if (diffInMinutes < 60) return `${diffInMinutes}m ago`;
+      
+      const diffInHours = Math.floor(diffInMinutes / 60);
+      if (diffInHours < 24) return `${diffInHours}h ago`;
+      
+      const diffInDays = Math.floor(diffInHours / 24);
+      if (diffInDays < 7) return `${diffInDays}d ago`;
+      
+      return formatDate(dateString);
+    }
+
+    // Global functions for onclick handlers
+    window.showNewProjectModal = showNewProjectModal;
+    window.hideNewProjectModal = hideNewProjectModal;
+    window.hideEditProjectModal = hideEditProjectModal;
+    window.hideDeleteConfirmModal = hideDeleteConfirmModal;
+    window.openProject = openProject;
+    window.showProjectMenu = showProjectMenu;
+    window.hideContextMenu = hideContextMenu;
+    window.editProject = editProject;
+    window.deleteProject = deleteProject;
+    window.showWelcomeMessage = showWelcomeMessage;
+
+    /**
+    * SIMPLIFIED: Main document ready handler
+    */
+    document.addEventListener('DOMContentLoaded', async function() {
+        console.log('📄 Project page loaded, starting simplified initialization...');
+        
+        // Small delay to ensure all scripts are loaded
+        await new Promise(resolve => setTimeout(resolve, 100));
+        
+        // Start the simplified initialization process
+        await initializeApp();
+    });
+  </script>
+
 </body>
 
 </html>
