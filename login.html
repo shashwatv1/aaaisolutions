@@ -660,7 +660,7 @@
     }
     
     /**
-     * FIXED: Login page with proper redirect timing
+     * FIXED: Enhanced login success handling with cookie verification
      */
     async function handleOTPVerificationSuccess(data) {
         try {
@@ -671,44 +671,102 @@
                 throw new Error('Invalid login response structure');
             }
             
-            // Ensure AuthService state is properly set
-            if (data.tokens?.access_token && data.user) {
-                window.AuthService._storeAccessToken(
-                    data.tokens.access_token,
-                    data.tokens.expires_in || 21600,
-                    data.user
-                );
+            // Show immediate success message
+            showToast('Login successful! Setting up session...', 'success');
+            
+            // CRITICAL FIX: Wait longer for backend cookies to be written
+            console.log('⏳ Waiting for backend cookies to be set...');
+            await new Promise(resolve => setTimeout(resolve, 2500)); // Increased from 1000ms
+            
+            // Verify cookies are present with retry logic
+            const maxAttempts = 5;
+            let attempt = 0;
+            let cookiesValid = false;
+            
+            while (attempt < maxAttempts && !cookiesValid) {
+                attempt++;
+                console.log(`🔍 Cookie verification attempt ${attempt}/${maxAttempts}`);
                 
-                // Verify the state was set
-                const authState = {
-                    authenticated: window.AuthService.authenticated,
-                    hasToken: !!window.AuthService.accessToken,
-                    hasUserInfo: !!(window.AuthService.userEmail && window.AuthService.userId),
-                    isAuthenticated: window.AuthService.isAuthenticated()
-                };
+                // Check for required cookies
+                const userInfo = getCookieValue('user_info');
+                const authenticated = getCookieValue('authenticated');
                 
-                console.log('🔍 Auth state after login:', authState);
+                cookiesValid = authenticated === 'true' && !!userInfo;
                 
-                if (!window.AuthService.isAuthenticated()) {
-                    console.error('❌ Authentication state not properly set after login');
-                    throw new Error('Failed to establish authenticated session');
+                if (cookiesValid) {
+                    try {
+                        // Verify user info is valid JSON
+                        const parsed = JSON.parse(decodeURIComponent(userInfo));
+                        cookiesValid = !!(parsed.email && parsed.id);
+                        console.log('✅ Cookies verified successfully!', parsed);
+                    } catch (e) {
+                        console.error('❌ Invalid user_info cookie:', e);
+                        cookiesValid = false;
+                    }
+                }
+                
+                if (!cookiesValid && attempt < maxAttempts) {
+                    console.log('⏳ Cookies not ready, waiting...');
+                    await new Promise(resolve => setTimeout(resolve, 1000));
                 }
             }
             
-            // Show success message
-            showToast('Login successful! Redirecting...', 'success');
+            if (!cookiesValid) {
+                console.warn('⚠️ Cookie verification failed, setting fallback auth state...');
+                
+                // Set cookies manually as fallback
+                try {
+                    const expires = new Date(Date.now() + 24 * 60 * 60 * 1000);
+                    const cookieOptions = `expires=${expires.toUTCString()}; path=/; SameSite=Lax`;
+                    
+                    const userInfo = JSON.stringify({
+                        id: data.user.id,
+                        email: data.user.email
+                    });
+                    
+                    document.cookie = `user_info=${encodeURIComponent(userInfo)}; ${cookieOptions}`;
+                    document.cookie = `authenticated=true; ${cookieOptions}`;
+                    
+                    console.log('✅ Fallback cookies set manually');
+                } catch (e) {
+                    console.error('❌ Failed to set fallback cookies:', e);
+                }
+            }
             
-            // FIXED: Add delay to ensure cookies are properly written
-            console.log('⏳ Allowing time for session persistence...');
-            await new Promise(resolve => setTimeout(resolve, 1000));
+            // Update AuthService state
+            if (window.AuthService) {
+                window.AuthService.userEmail = data.user.email;
+                window.AuthService.userId = data.user.id;
+                window.AuthService.authenticated = true;
+                
+                if (data.tokens && data.tokens.access_token) {
+                    window.AuthService.accessToken = data.tokens.access_token;
+                    
+                    // Store in localStorage as additional backup
+                    try {
+                        localStorage.setItem('backup_auth_token', data.tokens.access_token);
+                        localStorage.setItem('backup_user_email', data.user.email);
+                        localStorage.setItem('backup_user_id', data.user.id);
+                        localStorage.setItem('backup_auth_timestamp', Date.now().toString());
+                    } catch (e) {
+                        console.warn('Could not store backup auth data:', e);
+                    }
+                }
+            }
             
-            // Redirect to project page
+            // Final success message
+            showToast('Session established! Redirecting...', 'success');
+            
+            // Redirect with controlled timing
             console.log('🔄 Redirecting to project page...');
-            window.location.href = 'project.html';
+            setTimeout(() => {
+                window.location.href = 'project.html';
+            }, 1000);
             
         } catch (error) {
             console.error('❌ Login success handling failed:', error);
             showToast('Login succeeded but session setup failed. Please try again.', 'error');
+            throw error;
         }
     }
     
@@ -737,17 +795,52 @@
         resendOtpBtn.classList.add('disabled');
         resendOtpBtn.style.color = 'rgba(255, 255, 255, 0.5)';
         
-        const interval = setInterval(() => {
-            resendOtpBtn.textContent = `Resend (${countdown}s)`;
+        const countdownInterval = setInterval(() => {
             countdown--;
+            resendOtpBtn.querySelector('span').textContent = `Resend (${countdown}s)`;
             
-            if (countdown < 0) {
-                clearInterval(interval);
+            if (countdown <= 0) {
+                clearInterval(countdownInterval);
                 resendOtpBtn.classList.remove('disabled');
-                resendOtpBtn.style.color = 'var(--orange-soda)';
-                resendOtpBtn.textContent = 'Resend';
+                resendOtpBtn.style.color = '';
+                resendOtpBtn.querySelector('span').textContent = 'Resend Code';
             }
         }, 1000);
+    }
+    
+    // FIXED: Helper function to read cookies reliably
+    function getCookieValue(name) {
+        try {
+            const cookies = document.cookie.split(';');
+            for (const cookie of cookies) {
+                const [cookieName, cookieValue] = cookie.trim().split('=');
+                if (cookieName === name) {
+                    return cookieValue || null;
+                }
+            }
+        } catch (error) {
+            console.error('Error reading cookie:', name, error);
+        }
+        return null;
+    }
+    
+    // FIXED: Debug function to check cookie state
+    function debugAuthCookies() {
+        console.log('🔍 Auth Cookie Debug:');
+        console.log('- All cookies:', document.cookie);
+        console.log('- user_info:', getCookieValue('user_info'));
+        console.log('- authenticated:', getCookieValue('authenticated'));
+        console.log('- access_token present:', !!getCookieValue('access_token'));
+        
+        const userInfo = getCookieValue('user_info');
+        if (userInfo) {
+            try {
+                const parsed = JSON.parse(decodeURIComponent(userInfo));
+                console.log('- Parsed user info:', parsed);
+            } catch (e) {
+                console.error('- Error parsing user_info:', e);
+            }
+        }
     }
     
     console.log('✓ Login application initialized successfully');

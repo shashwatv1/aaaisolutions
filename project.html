@@ -1041,243 +1041,311 @@
   
   <!-- Unified Projects Application Script --><!-- Unified Projects Application Script -->
   <script>
-    document.addEventListener('DOMContentLoaded', async function() {
-      console.log('🚀 Unified Projects Application starting...');
+    // Application state
+    let projects = [];
+    let filteredProjects = [];
+    let currentView = 'grid';
+    let currentContext = null;
+    let selectedProjectId = null;
+    let selectedProject = null;
+    
+    // DOM elements
+    const elements = {
+      // User info
+      userEmailDisplay: document.getElementById('userEmailDisplay'),
+      creditsDisplay: document.getElementById('creditsDisplay'),
+      logoutBtn: document.getElementById('logoutBtn'),
       
-      // Application state
-      let projects = [];
-      let filteredProjects = [];
-      let currentView = 'grid';
-      let currentContext = null;
-      let selectedProjectId = null;
-      let selectedProject = null;
+      // Search and controls
+      searchInput: document.getElementById('searchInput'),
+      gridViewBtn: document.getElementById('gridViewBtn'),
+      listViewBtn: document.getElementById('listViewBtn'),
+      newProjectBtn: document.getElementById('newProjectBtn'),
       
-      // DOM elements
-      const elements = {
-        // User info
-        userEmailDisplay: document.getElementById('userEmailDisplay'),
-        creditsDisplay: document.getElementById('creditsDisplay'),
-        logoutBtn: document.getElementById('logoutBtn'),
-        
-        // Search and controls
-        searchInput: document.getElementById('searchInput'),
-        gridViewBtn: document.getElementById('gridViewBtn'),
-        listViewBtn: document.getElementById('listViewBtn'),
-        newProjectBtn: document.getElementById('newProjectBtn'),
-        
-        // Content areas
-        projectsGrid: document.getElementById('projectsGrid'),
-        projectsList: document.getElementById('projectsList'),
-        emptyState: document.getElementById('emptyState'),
-        loadingContainer: document.getElementById('loadingContainer'),
-        
-        // New Project Modal
-        newProjectModal: document.getElementById('newProjectModal'),
-        newProjectForm: document.getElementById('newProjectForm'),
-        projectName: document.getElementById('projectName'),
-        projectDescription: document.getElementById('projectDescription'),
-        createProjectBtn: document.getElementById('createProjectBtn'),
-        
-        // Edit Project Modal
-        editProjectModal: document.getElementById('editProjectModal'),
-        editProjectForm: document.getElementById('editProjectForm'),
-        editProjectName: document.getElementById('editProjectName'),
-        editProjectDescription: document.getElementById('editProjectDescription'),
-        updateProjectBtn: document.getElementById('updateProjectBtn'),
-        
-        // Delete Confirmation Modal
-        deleteConfirmModal: document.getElementById('deleteConfirmModal'),
-        deleteProjectName: document.getElementById('deleteProjectName'),
-        confirmDeleteBtn: document.getElementById('confirmDeleteBtn'),
-        
-        // Context Menu
-        projectContextMenu: document.getElementById('projectContextMenu'),
-        
-        // Indicators
-        envIndicator: document.getElementById('envIndicator'),
-        envText: document.getElementById('envText'),
-        contextIndicator: document.getElementById('contextIndicator'),
-        contextInfo: document.getElementById('contextInfo')
-      };
+      // Content areas
+      projectsGrid: document.getElementById('projectsGrid'),
+      projectsList: document.getElementById('projectsList'),
+      emptyState: document.getElementById('emptyState'),
+      loadingContainer: document.getElementById('loadingContainer'),
+      
+      // New Project Modal
+      newProjectModal: document.getElementById('newProjectModal'),
+      newProjectForm: document.getElementById('newProjectForm'),
+      projectName: document.getElementById('projectName'),
+      projectDescription: document.getElementById('projectDescription'),
+      createProjectBtn: document.getElementById('createProjectBtn'),
+      
+      // Edit Project Modal
+      editProjectModal: document.getElementById('editProjectModal'),
+      editProjectForm: document.getElementById('editProjectForm'),
+      editProjectName: document.getElementById('editProjectName'),
+      editProjectDescription: document.getElementById('editProjectDescription'),
+      updateProjectBtn: document.getElementById('updateProjectBtn'),
+      
+      // Delete Confirmation Modal
+      deleteConfirmModal: document.getElementById('deleteConfirmModal'),
+      deleteProjectName: document.getElementById('deleteProjectName'),
+      confirmDeleteBtn: document.getElementById('confirmDeleteBtn'),
+      
+      // Context Menu
+      projectContextMenu: document.getElementById('projectContextMenu'),
+      
+      // Indicators
+      envIndicator: document.getElementById('envIndicator'),
+      envText: document.getElementById('envText'),
+      contextIndicator: document.getElementById('contextIndicator'),
+      contextInfo: document.getElementById('contextInfo')
+    };
       
       /**
-       * Initialize the application with proper authentication handling
+       * FIXED: Coordinated initialization with unified-init.js
        */
       async function initializeApp() {
-        try {
-          console.log('🚀 Unified Projects Application starting...');
-          
-          // Initialize environment first
-          initializeEnvironment();
-          
-          // Enhanced authentication check with retries
-          const authResult = await initializeAuthentication();
-          if (!authResult.success) {
-            console.log('❌ Authentication failed, redirecting to login');
-            window.location.href = 'login.html';
-            return;
-          }
-          
-          console.log('✅ Authentication confirmed, continuing initialization...');
+          try {
+              console.log('🚀 Unified Projects Application starting...');
+              
+              // Wait for unified-init to complete its setup
+              if (window.AAAI_APP && !window.AAAI_APP.isInitialized()) {
+                  console.log('⏳ Waiting for unified initialization...');
+                  await window.AAAI_APP.waitForReady();
+              }
+              
+              // Initialize environment first
+              initializeEnvironment();
+              
+              // FIXED: Single authentication initialization (no competing processes)
+              const authResult = await initializeAuthentication();
+              if (!authResult.success) {
+                  console.log('❌ Authentication failed:', authResult.reason);
+                  console.log('🔄 Redirecting to login...');
+                  window.location.href = 'login.html';
+                  return;
+              }
+              
+              // Mark authentication as ready for coordination
+              if (window.AAAI_APP && window.AAAI_APP.markAuthReady) {
+                  window.AAAI_APP.markAuthReady();
+              }
+              
+              console.log('✅ Authentication confirmed, continuing initialization...');
 
-          // Initialize services with proper dependency injection
-          await initializeServices();
-          
-          // Initialize UI
-          initializeUI();
-          
-          // Load projects
-          await loadProjects();
-          
-          // Setup event listeners
-          setupEventListeners();
-          
-          console.log('✅ Unified Projects Application initialized successfully');
-          
-        } catch (error) {
-          console.error('❌ Failed to initialize application:', error);
-          showToast(`Failed to initialize: ${error.message}`, 'error');
-          
-          // If it's an auth error, redirect to login
-          if (error.message.includes('authentication') || error.message.includes('login')) {
-            setTimeout(() => {
-              window.location.href = 'login.html';
-            }, 2000);
+              // Initialize services with coordination
+              await initializeServices();
+              
+              // Initialize UI
+              initializeUI();
+              
+              // Load projects
+              await loadProjects();
+              
+              // Setup event listeners
+              setupEventListeners();
+              
+              console.log('✅ Unified Projects Application initialized successfully');
+              
+          } catch (error) {
+              console.error('❌ Failed to initialize application:', error);
+              showToast(`Failed to initialize: ${error.message}`, 'error');
+              
+              // Show error UI
+              const loadingContainer = document.getElementById('loadingContainer');
+              if (loadingContainer) {
+                  loadingContainer.innerHTML = `
+                      <div style="text-align: center; color: #fff; padding: 40px;">
+                          <h3>Application Error</h3>
+                          <p>Failed to initialize: ${error.message}</p>
+                          <button onclick="window.location.reload()" style="padding: 10px 20px; margin: 10px; background: #007acc; color: white; border: none; border-radius: 4px; cursor: pointer;">
+                              Refresh Page
+                          </button>
+                          <button onclick="window.location.href='login.html'" style="padding: 10px 20px; margin: 10px; background: #dc3545; color: white; border: none; border-radius: 4px; cursor: pointer;">
+                              Go to Login
+                          </button>
+                      </div>
+                  `;
+              }
+              
+              // If it's an auth error, redirect to login after delay
+              if (error.message.includes('authentication') || error.message.includes('login')) {
+                  setTimeout(() => {
+                      window.location.href = 'login.html';
+                  }, 5000);
+              }
           }
-        }
-      }
-      
-      async function initializeAuthentication() {
-        console.log('🔐 Initializing JWT authentication...');
-        
-        try {
-            // Initialize AuthService
-            if (!window.AuthService) {
-                throw new Error('AuthService not available');
-            }
-            
-            // Initialize AuthService
-            const authInitResult = window.AuthService.init();
-            console.log('🔐 AuthService.init() result:', authInitResult);
-            
-            // Check if authenticated
-            if (!window.AuthService.isAuthenticated()) {
-                // Try to restore session if refresh token exists
-                if (window.AuthService.hasPersistentSession()) {
-                    console.log('🔐 Persistent session found, attempting restoration...');
-                    
-                    try {
-                        const refreshed = await window.AuthService.refreshTokenIfNeeded();
-                        if (!refreshed || !window.AuthService.isAuthenticated()) {
-                            return { success: false, reason: 'Session restoration failed' };
-                        }
-                    } catch (error) {
-                        console.error('🔐 Session restoration failed:', error);
-                        return { success: false, reason: 'Session restoration error' };
-                    }
-                } else {
-                    return { success: false, reason: 'No authentication found' };
-                }
-            }
-            
-            // Verify user information
-            const user = window.AuthService.getCurrentUser();
-            if (!user || !user.email || !user.id) {
-                console.error('🔐 User information incomplete:', user);
-                return { success: false, reason: 'Incomplete user information' };
-            }
-            
-            console.log('✅ JWT Authentication successful:', {
-                email: user.email,
-                id: user.id,
-                sessionId: user.sessionId
-            });
-            
-            return { success: true, user: user };
-            
-        } catch (error) {
-            console.error('🔐 JWT Authentication initialization error:', error);
-            return { success: false, reason: error.message };
-        }
       }
       
       /**
-       * Initialize services with proper error handling
+       * FIXED: Single authentication initialization (no competition)
+       */
+      async function initializeAuthentication() {
+          console.log('🔐 Initializing authentication (single process)...');
+          
+          try {
+              // Check if AuthService is available
+              if (!window.AuthService) {
+                  throw new Error('AuthService not available');
+              }
+              
+              // Initialize AuthService (this is the ONLY place it should be initialized)
+              console.log('🔐 Starting AuthService initialization...');
+              const authInitResult = await window.AuthService.init();
+              
+              console.log('🔐 AuthService initialization result:', authInitResult);
+              
+              // Check if authenticated
+              if (!window.AuthService.isAuthenticated()) {
+                  console.log('🔐 Not authenticated - checking for session restoration...');
+                  
+                  // Try to restore session if refresh token exists
+                  if (window.AuthService.hasPersistentSession()) {
+                      console.log('🔐 Persistent session found, attempting restoration...');
+                      
+                      try {
+                          const refreshed = await window.AuthService.refreshTokenIfNeeded();
+                          if (!refreshed || !window.AuthService.isAuthenticated()) {
+                              return { success: false, reason: 'Session restoration failed' };
+                          }
+                          console.log('🔐 Session restored successfully');
+                      } catch (error) {
+                          console.error('🔐 Session restoration failed:', error);
+                          return { success: false, reason: 'Session restoration error' };
+                      }
+                  } else {
+                      return { success: false, reason: 'No authentication found' };
+                  }
+              }
+              
+              // Verify user information
+              const user = window.AuthService.getCurrentUser();
+              if (!user || !user.email || !user.id) {
+                  console.error('🔐 User information incomplete:', user);
+                  return { success: false, reason: 'Incomplete user information' };
+              }
+              
+              console.log('✅ Authentication successful:', {
+                  email: user.email,
+                  id: user.id
+              });
+              
+              return { success: true, user: user };
+              
+          } catch (error) {
+              console.error('🔐 Authentication initialization error:', error);
+              return { success: false, reason: error.message };
+          }
+      }
+      
+      /**
+       * FIXED: Service initialization with coordination
        */
       async function initializeServices() {
-        try {
-          console.log('🔧 Initializing services...');
-          
-          // Wait for unified init to complete if it's running
-          if (window.AAAI_APP && !window.AAAI_APP.initialized) {
-            console.log('⏳ Waiting for unified initialization...');
-            
-            // Wait up to 5 seconds for unified init
-            const timeout = Date.now() + 5000;
-            while (!window.AAAI_APP.initialized && Date.now() < timeout) {
-              await new Promise(resolve => setTimeout(resolve, 100));
-            }
-            
-            if (window.AAAI_APP.initialized) {
-              console.log('✅ Unified initialization completed');
-              return; // Services already initialized by unified-init
-            } else {
-              console.warn('⚠️ Unified initialization timeout, initializing manually');
-            }
+          try {
+              console.log('🔧 Initializing services with coordination...');
+              
+              // Get services from unified-init coordination
+              const authService = window.AAAI_APP?.getService('AuthService') || window.AuthService;
+              const projectService = window.AAAI_APP?.getService('ProjectService') || window.ProjectService;
+              const navigationManager = window.AAAI_APP?.getService('NavigationManager') || window.NavigationManager;
+              
+              // Initialize ProjectService
+              if (projectService && !projectService.isInitialized) {
+                  console.log('🔧 Initializing ProjectService...');
+                  try {
+                      const initResult = projectService.init(authService, {
+                          debug: window.AAAI_CONFIG?.ENABLE_DEBUG || false,
+                          autoSync: true,
+                          enableRealTimeUpdates: true,
+                          syncInterval: 60000
+                      });
+                      
+                      // Wait for initialization if it returns a promise
+                      if (initResult && typeof initResult.then === 'function') {
+                          await initResult;
+                      }
+                      
+                      console.log('✅ ProjectService initialized');
+                  } catch (error) {
+                      console.error('❌ ProjectService initialization failed:', error);
+                      // Continue without ProjectService
+                  }
+              }
+              
+              // Initialize NavigationManager
+              if (navigationManager && !navigationManager.isInitialized) {
+                  console.log('🔧 Initializing NavigationManager...');
+                  try {
+                      const initResult = navigationManager.init(authService, projectService, {
+                          debug: window.AAAI_CONFIG?.ENABLE_DEBUG || false
+                      });
+                      
+                      // Wait if it returns a promise
+                      if (initResult && typeof initResult.then === 'function') {
+                          await initResult;
+                      }
+                      
+                      console.log('✅ NavigationManager initialized');
+                  } catch (error) {
+                      console.error('❌ NavigationManager initialization failed:', error);
+                  }
+              }
+              
+              console.log('✅ Services initialized successfully');
+              
+          } catch (error) {
+              console.error('❌ Service initialization failed:', error);
+              throw error;
           }
-          
-          // Manual service initialization if unified init didn't complete
-          console.log('🔧 Manual service initialization...');
-          
-          // Initialize ProjectService
-          if (window.ProjectService && !window.ProjectService.isInitialized) {
-            window.ProjectService.init(window.AuthService, {
-              debug: window.AAAI_CONFIG?.ENABLE_DEBUG || false
-            });
-            console.log('✅ ProjectService initialized');
-          }
-          
-          // Initialize NavigationManager
-          if (window.NavigationManager && !window.NavigationManager.isInitialized) {
-            window.NavigationManager.init(window.AuthService, window.ProjectService, {
-              debug: window.AAAI_CONFIG?.ENABLE_DEBUG || false
-            });
-            console.log('✅ NavigationManager initialized');
-          }
-          
-          console.log('✅ Services initialized successfully');
-          
-        } catch (error) {
-          console.error('❌ Service initialization failed:', error);
-          throw error;
-        }
       }
       
       /**
-       * Initialize environment features
+       * FIXED: Environment initialization (coordinated)
        */
       function initializeEnvironment() {
-        const environment = window.AAAI_CONFIG?.ENVIRONMENT || 'production';
-        
-        if (environment !== 'production') {
-          elements.envIndicator.className = `env-indicator ${environment}`;
-          elements.envText.textContent = `${environment.toUpperCase()} Environment`;
-          document.body.classList.add('with-env-indicator');
-        }
+          try {
+              // Use unified-init environment if available
+              if (window.AAAI_APP?.getConfig()) {
+                  const config = window.AAAI_APP.getConfig();
+                  console.log('🌍 Using coordinated environment config:', config.ENVIRONMENT);
+              } else {
+                  // Fallback environment setup
+                  console.log('🌍 Setting up fallback environment...');
+              }
+              
+              console.log('✅ Environment initialized');
+          } catch (error) {
+              console.warn('⚠️ Environment initialization failed:', error);
+          }
       }
       
       /**
        * Initialize UI components
        */
       function initializeUI() {
-        // Display user info
-        const user = window.AuthService.getCurrentUser();
-        if (user && elements.userEmailDisplay) {
-          elements.userEmailDisplay.textContent = user.email;
-        }
-        
-        // Load user credits
-        loadUserCredits();
+          try {
+              // Hide loading container
+              const loadingContainer = document.getElementById('loadingContainer');
+              if (loadingContainer) {
+                  loadingContainer.style.display = 'none';
+              }
+              
+              // Show main content
+              const mainContent = document.querySelector('.main-content');
+              if (mainContent) {
+                  mainContent.style.display = 'block';
+              }
+              
+              // Update user display
+              const user = window.AuthService.getCurrentUser();
+              if (user) {
+                  const userEmailDisplay = document.getElementById('userEmailDisplay');
+                  if (userEmailDisplay) {
+                      userEmailDisplay.textContent = user.email;
+                  }
+              }
+              
+              console.log('✅ UI initialized');
+          } catch (error) {
+              console.error('❌ UI initialization failed:', error);
+          }
       }
       
       /**
@@ -1327,31 +1395,55 @@
       }
       
       /**
-       * Load projects
+       * FIXED: Enhanced project loading with new user handling
        */
       async function loadProjects() {
-        try {
-          showLoading(true);
-          
-          const result = await window.ProjectService.getProjects({ limit: 50 });
-          
-          if (result && result.projects) {
-            projects = result.projects;
-            filteredProjects = [...projects];
-            renderProjects();
-            console.log(`✅ Loaded ${projects.length} projects`);
-          } else {
-            projects = [];
-            filteredProjects = [];
-            renderProjects();
+          try {
+              console.log('📂 Loading projects...');
+              
+              const projectService = window.AAAI_APP?.getService('ProjectService') || window.ProjectService;
+              
+              if (!projectService || !projectService.isInitialized) {
+                  console.warn('⚠️ ProjectService not available, showing welcome state');
+                  if (window.showWelcomeMessage) {
+                      window.showWelcomeMessage();
+                  }
+                  return;
+              }
+              
+              try {
+                  // Try to load user projects
+                  const context = await projectService.getCurrentContext();
+                  
+                  if (context && context.success) {
+                      if (context.isNewUser) {
+                          console.log('👋 Welcome! New user detected - no existing projects');
+                          if (window.showWelcomeMessage) {
+                              window.showWelcomeMessage();
+                          }
+                      } else {
+                          console.log('✅ Project context loaded:', context);
+                          // Continue with normal project loading...
+                          // Your existing project loading code here
+                      }
+                  } else {
+                      console.log('ℹ️ No context available (new user)');
+                      if (window.showWelcomeMessage) {
+                          window.showWelcomeMessage();
+                      }
+                  }
+              } catch (error) {
+                  console.log('ℹ️ Project loading failed (likely new user):', error.message);
+                  if (window.showWelcomeMessage) {
+                      window.showWelcomeMessage();
+                  }
+              }
+              
+              console.log('✅ Project loading completed');
+              
+          } catch (error) {
+              console.error('❌ Project loading failed:', error);
           }
-          
-        } catch (error) {
-          console.error('Error loading projects:', error);
-          showToast(`Failed to load projects: ${error.message}`, 'error');
-        } finally {
-          showLoading(false);
-        }
       }
       
       /**
@@ -1969,6 +2061,70 @@
         return formatDate(dateString);
       }
       
+      // FIXED: Debug function for project page
+      function debugProjectPageAuth() {
+          console.log('🔍 Project Page Auth Debug:');
+          
+          // Check cookies
+          const cookies = document.cookie.split(';');
+          console.log('- Total cookies:', cookies.length);
+          console.log('- All cookies:', document.cookie);
+          
+          // Check specific auth cookies
+          const authCookies = ['user_info', 'authenticated', 'access_token', 'refresh_token'];
+          authCookies.forEach(name => {
+              const value = getCookieValue(name);
+              console.log(`- ${name}:`, value ? 'PRESENT' : 'MISSING');
+              
+              if (name === 'user_info' && value) {
+                  try {
+                      const parsed = JSON.parse(decodeURIComponent(value));
+                      console.log(`  Parsed:`, parsed);
+                  } catch (e) {
+                      console.log(`  Parse error:`, e.message);
+                  }
+              }
+          });
+          
+          // Check AuthService state
+          if (window.AuthService) {
+              console.log('- AuthService authenticated:', window.AuthService.authenticated);
+              console.log('- AuthService user email:', window.AuthService.userEmail);
+              console.log('- AuthService user ID:', window.AuthService.userId);
+              console.log('- AuthService has token:', !!window.AuthService.accessToken);
+          } else {
+              console.log('- AuthService: NOT LOADED');
+          }
+          
+          // Check localStorage backup
+          const backupData = {
+              token: localStorage.getItem('backup_auth_token'),
+              email: localStorage.getItem('backup_user_email'),
+              id: localStorage.getItem('backup_user_id'),
+              timestamp: localStorage.getItem('backup_auth_timestamp')
+          };
+          console.log('- localStorage backup:', backupData);
+      }
+      
+      // Helper function to read cookies (duplicate for project page)
+      function getCookieValue(name) {
+          try {
+              const cookies = document.cookie.split(';');
+              for (const cookie of cookies) {
+                  const [cookieName, cookieValue] = cookie.trim().split('=');
+                  if (cookieName === name) {
+                      return cookieValue || null;
+                  }
+              }
+          } catch (error) {
+              console.error('Error reading cookie:', name, error);
+          }
+          return null;
+      }
+      
+      // Add debug function to window for easy access
+      window.debugProjectPageAuth = debugProjectPageAuth;
+      
       // Global functions for onclick handlers
       window.showNewProjectModal = showNewProjectModal;
       window.hideNewProjectModal = hideNewProjectModal;
@@ -1980,10 +2136,19 @@
       window.editProject = editProject;
       window.deleteProject = deleteProject;
       
-      // Initialize the application
-      await initializeApp();
-    });
-  </script>
+      /**
+       * UPDATED: Main document ready handler with coordination
+       */
+      document.addEventListener('DOMContentLoaded', async function() {
+          console.log('📄 Project page loaded, starting coordinated initialization...');
+          
+          // Small delay to ensure all scripts are loaded
+          await new Promise(resolve => setTimeout(resolve, 200));
+          
+          // Start the coordinated initialization process
+          await initializeApp();
+      });
+    </script>
 </body>
 
 </html>

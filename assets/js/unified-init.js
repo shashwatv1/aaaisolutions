@@ -1,6 +1,6 @@
 /**
- * UPDATED: High-Performance Unified Application Initialization for AAAI Solutions
- * Enhanced with promise-based AuthService integration and robust authentication
+ * FIXED: Simplified Unified Application Initialization for AAAI Solutions
+ * Removed competing authentication logic to prevent race conditions
  */
 
 (function() {
@@ -20,7 +20,7 @@
     const CORE_SERVICES = ['AuthService', 'ProjectService', 'NavigationManager', 'ChatIntegration'];
     
     /**
-     * UPDATED: Fast initialization with enhanced auth handling
+     * FIXED: Fast initialization WITHOUT authentication handling
      */
     async function initializeApplication() {
         try {
@@ -33,26 +33,18 @@
             const currentPage = getCurrentPageTypeFast();
             console.log('📄 Page type:', currentPage);
             
-            // UPDATED: Enhanced page authentication with proper waiting
-            const authResult = await handlePageAuthenticationEnhanced(currentPage);
-            if (!authResult.success) {
-                if (authResult.redirect) {
-                    return; // Page will handle redirect
-                }
-                throw new Error(authResult.reason || 'Authentication failed');
-            }
+            // FIXED: NO authentication handling here - let pages handle their own auth
+            // This prevents race conditions and competing initialization
             
-            console.log('✅ Authentication ready, continuing...');
+            // Initialize core services only (without auth dependency)
+            await initializeCoreServicesSimplified();
             
-            // Initialize core services only
-            await initializeCoreServicesEnhanced();
-            
-            // Page-specific initialization (non-blocking)
+            // Page-specific setup (non-blocking)
             initializePageSpecificFast(currentPage);
             
             window.AAAI_APP.initialized = true;
             
-            console.log('✅ Fast AAAI initialization completed');
+            console.log('✅ Fast AAAI initialization completed - ready for page coordination');
             
             // Notify page scripts
             document.dispatchEvent(new CustomEvent('aaai:initialized', {
@@ -70,169 +62,10 @@
     }
     
     /**
-     * UPDATED: Enhanced page authentication with promise-based AuthService
+     * FIXED: Simplified core services initialization without auth dependency
      */
-    async function handlePageAuthenticationEnhanced(pageType) {
-        console.log('🔐 Enhanced authentication check for:', pageType);
-        
-        try {
-            // UPDATED: Ensure AuthService is available
-            if (!window.AuthService) {
-                throw new Error('AuthService not available');
-            }
-            
-            // UPDATED: Wait for AuthService to be properly initialized
-            console.log('🔐 Waiting for AuthService initialization...');
-            await window.AuthService.waitForInit();
-            window.AAAI_APP.authReady = true;
-            
-            // Handle based on page type with enhanced logic
-            switch (pageType) {
-                case 'login':
-                    return await handleLoginPageAuthEnhanced();
-                    
-                case 'project':
-                case 'chat':
-                    return await handleProtectedPageAuthEnhanced();
-                    
-                default:
-                    return { 
-                        success: true, 
-                        authenticated: window.AuthService.isAuthenticated()
-                    };
-            }
-            
-        } catch (error) {
-            console.error('🔐 Enhanced authentication error:', error);
-            return { success: false, reason: error.message };
-        }
-    }
-
-    /**
-     * FIXED: More patient protected page authentication
-     */
-    async function handleProtectedPageAuthEnhanced() {
-        console.log('🔐 Enhanced protected page auth check');
-        
-        // FIXED: Give more time for initial setup and cookie reading
-        console.log('⏳ Allowing time for cookie processing...');
-        await new Promise(resolve => setTimeout(resolve, 500));
-        
-        // FIXED: More attempts with longer delays
-        let authSuccess = false;
-        const maxAttempts = 5; // Increased from 3
-        
-        for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-            console.log(`🔐 Authentication attempt ${attempt}/${maxAttempts}`);
-            
-            // Debug current auth state
-            if (window.AuthService.debugAuthState) {
-                const state = window.AuthService.debugAuthState();
-                console.log('🔍 Current auth state:', state);
-            }
-            
-            // Quick authentication check
-            if (window.AuthService.isAuthenticated()) {
-                console.log('🔐 Authentication confirmed');
-                authSuccess = true;
-                break;
-            }
-            
-            // Try session restoration if available
-            if (window.AuthService.hasPersistentSession()) {
-                console.log('🔐 Attempting session restoration...');
-                
-                try {
-                    const refreshed = await window.AuthService.refreshTokenIfNeeded();
-                    
-                    if (refreshed && window.AuthService.isAuthenticated()) {
-                        console.log('🔐 Session restored successfully');
-                        authSuccess = true;
-                        break;
-                    }
-                    
-                    console.log(`🔐 Attempt ${attempt} failed, will retry...`);
-                    
-                } catch (error) {
-                    console.error('🔐 Session restoration failed:', error);
-                }
-            } else {
-                console.log('🔐 No persistent session available');
-                
-                // FIXED: For early attempts, wait a bit more for cookies to be processed
-                if (attempt <= 2) {
-                    console.log('⏳ No session found yet, waiting for cookies to be processed...');
-                } else {
-                    console.log('❌ No session available after waiting');
-                    break; // No point in retrying without session
-                }
-            }
-            
-            // FIXED: Longer delays for better cookie processing
-            if (attempt < maxAttempts) {
-                const delay = attempt <= 2 ? 1000 : 500; // Longer delays for first attempts
-                console.log(`⏳ Waiting ${delay}ms before next attempt...`);
-                await new Promise(resolve => setTimeout(resolve, delay));
-            }
-        }
-        
-        if (!authSuccess) {
-            console.log('❌ All authentication attempts failed, redirecting to login');
-            
-            // FIXED: Add debug info before redirecting
-            console.log('🔍 Final state before redirect:');
-            if (window.AuthService.debugAuthState) {
-                window.AuthService.debugAuthState();
-            }
-            
-            // Small delay before redirect to see debug info
-            setTimeout(() => {
-                window.location.href = 'login.html';
-            }, 2000);
-            
-            return { success: false, redirect: true };
-        }
-        
-        return { success: true, authenticated: true };
-    }
-
-    /**
-     * UPDATED: Enhanced login page authentication
-     */
-    async function handleLoginPageAuthEnhanced() {
-        console.log('🔐 Enhanced login page auth check');
-        
-        // Quick check if already authenticated
-        if (window.AuthService.isAuthenticated()) {
-            console.log('🔐 Already authenticated, redirecting to projects');
-            window.location.href = 'project.html';
-            return { success: false, redirect: true };
-        }
-        
-        // Try session restore if available
-        if (window.AuthService.hasPersistentSession()) {
-            console.log('🔐 Attempting session restore on login page');
-            
-            try {
-                const refreshed = await window.AuthService.refreshTokenIfNeeded();
-                if (refreshed && window.AuthService.isAuthenticated()) {
-                    console.log('🔐 Session restored, redirecting to projects');
-                    window.location.href = 'project.html';
-                    return { success: false, redirect: true };
-                }
-            } catch (error) {
-                console.warn('🔐 Login page session restore failed:', error);
-            }
-        }
-        
-        return { success: true, authenticated: false };
-    }
-
-    /**
-     * UPDATED: Enhanced core services initialization with async support
-     */
-    async function initializeCoreServicesEnhanced() {
-        console.log('🔧 Enhanced core services initialization...');
+    async function initializeCoreServicesSimplified() {
+        console.log('🔧 Simplified core services initialization...');
         
         for (const serviceName of CORE_SERVICES) {
             try {
@@ -246,57 +79,24 @@
                     continue;
                 }
                 
-                console.log(`🔧 Enhanced init ${serviceName}...`);
+                console.log(`🔧 Setting up ${serviceName}...`);
                 
                 let service = window[serviceName];
                 
                 switch (serviceName) {
                     case 'AuthService':
-                        // Already initialized via waitForInit()
+                        // FIXED: Don't initialize AuthService here - let pages handle it
+                        // Just register it for coordination
                         window.AAAI_APP.services[serviceName] = service;
                         break;
                         
                     case 'ProjectService':
-                        // UPDATED: Use async initialization if available
-                        if (typeof service.init === 'function' && !service.isInitialized) {
-                            try {
-                                // Use async init if supported
-                                const initResult = service.init(window.AAAI_APP.services.AuthService, {
-                                    debug: window.AAAI_APP.debug,
-                                    autoSync: true,
-                                    enableRealTimeUpdates: true,
-                                    syncInterval: 60000
-                                });
-                                
-                                // Wait for initialization if it returns a promise
-                                if (initResult && typeof initResult.then === 'function') {
-                                    await initResult;
-                                }
-                            } catch (error) {
-                                console.error(`❌ ProjectService init failed:`, error);
-                                // Continue without ProjectService
-                            }
-                        }
+                        // FIXED: Don't initialize without auth - let project page handle it
                         window.AAAI_APP.services[serviceName] = service;
                         break;
                         
                     case 'NavigationManager':
-                        if (typeof service.init === 'function' && !service.isInitialized) {
-                            try {
-                                const initResult = service.init(
-                                    window.AAAI_APP.services.AuthService,
-                                    window.AAAI_APP.services.ProjectService,
-                                    { debug: window.AAAI_APP.debug }
-                                );
-                                
-                                // Wait if it returns a promise
-                                if (initResult && typeof initResult.then === 'function') {
-                                    await initResult;
-                                }
-                            } catch (error) {
-                                console.error(`❌ NavigationManager init failed:`, error);
-                            }
-                        }
+                        // FIXED: Don't initialize without auth - let project page handle it
                         window.AAAI_APP.services[serviceName] = service;
                         break;
                         
@@ -310,155 +110,155 @@
                         break;
                 }
                 
-                console.log(`✅ ${serviceName} initialized successfully`);
+                console.log(`✅ ${serviceName} registered successfully`);
                 
             } catch (error) {
-                console.error(`❌ Failed to initialize ${serviceName}:`, error);
+                console.error(`❌ Failed to register ${serviceName}:`, error);
                 // Continue with other services
             }
         }
         
-        console.log('✅ Enhanced core services initialized');
+        console.log('✅ Core services registered for coordination');
     }
         
     /**
-     * Page-specific initialization (non-blocking)
+     * FIXED: Page-specific setup without authentication
      */
     function initializePageSpecificFast(pageType) {
-        console.log(`🎯 Fast page-specific init for: ${pageType}`);
+        console.log(`🎯 Fast page-specific setup for: ${pageType}`);
         
         // Use setTimeout to make it non-blocking
         setTimeout(() => {
             switch (pageType) {
                 case 'project':
-                    initializeProjectPageEnhanced();
+                    setupProjectPageEnvironment();
                     break;
                     
                 case 'chat':
-                    initializeChatPageEnhanced();
+                    setupChatPageEnvironment();
+                    break;
+                    
+                case 'login':
+                    setupLoginPageEnvironment();
                     break;
                     
                 default:
-                    console.log('ℹ️ No specific initialization needed');
+                    console.log('ℹ️ No specific setup needed');
                     break;
             }
         }, 0);
     }
     
     /**
-     * UPDATED: Enhanced project page initialization with new user handling
+     * FIXED: Project page environment setup (no auth handling)
      */
-    async function initializeProjectPageEnhanced() {
+    function setupProjectPageEnvironment() {
         try {
-            console.log('📂 Enhanced project page init...');
+            console.log('📂 Project page environment setup...');
             
-            const authService = window.AAAI_APP.services.AuthService;
-            const projectService = window.AAAI_APP.services.ProjectService;
+            // Set up environment indicators
+            setupEnvironmentIndicators();
             
-            if (!authService?.isAuthenticated()) {
-                throw new Error('Authentication required');
-            }
+            // Prepare for welcome message if needed
+            prepareWelcomeState();
             
-            // UPDATED: Load context with new user handling
-            if (projectService) {
-                try {
-                    if (projectService.isInitialized || typeof projectService.getCurrentContext === 'function') {
-                        const context = await projectService.getCurrentContext();
-                        
-                        if (context && context.success) {
-                            if (context.isNewUser) {
-                                console.log('👋 Welcome! New user detected - no existing projects');
-                                // Show welcome message or empty state
-                                showWelcomeMessage();
-                            } else {
-                                console.log('✅ Project context loaded:', context);
-                            }
-                        } else {
-                            console.log('ℹ️ No context available (new user)');
-                            showWelcomeMessage();
-                        }
-                    } else {
-                        console.warn('⚠️ ProjectService not properly initialized');
-                    }
-                } catch (error) {
-                    console.log('ℹ️ Context load failed (likely new user):', error.message);
-                    showWelcomeMessage();
-                }
-            }
-            
-            console.log('✅ Enhanced project page initialized');
+            console.log('✅ Project page environment ready');
             
         } catch (error) {
-            console.error('❌ Enhanced project page init failed:', error);
+            console.error('❌ Project page environment setup failed:', error);
         }
     }
     
     /**
-     * Helper function for new users
+     * FIXED: Chat page environment setup (no auth handling)
      */
-    function showWelcomeMessage() {
-        // Show empty state or welcome message for new users
-        const projectsGrid = document.getElementById('projectsGrid');
-        if (projectsGrid) {
-            projectsGrid.innerHTML = `
-                <div class="welcome-state">
-                    <h3>👋 Welcome to AAAI Solutions!</h3>
-                    <p>You don't have any projects yet. Create your first project to get started.</p>
-                    <button class="btn btn-primary" onclick="showNewProjectModal()">
-                        Create Your First Project
-                    </button>
-                </div>
-            `;
-        }
-    }
-    
-    /**
-     * UPDATED: Enhanced chat page initialization with better error handling
-     */
-    function initializeChatPageEnhanced() {
+    function setupChatPageEnvironment() {
         try {
-            console.log('💬 Enhanced chat page initialization');
+            console.log('💬 Chat page environment setup');
             
-            const authService = window.AAAI_APP.services.AuthService;
-            const projectService = window.AAAI_APP.services.ProjectService;
+            // Set up environment indicators
+            setupEnvironmentIndicators();
             
-            if (!authService?.isAuthenticated()) {
-                console.error('Authentication required for chat page');
-                window.location.href = 'login.html';
-                return;
-            }
-            
-            // Get project context from URL
+            // Get project context from URL for later use
             const urlParams = new URLSearchParams(window.location.search);
             const projectId = urlParams.get('project');
             const projectName = urlParams.get('project_name');
             
-            if (!projectId) {
-                console.warn('No project ID, redirecting to projects');
-                window.location.href = 'project.html';
-                return;
+            if (projectId) {
+                window.AAAI_APP.urlContext = {
+                    projectId: projectId,
+                    projectName: projectName ? decodeURIComponent(projectName) : null
+                };
+                console.log('📋 URL context prepared:', window.AAAI_APP.urlContext);
             }
             
-            // UPDATED: Switch project context with better error handling
-            if (projectService && (projectService.isInitialized || typeof projectService.switchToProject === 'function')) {
-                projectService.switchToProject(
-                    projectId, 
-                    projectName ? decodeURIComponent(projectName) : null
-                ).then(result => {
-                    console.log('✅ Project context switched:', result);
-                }).catch(error => {
-                    console.error('❌ Project context switch failed:', error);
-                    // Don't redirect, user can still use chat
-                });
-            } else {
-                console.warn('⚠️ ProjectService not available for context switching');
-            }
-            
-            console.log('✅ Enhanced chat page initialization completed');
+            console.log('✅ Chat page environment ready');
             
         } catch (error) {
-            console.error('❌ Enhanced chat page init failed:', error);
+            console.error('❌ Chat page environment setup failed:', error);
         }
+    }
+    
+    /**
+     * FIXED: Login page environment setup
+     */
+    function setupLoginPageEnvironment() {
+        try {
+            console.log('🔐 Login page environment setup');
+            
+            // Set up environment indicators
+            setupEnvironmentIndicators();
+            
+            console.log('✅ Login page environment ready');
+            
+        } catch (error) {
+            console.error('❌ Login page environment setup failed:', error);
+        }
+    }
+    
+    /**
+     * Setup environment indicators
+     */
+    function setupEnvironmentIndicators() {
+        try {
+            const envIndicator = document.getElementById('envIndicator');
+            const envText = document.getElementById('envText');
+            
+            if (window.AAAI_CONFIG?.ENVIRONMENT && envIndicator && envText) {
+                const environment = window.AAAI_CONFIG.ENVIRONMENT;
+                envText.textContent = environment.toUpperCase();
+                envIndicator.style.display = environment !== 'production' ? 'block' : 'none';
+                
+                if (environment === 'development') {
+                    envIndicator.style.backgroundColor = '#28a745';
+                } else if (environment === 'staging') {
+                    envIndicator.style.backgroundColor = '#ffc107';
+                }
+            }
+        } catch (error) {
+            console.warn('⚠️ Environment indicator setup failed:', error);
+        }
+    }
+    
+    /**
+     * Prepare welcome state for new users
+     */
+    function prepareWelcomeState() {
+        // Helper function for pages to use
+        window.showWelcomeMessage = function() {
+            const projectsGrid = document.getElementById('projectsGrid');
+            if (projectsGrid) {
+                projectsGrid.innerHTML = `
+                    <div class="welcome-state" style="text-align: center; padding: 40px; color: #fff;">
+                        <h3>👋 Welcome to AAAI Solutions!</h3>
+                        <p>You don't have any projects yet. Create your first project to get started.</p>
+                        <button class="btn btn-primary" onclick="document.getElementById('newProjectBtn').click()" style="padding: 10px 20px; background: #007acc; color: white; border: none; border-radius: 4px; cursor: pointer;">
+                            Create Your First Project
+                        </button>
+                    </div>
+                `;
+            }
+        };
     }
     
     /**
@@ -549,7 +349,7 @@
     }
     
     /**
-     * UPDATED: Enhanced public API with auth state checking
+     * FIXED: Public API for coordination (no auth handling)
      */
     window.AAAI_APP.getService = function(serviceName) {
         return window.AAAI_APP.services[serviceName] || null;
@@ -559,18 +359,42 @@
         return window.AAAI_APP.initialized;
     };
     
-    window.AAAI_APP.isAuthReady = function() {
-        return window.AAAI_APP.authReady;
-    };
-    
     window.AAAI_APP.getConfig = function() {
         return window.AAAI_APP.config;
     };
     
     /**
-     * UPDATED: Wait for both app and auth to be ready
+     * FIXED: Wait for app to be ready (removed auth dependency)
      */
     window.AAAI_APP.waitForReady = async function() {
+        return new Promise((resolve) => {
+            const checkReady = () => {
+                if (window.AAAI_APP.initialized) {
+                    resolve(true);
+                } else {
+                    setTimeout(checkReady, 100);
+                }
+            };
+            checkReady();
+        });
+    };
+    
+    /**
+     * FIXED: Helper for pages to coordinate authentication
+     */
+    window.AAAI_APP.markAuthReady = function() {
+        window.AAAI_APP.authReady = true;
+        console.log('🔐 Auth marked as ready by page');
+    };
+    
+    window.AAAI_APP.isAuthReady = function() {
+        return window.AAAI_APP.authReady;
+    };
+    
+    /**
+     * FIXED: Helper for pages to wait for both app and auth
+     */
+    window.AAAI_APP.waitForAuthReady = async function() {
         return new Promise((resolve) => {
             const checkReady = () => {
                 if (window.AAAI_APP.initialized && window.AAAI_APP.authReady) {
@@ -591,6 +415,6 @@
         setTimeout(initializeApplication, 0);
     }
     
-    console.log('🎬 Enhanced AAAI initialization script loaded');
+    console.log('🎬 FIXED AAAI initialization script loaded - no competing auth logic');
     
 })();
