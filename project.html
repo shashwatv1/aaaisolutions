@@ -1100,6 +1100,7 @@
           console.log('Authentication confirmed');
           
           initializeEnvironment();
+          await initializeServices();
           initializeUI();
           setupEventListeners();
           
@@ -1123,6 +1124,56 @@
           elements.envIndicator.className = `env-indicator ${environment}`;
           elements.envText.textContent = `${environment.toUpperCase()} Environment`;
           document.body.classList.add('with-env-indicator');
+        }
+      }
+      
+      
+      async function initializeServices() {
+        try {
+          console.log('🔧 Initializing services...');
+          
+          // Wait for unified init to complete if it's running
+          if (window.AAAI_APP && !window.AAAI_APP.initialized) {
+            console.log('⏳ Waiting for unified initialization...');
+            
+            // Wait up to 5 seconds for unified init
+            const timeout = Date.now() + 5000;
+            while (!window.AAAI_APP.initialized && Date.now() < timeout) {
+              await new Promise(resolve => setTimeout(resolve, 100));
+            }
+            
+            if (window.AAAI_APP.initialized) {
+              console.log('✅ Unified initialization completed');
+              return; // Services already initialized by unified-init
+            } else {
+              console.warn('⚠️ Unified initialization timeout, initializing manually');
+            }
+          }
+          
+          // Manual service initialization if unified init didn't complete
+          console.log('🔧 Manual service initialization...');
+          
+          // Initialize ProjectService
+          if (window.ProjectService && !window.ProjectService.isInitialized) {
+            window.ProjectService.init(window.AuthService, {
+              debug: window.AAAI_CONFIG?.ENABLE_DEBUG || false
+            });
+            console.log('✅ ProjectService initialized');
+          }
+          
+          // Initialize NavigationManager
+          if (window.NavigationManager && !window.NavigationManager.isInitialized) {
+            window.NavigationManager.init(window.AuthService, window.ProjectService, {
+              debug: window.AAAI_CONFIG?.ENABLE_DEBUG || false
+            });
+            console.log('✅ NavigationManager initialized');
+          }
+          
+          console.log('✅ Services initialized successfully');
+          
+        } catch (error) {
+          console.error('❌ Service initialization failed:', error);
+          throw error;
         }
       }
       
@@ -1154,40 +1205,61 @@
       }
       
       /**
-       * Load projects from API
+       * Load current context
+       */
+       async function loadCurrentContext() {
+        try {
+          if (window.ProjectService) {
+            const contextResult = await window.ProjectService.getCurrentContext();
+            if (contextResult.success) {
+              currentContext = contextResult;
+              updateContextIndicator(contextResult);
+              console.log('✅ Current context loaded:', contextResult);
+            }
+          }
+        } catch (error) {
+          console.warn('Could not load current context:', error);
+        }
+      }
+      
+      /**
+       * Update context indicator
+       */
+      function updateContextIndicator(context) {
+        if (context && context.current_project) {
+          elements.contextInfo.innerHTML = `
+            <strong>Active Project:</strong> ${context.current_project.name}<br>
+            <strong>Chat ID:</strong> <code>${context.current_project.id}</code>
+          `;
+          elements.contextIndicator.classList.remove('hidden');
+        } else {
+          elements.contextIndicator.classList.add('hidden');
+        }
+      }
+      
+      /**
+       * Load projects
        */
       async function loadProjects() {
         try {
-          console.log('Loading projects...');
           showLoading(true);
           
-          const user = window.AuthService.getCurrentUser();
-          if (!user?.email) {
-            throw new Error('User information not available');
-          }
+          const result = await window.ProjectService.getProjects({ limit: 50 });
           
-          const result = await window.AuthService.executeFunction('list_user_projects', { 
-            email: user.email,
-            limit: 50 
-          });
-          
-          if (result?.status === 'success' && result?.data?.success && result?.data?.projects) {
-            projects = result.data.projects;
-            console.log(`Loaded ${projects.length} projects`);
+          if (result && result.projects) {
+            projects = result.projects;
+            filteredProjects = [...projects];
+            renderProjects();
+            console.log(`✅ Loaded ${projects.length} projects`);
           } else {
             projects = [];
-            console.log('No projects found or empty response');
+            filteredProjects = [];
+            renderProjects();
           }
-          
-          filteredProjects = [...projects];
-          renderProjects();
           
         } catch (error) {
           console.error('Error loading projects:', error);
           showToast(`Failed to load projects: ${error.message}`, 'error');
-          projects = [];
-          filteredProjects = [];
-          renderProjects();
         } finally {
           showLoading(false);
         }
@@ -1496,7 +1568,7 @@
       /**
        * Handle project creation
        */
-      async function handleCreateProject(e) {
+       async function handleCreateProject(e) {
         e.preventDefault();
         
         const name = elements.projectName.value.trim();
@@ -1510,44 +1582,42 @@
         try {
           setButtonLoading(elements.createProjectBtn, true);
           
-          const user = window.AuthService.getCurrentUser();
-          if (!user?.email) {
-            throw new Error('User information not available');
-          }
-          
           const projectData = {
             name: name,
             description: description,
-            email: user.email,
             tags: []
           };
           
-          console.log('Creating new project:', projectData);
+          console.log('📝 Creating new project with unified services:', projectData);
           
-          const result = await window.AuthService.executeFunction('create_project_with_context', projectData);
+          // Use NavigationManager to create and navigate
+          const result = await window.NavigationManager.createProjectAndNavigate(projectData);
           
-          if (result?.status === 'success' && result?.data?.success) {
-            const newProject = result.data.project;
-            projects.unshift(newProject);
+          if (result.success) {
+            // Update local state
+            projects.unshift(result.project);
             filteredProjects = [...projects];
             
             hideNewProjectModal();
             renderProjects();
             
             showToast(`Project "${name}" created successfully!`, 'success');
-            console.log('Project created successfully');
-          } else {
-            throw new Error(result?.data?.message || 'Failed to create project');
+            
+            // Update context indicator
+            updateContextIndicator({
+              current_project: result.project
+            });
+            
+            console.log('✅ Project created and navigation initiated');
           }
           
         } catch (error) {
-          console.error('Error creating project:', error);
+          console.error('❌ Error creating project:', error);
           showToast(`Failed to create project: ${error.message}`, 'error');
         } finally {
           setButtonLoading(elements.createProjectBtn, false);
         }
       }
-      
       /**
        * Handle project update
        */
@@ -1651,13 +1721,13 @@
        */
       async function openProject(projectId, projectName) {
         try {
-          console.log('Opening project:', { projectId, projectName });
+          console.log('📂 Opening project with unified services:', { projectId, projectName });
           
-          const chatUrl = `chat.html?project=${projectId}&project_name=${encodeURIComponent(projectName)}`;
-          window.location.href = chatUrl;
+          // Use NavigationManager to open project
+          await window.NavigationManager.openProject(projectId, projectName);
           
         } catch (error) {
-          console.error('Error opening project:', error);
+          console.error('❌ Error opening project:', error);
           showToast(`Failed to open project: ${error.message}`, 'error');
         }
       }
