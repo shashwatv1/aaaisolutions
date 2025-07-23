@@ -18,7 +18,7 @@ function parseCookies(req, res, next) {
 
 async function refreshToken(req, res) {
   return cors(req, res, async () => {
-      
+
     res.set({
       'Access-Control-Allow-Origin': 'https://aaai.solutions',
       'Access-Control-Allow-Credentials': 'true' // ← FIXED: Required for credentials: 'include'
@@ -142,7 +142,7 @@ async function getFastJWTSecret() {
   }
   
   try {
-    jwtSecretCache = await getSecret('jwt-secret');
+    jwtSecretCache = await getSecret('JWT_SECRET_KEY');
     secretCacheExpiry = Date.now() + (30 * 60 * 1000);
     return jwtSecretCache;
   } catch (error) {
@@ -363,8 +363,8 @@ async function updateRefreshTokenInDatabase(oldToken, newToken, userId) {
 async function initializeSupabaseClient() {
   try {
     const [supabaseUrl, supabaseKey] = await Promise.all([
-      getSecret('supabase-url'),
-      getSecret('supabase-anon-key')
+      getSecret('SUPABASE_URL'),
+      getSecret('SUPABASE_KEY')
     ]);
     
     if (!supabaseUrl || !supabaseKey) {

@@ -23,11 +23,6 @@ async function functionExecutor(req, res) {
     });
 
     if (req.method === 'OPTIONS') {
-      res.set({
-        'Access-Control-Allow-Methods': 'POST, OPTIONS',
-        'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-        'Access-Control-Max-Age': '3600'
-      });
       res.status(204).send('');
       return;
     }
@@ -126,7 +121,7 @@ async function functionExecutor(req, res) {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 45000); // 45s timeout
       
-      const response = await fetch(`https://api-server-559730737995.us-central1.run.app/api/function/${functionName}`, {
+      const response = await fetch(`https://api-server-559730737995.us-central1.run.app/api/functions/${functionName}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

@@ -1144,7 +1144,7 @@
        */
       async function loadUserCredits() {
         try {
-          const result = await window.AuthService.executeFunction('get_user_credits', {});
+          const result = await window.AuthService.executeFunction('get_user_creds', {});
           const credits = result?.data?.credits || 0;
           elements.creditsDisplay.textContent = `Credits: ${credits}`;
         } catch (error) {
@@ -1166,7 +1166,7 @@
             throw new Error('User information not available');
           }
           
-          const result = await window.AuthService.executeFunction('get_projects', { 
+          const result = await window.AuthService.executeFunction('list_user_projects', { 
             email: user.email,
             limit: 50 
           });
