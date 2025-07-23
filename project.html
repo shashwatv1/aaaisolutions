@@ -1041,901 +1041,773 @@
   
   <!-- Unified Projects Application Script -->
   <script>
-    // Application state
-    let projects = [];
-    let filteredProjects = [];
-    let currentView = 'grid';
-    let currentContext = null;
-    let selectedProjectId = null;
-    let selectedProject = null;
-    
-    // DOM elements
-    const elements = {
-      // User info
-      userEmailDisplay: document.getElementById('userEmailDisplay'),
-      creditsDisplay: document.getElementById('creditsDisplay'),
-      logoutBtn: document.getElementById('logoutBtn'),
+    document.addEventListener('DOMContentLoaded', async function() {
+      console.log('Project Application starting...');
       
-      // Search and controls
-      searchInput: document.getElementById('searchInput'),
-      gridViewBtn: document.getElementById('gridViewBtn'),
-      listViewBtn: document.getElementById('listViewBtn'),
-      newProjectBtn: document.getElementById('newProjectBtn'),
+      // Application state
+      let projects = [];
+      let filteredProjects = [];
+      let currentView = 'grid';
+      let selectedProjectId = null;
+      let selectedProject = null;
       
-      // Content areas
-      projectsGrid: document.getElementById('projectsGrid'),
-      projectsList: document.getElementById('projectsList'),
-      emptyState: document.getElementById('emptyState'),
-      loadingContainer: document.getElementById('loadingContainer'),
+      // DOM elements
+      const elements = {
+        userEmailDisplay: document.getElementById('userEmailDisplay'),
+        creditsDisplay: document.getElementById('creditsDisplay'),
+        logoutBtn: document.getElementById('logoutBtn'),
+        searchInput: document.getElementById('searchInput'),
+        gridViewBtn: document.getElementById('gridViewBtn'),
+        listViewBtn: document.getElementById('listViewBtn'),
+        newProjectBtn: document.getElementById('newProjectBtn'),
+        projectsGrid: document.getElementById('projectsGrid'),
+        projectsList: document.getElementById('projectsList'),
+        emptyState: document.getElementById('emptyState'),
+        loadingContainer: document.getElementById('loadingContainer'),
+        newProjectModal: document.getElementById('newProjectModal'),
+        newProjectForm: document.getElementById('newProjectForm'),
+        projectName: document.getElementById('projectName'),
+        projectDescription: document.getElementById('projectDescription'),
+        createProjectBtn: document.getElementById('createProjectBtn'),
+        editProjectModal: document.getElementById('editProjectModal'),
+        editProjectForm: document.getElementById('editProjectForm'),
+        editProjectName: document.getElementById('editProjectName'),
+        editProjectDescription: document.getElementById('editProjectDescription'),
+        updateProjectBtn: document.getElementById('updateProjectBtn'),
+        deleteConfirmModal: document.getElementById('deleteConfirmModal'),
+        deleteProjectName: document.getElementById('deleteProjectName'),
+        confirmDeleteBtn: document.getElementById('confirmDeleteBtn'),
+        projectContextMenu: document.getElementById('projectContextMenu'),
+        envIndicator: document.getElementById('envIndicator'),
+        envText: document.getElementById('envText'),
+        contextIndicator: document.getElementById('contextIndicator'),
+        contextInfo: document.getElementById('contextInfo')
+      };
       
-      // New Project Modal
-      newProjectModal: document.getElementById('newProjectModal'),
-      newProjectForm: document.getElementById('newProjectForm'),
-      projectName: document.getElementById('projectName'),
-      projectDescription: document.getElementById('projectDescription'),
-      createProjectBtn: document.getElementById('createProjectBtn'),
-      
-      // Edit Project Modal
-      editProjectModal: document.getElementById('editProjectModal'),
-      editProjectForm: document.getElementById('editProjectForm'),
-      editProjectName: document.getElementById('editProjectName'),
-      editProjectDescription: document.getElementById('editProjectDescription'),
-      updateProjectBtn: document.getElementById('updateProjectBtn'),
-      
-      // Delete Confirmation Modal
-      deleteConfirmModal: document.getElementById('deleteConfirmModal'),
-      deleteProjectName: document.getElementById('deleteProjectName'),
-      confirmDeleteBtn: document.getElementById('confirmDeleteBtn'),
-      
-      // Context Menu
-      projectContextMenu: document.getElementById('projectContextMenu'),
-      
-      // Indicators
-      envIndicator: document.getElementById('envIndicator'),
-      envText: document.getElementById('envText'),
-      contextIndicator: document.getElementById('contextIndicator'),
-      contextInfo: document.getElementById('contextInfo')
-    };
-    
-    /**
-    * SIMPLIFIED: Main initialization - AuthService already initialized globally
-    */
-    async function initializeApp() {
+      /**
+       * Initialize the application
+       */
+      async function initializeApp() {
         try {
-            console.log('📄 Project page initializing...');
-            
-            // Wait for AuthService to be ready (should already be initialized)
-            if (window.AuthService && !window.AuthService.isInitialized) {
-                console.log('⏳ Waiting for AuthService...');
-                await window.AuthService.init();
-            }
-            
-            // Simple authentication check
-            if (!window.AuthService || !window.AuthService.isAuthenticated()) {
-                console.log('❌ Not authenticated, redirecting to login');
-                window.location.href = 'login.html';
-                return;
-            }
-            
-            console.log('✅ Authenticated, initializing app...');
-            
-            // Hide loading, show content
-            hideLoading();
-            
-            // Update user display
-            updateUserDisplay();
-            
-            // Initialize other services if available
-            await initializeOtherServices();
-            
-            // Load projects
-            await loadProjects();
-            
-            // Setup event listeners
-            setupEventListeners();
-            
-            console.log('✅ Project page initialized successfully');
-            
+          console.log('Initializing application...');
+          
+          if (!window.AuthService || !window.AuthService.isAuthenticated()) {
+            console.log('Not authenticated, redirecting to login');
+            window.location.href = 'login.html';
+            return;
+          }
+          
+          console.log('Authentication confirmed');
+          
+          initializeEnvironment();
+          initializeUI();
+          setupEventListeners();
+          
+          await loadProjects();
+          
+          console.log('Application initialized successfully');
+          
         } catch (error) {
-            console.error('❌ Project page initialization failed:', error);
-            showErrorPage(error.message);
+          console.error('Failed to initialize application:', error);
+          showErrorState(error.message);
         }
-    }
-    
-    /**
-    * SIMPLIFIED: Hide loading and show content
-    */
-    function hideLoading() {
-        if (elements.loadingContainer) {
-            elements.loadingContainer.style.display = 'none';
-        }
+      }
+      
+      /**
+       * Initialize environment indicators
+       */
+      function initializeEnvironment() {
+        const environment = window.AAAI_CONFIG?.ENVIRONMENT || 'production';
         
-        const mainContent = document.querySelector('.main-content');
-        if (mainContent) {
-            mainContent.style.display = 'block';
+        if (environment !== 'production') {
+          elements.envIndicator.className = `env-indicator ${environment}`;
+          elements.envText.textContent = `${environment.toUpperCase()} Environment`;
+          document.body.classList.add('with-env-indicator');
         }
-    }
-    
-    /**
-    * SIMPLIFIED: Update user display
-    */
-    function updateUserDisplay() {
+      }
+      
+      /**
+       * Initialize UI components
+       */
+      function initializeUI() {
         const user = window.AuthService.getCurrentUser();
         if (user && elements.userEmailDisplay) {
-            elements.userEmailDisplay.textContent = user.email;
+          elements.userEmailDisplay.textContent = user.email;
         }
         
-        // Load credits
         loadUserCredits();
-    }
-    
-    /**
-    * SIMPLIFIED: Initialize other services
-    */
-    async function initializeOtherServices() {
-        try {
-            // Initialize ProjectService if available
-            if (window.ProjectService && !window.ProjectService.isInitialized) {
-                await window.ProjectService.init(window.AuthService, {
-                    debug: false,
-                    autoSync: true
-                });
-                console.log('✅ ProjectService initialized');
-            }
-            
-            // Initialize NavigationManager if available
-            if (window.NavigationManager && !window.NavigationManager.isInitialized) {
-                window.NavigationManager.init(
-                    window.AuthService, 
-                    window.ProjectService, 
-                    { debug: false }
-                );
-                console.log('✅ NavigationManager initialized');
-            }
-            
-        } catch (error) {
-            console.warn('⚠️ Service initialization failed:', error);
-        }
-    }
-    
-    /**
-    * Load user credits
-    */
-    async function loadUserCredits() {
-    try {
-      elements.creditsDisplay.textContent = `Credits: 0`;
-      } catch (error) {
-        console.warn('Could not load user credits:', error);
-        elements.creditsDisplay.textContent = 'Credits: --';
+        showLoading(false);
       }
-    }
-
-    /**
-    * Load current context
-    */
-    async function loadCurrentContext() {
-      try {
-        if (window.ProjectService) {
-          const contextResult = await window.ProjectService.getCurrentContext();
-          if (contextResult.success) {
-            currentContext = contextResult;
-            updateContextIndicator(contextResult);
-            console.log('✅ Current context loaded:', contextResult);
+      
+      /**
+       * Load user credits
+       */
+      async function loadUserCredits() {
+        try {
+          const result = await window.AuthService.executeFunction('get_user_credits', {});
+          const credits = result?.data?.credits || 0;
+          elements.creditsDisplay.textContent = `Credits: ${credits}`;
+        } catch (error) {
+          console.warn('Could not load user credits:', error);
+          elements.creditsDisplay.textContent = 'Credits: --';
+        }
+      }
+      
+      /**
+       * Load projects from API
+       */
+      async function loadProjects() {
+        try {
+          console.log('Loading projects...');
+          showLoading(true);
+          
+          const user = window.AuthService.getCurrentUser();
+          if (!user?.email) {
+            throw new Error('User information not available');
           }
-        }
-      } catch (error) {
-        console.warn('Could not load current context:', error);
-      }
-    }
-
-    /**
-    * Update context indicator
-    */
-    function updateContextIndicator(context) {
-      if (context && context.current_project) {
-        elements.contextInfo.innerHTML = `
-          <strong>Active Project:</strong> ${context.current_project.name}<br>
-          <strong>Chat ID:</strong> <code>${context.current_project.id}</code>
-        `;
-        elements.contextIndicator.classList.remove('hidden');
-      } else {
-        elements.contextIndicator.classList.add('hidden');
-      }
-    }
-
-    /**
-    * SIMPLIFIED: Load projects
-    */
-    async function loadProjects() {
-        try {
-            console.log('📂 Loading projects...');
-            
-            // Show welcome message for now (since we don't have real project data)
-            showWelcomeMessage();
-            
-            console.log('✅ Project loading completed');
-            
+          
+          const result = await window.AuthService.executeFunction('get_projects', { 
+            email: user.email,
+            limit: 50 
+          });
+          
+          if (result?.status === 'success' && result?.data?.success && result?.data?.projects) {
+            projects = result.data.projects;
+            console.log(`Loaded ${projects.length} projects`);
+          } else {
+            projects = [];
+            console.log('No projects found or empty response');
+          }
+          
+          filteredProjects = [...projects];
+          renderProjects();
+          
         } catch (error) {
-            console.error('❌ Project loading failed:', error);
+          console.error('Error loading projects:', error);
+          showToast(`Failed to load projects: ${error.message}`, 'error');
+          projects = [];
+          filteredProjects = [];
+          renderProjects();
+        } finally {
+          showLoading(false);
         }
-    }
-
-    /**
-    * Show welcome message for new users
-    */
-    function showWelcomeMessage() {
-        if (elements.projectsGrid) {
-            elements.projectsGrid.innerHTML = `
-                <div class="welcome-state" style="text-align: center; padding: 40px; color: #fff;">
-                    <h3>👋 Welcome to AAAI Solutions!</h3>
-                    <p>You don't have any projects yet. Create your first project to get started.</p>
-                    <button class="btn btn-primary" onclick="showNewProjectModal()" style="padding: 10px 20px; background: #007acc; color: white; border: none; border-radius: 4px; cursor: pointer;">
-                        Create Your First Project
-                    </button>
-                </div>
-            `;
+      }
+      
+      /**
+       * Render projects based on current view
+       */
+      function renderProjects() {
+        if (filteredProjects.length === 0) {
+          if (projects.length === 0) {
+            showEmptyState(true);
+          } else {
+            showNoResults();
+          }
+          return;
         }
-    }
-
-    /**
-    * Show error page
-    */
-    function showErrorPage(message) {
-        if (elements.loadingContainer) {
-            elements.loadingContainer.innerHTML = `
-                <div style="text-align: center; color: #fff; padding: 40px;">
-                    <h3>Error</h3>
-                    <p>${message}</p>
-                    <button onclick="window.location.reload()" style="padding: 10px 20px; margin: 10px; background: #007acc; color: white; border: none; border-radius: 4px; cursor: pointer;">
-                        Refresh
-                    </button>
-                    <button onclick="window.location.href='login.html'" style="padding: 10px 20px; margin: 10px; background: #dc3545; color: white; border: none; border-radius: 4px; cursor: pointer;">
-                        Login
-                    </button>
-                </div>
-            `;
-        }
-    }
-
-    /**
-    * Render projects based on current view
-    */
-    function renderProjects() {
-      if (filteredProjects.length === 0) {
-        if (projects.length === 0) {
-          showEmptyState(true);
+        
+        showEmptyState(false);
+        
+        if (currentView === 'grid') {
+          renderProjectsGrid();
         } else {
-          showNoResults();
+          renderProjectsList();
         }
-        return;
       }
       
-      showEmptyState(false);
-      
-      if (currentView === 'grid') {
-        renderProjectsGrid();
-      } else {
-        renderProjectsList();
+      /**
+       * Render projects grid
+       */
+      function renderProjectsGrid() {
+        elements.projectsGrid.innerHTML = '';
+        
+        filteredProjects.forEach(project => {
+          const projectCard = createProjectCard(project);
+          elements.projectsGrid.appendChild(projectCard);
+        });
       }
-    }
-
-    /**
-    * Render projects grid
-    */
-    function renderProjectsGrid() {
-      elements.projectsGrid.innerHTML = '';
       
-      filteredProjects.forEach(project => {
-        const projectCard = createProjectCard(project);
-        elements.projectsGrid.appendChild(projectCard);
-      });
-    }
-
-    /**
-    * Render projects list
-    */
-    function renderProjectsList() {
-      elements.projectsList.innerHTML = '';
+      /**
+       * Render projects list
+       */
+      function renderProjectsList() {
+        elements.projectsList.innerHTML = '';
+        
+        filteredProjects.forEach(project => {
+          const projectItem = createProjectListItem(project);
+          elements.projectsList.appendChild(projectItem);
+        });
+      }
       
-      filteredProjects.forEach(project => {
-        const projectItem = createProjectListItem(project);
-        elements.projectsList.appendChild(projectItem);
-      });
-    }
-
-    /**
-    * Create project card
-    */
-    function createProjectCard(project) {
-      const card = document.createElement('div');
-      card.className = 'project-card';
-      card.onclick = () => openProject(project.id, project.name);
-      
-      const chatId = project.id;
-      
-      card.innerHTML = `
-        <div class="project-header">
-          <h3 class="project-title">${escapeHtml(project.name)}</h3>
-          <button class="project-menu" onclick="event.stopPropagation(); showProjectMenu('${project.id}', event)" data-project-id="${project.id}">⋮</button>
-        </div>
-        <p class="project-description">${escapeHtml(project.description || 'No description provided')}</p>
-        <div class="project-stats">
-          <div class="project-stats-left">
-            <div class="project-stat">
-              <ion-icon name="chatbubbles-outline"></ion-icon>
-              <span>${project.message_count || 0} messages</span>
-            </div>
-            <div class="project-stat">
-              <ion-icon name="time-outline"></ion-icon>
-              <span>${formatDate(project.created_at)}</span>
-            </div>
-          </div>
-          <div class="project-last-activity">${formatRelativeTime(project.last_accessed_at || project.created_at)}</div>
-        </div>
-        <div class="chat-id-indicator" title="Chat ID for this project">
-          ID: ${chatId.substring(0, 8)}...
-        </div>
-      `;
-      
-      return card;
-    }
-
-    /**
-    * Create project list item
-    */
-    function createProjectListItem(project) {
-      const item = document.createElement('div');
-      item.className = 'project-list-item';
-      item.onclick = () => openProject(project.id, project.name);
-      
-      const chatId = project.id;
-      
-      item.innerHTML = `
-        <div class="project-list-header">
-          <h3 class="project-list-title">${escapeHtml(project.name)}</h3>
-          <div class="project-list-stats">
-            <span>${project.message_count || 0} messages</span>
-            <span>${formatDate(project.created_at)}</span>
-            <span>${formatRelativeTime(project.last_accessed_at || project.created_at)}</span>
-            <span title="Chat ID">ID: ${chatId.substring(0, 8)}...</span>
+      /**
+       * Create project card
+       */
+      function createProjectCard(project) {
+        const card = document.createElement('div');
+        card.className = 'project-card';
+        card.onclick = () => openProject(project.id, project.name);
+        
+        const chatId = project.id;
+        
+        card.innerHTML = `
+          <div class="project-header">
+            <h3 class="project-title">${escapeHtml(project.name)}</h3>
             <button class="project-menu" onclick="event.stopPropagation(); showProjectMenu('${project.id}', event)" data-project-id="${project.id}">⋮</button>
           </div>
-        </div>
-        <p class="project-description">${escapeHtml(project.description || 'No description provided')}</p>
-      `;
-      
-      return item;
-    }
-
-    /**
-    * Setup event listeners
-    */
-    function setupEventListeners() {
-      // User actions
-      elements.logoutBtn?.addEventListener('click', handleLogout);
-      
-      // Search and view controls
-      elements.searchInput?.addEventListener('input', handleSearch);
-      elements.gridViewBtn?.addEventListener('click', () => switchView('grid'));
-      elements.listViewBtn?.addEventListener('click', () => switchView('list'));
-      
-      // Project creation
-      elements.newProjectBtn?.addEventListener('click', showNewProjectModal);
-      elements.newProjectForm?.addEventListener('submit', handleCreateProject);
-      
-      // Project editing
-      elements.editProjectForm?.addEventListener('submit', handleUpdateProject);
-      
-      // Project deletion
-      elements.confirmDeleteBtn?.addEventListener('click', handleDeleteProject);
-      
-      // Modal controls
-      elements.newProjectModal?.addEventListener('click', function(e) {
-        if (e.target === elements.newProjectModal) {
-          hideNewProjectModal();
-        }
-      });
-      
-      elements.editProjectModal?.addEventListener('click', function(e) {
-        if (e.target === elements.editProjectModal) {
-          hideEditProjectModal();
-        }
-      });
-      
-      elements.deleteConfirmModal?.addEventListener('click', function(e) {
-        if (e.target === elements.deleteConfirmModal) {
-          hideDeleteConfirmModal();
-        }
-      });
-      
-      // Close context menu when clicking outside
-      document.addEventListener('click', function(e) {
-        if (!elements.projectContextMenu.contains(e.target) && 
-            !e.target.classList.contains('project-menu') &&
-            !e.target.closest('.context-menu-item')) {
-          hideContextMenu();
-        }
-      });
-    }
-
-    /**
-    * Show project context menu
-    */
-    function showProjectMenu(projectId, event) {
-      event.preventDefault();
-      event.stopPropagation();
-      
-      selectedProjectId = projectId;
-      selectedProject = projects.find(p => p.id === projectId);
-      
-      if (!selectedProject) {
-        console.error('Project not found:', projectId);
-        showToast('Project not found', 'error');
-        return;
-      }
-      
-      console.log('Showing context menu for project:', selectedProject.name, selectedProject);
-      
-      const rect = event.target.getBoundingClientRect();
-      const menu = elements.projectContextMenu;
-      
-      // Position the menu
-      menu.style.display = 'block';
-      menu.style.left = (rect.left + window.scrollX - menu.offsetWidth + rect.width) + 'px';
-      menu.style.top = (rect.bottom + window.scrollY + 5) + 'px';
-      
-      // Adjust position if menu goes off screen
-      const menuRect = menu.getBoundingClientRect();
-      if (menuRect.right > window.innerWidth) {
-        menu.style.left = (rect.left + window.scrollX - menu.offsetWidth) + 'px';
-      }
-      if (menuRect.bottom > window.innerHeight) {
-        menu.style.top = (rect.top + window.scrollY - menu.offsetHeight - 5) + 'px';
-      }
-    }
-
-    /**
-    * Hide context menu
-    */
-    function hideContextMenu() {
-      elements.projectContextMenu.style.display = 'none';
-    }
-
-    /**
-    * Edit project
-    */
-    function editProject() {
-      console.log('Edit project called, selectedProject:', selectedProject);
-      
-      if (!selectedProject) {
-        console.error('No project selected for editing');
-        showToast('No project selected', 'error');
-        return;
-      }
-      
-      hideContextMenu();
-      
-      // Populate edit form
-      elements.editProjectName.value = selectedProject.name || '';
-      elements.editProjectDescription.value = selectedProject.description || '';
-      
-      // Show edit modal
-      elements.editProjectModal.style.display = 'flex';
-      elements.editProjectName.focus();
-    }
-
-    /**
-    * Delete project
-    */
-    function deleteProject() {
-      console.log('Delete project called, selectedProject:', selectedProject);
-      
-      if (!selectedProject) {
-        console.error('No project selected for deletion');
-        showToast('No project selected', 'error');
-        return;
-      }
-      
-      hideContextMenu();
-      
-      // Show confirmation modal
-      elements.deleteProjectName.textContent = selectedProject.name;
-      elements.deleteConfirmModal.style.display = 'flex';
-    }
-
-    /**
-    * Handle search
-    */
-    function handleSearch(e) {
-      const query = e.target.value.toLowerCase().trim();
-      
-      if (query === '') {
-        filteredProjects = [...projects];
-      } else {
-        filteredProjects = projects.filter(project => 
-          project.name.toLowerCase().includes(query) ||
-          (project.description && project.description.toLowerCase().includes(query)) ||
-          project.id.toLowerCase().includes(query)
-        );
-      }
-      
-      renderProjects();
-    }
-
-    /**
-    * Switch view between grid and list
-    */
-    function switchView(view) {
-      currentView = view;
-      
-      // Update buttons
-      document.querySelectorAll('.view-toggle-btn').forEach(btn => {
-        btn.classList.remove('active');
-      });
-      
-      if (view === 'grid') {
-        elements.gridViewBtn.classList.add('active');
-        elements.projectsGrid.style.display = 'grid';
-        elements.projectsList.style.display = 'none';
-      } else {
-        elements.listViewBtn.classList.add('active');
-        elements.projectsGrid.style.display = 'none';
-        elements.projectsList.style.display = 'block';
-        elements.projectsList.classList.add('active');
-      }
-      
-      renderProjects();
-    }
-
-    /**
-    * Show/hide new project modal
-    */
-    function showNewProjectModal() {
-      elements.newProjectModal.style.display = 'flex';
-      elements.projectName.focus();
-    }
-
-    function hideNewProjectModal() {
-      elements.newProjectModal.style.display = 'none';
-      elements.newProjectForm.reset();
-    }
-
-    /**
-    * Show/hide edit project modal
-    */
-    function hideEditProjectModal() {
-      elements.editProjectModal.style.display = 'none';
-      elements.editProjectForm.reset();
-      selectedProjectId = null;
-      selectedProject = null;
-    }
-
-    /**
-    * Show/hide delete confirmation modal
-    */
-    function hideDeleteConfirmModal() {
-      elements.deleteConfirmModal.style.display = 'none';
-      selectedProjectId = null;
-      selectedProject = null;
-    }
-
-    /**
-    * Handle project creation
-    */
-    async function handleCreateProject(e) {
-      e.preventDefault();
-      
-      const name = elements.projectName.value.trim();
-      const description = elements.projectDescription.value.trim();
-      
-      if (!name) {
-        showToast('Project name is required', 'error');
-        return;
-      }
-      
-      try {
-        setButtonLoading(elements.createProjectBtn, true);
+          <p class="project-description">${escapeHtml(project.description || 'No description provided')}</p>
+          <div class="project-stats">
+            <div class="project-stats-left">
+              <div class="project-stat">
+                <ion-icon name="chatbubbles-outline"></ion-icon>
+                <span>${project.message_count || 0} messages</span>
+              </div>
+              <div class="project-stat">
+                <ion-icon name="time-outline"></ion-icon>
+                <span>${formatDate(project.created_at)}</span>
+              </div>
+            </div>
+            <div class="project-last-activity">${formatRelativeTime(project.last_accessed_at || project.created_at)}</div>
+          </div>
+          <div class="chat-id-indicator" title="Chat ID for this project">
+            ID: ${chatId.substring(0, 8)}...
+          </div>
+        `;
         
-        const projectData = {
-          name: name,
-          description: description,
-          tags: []
-        };
+        return card;
+      }
+      
+      /**
+       * Create project list item
+       */
+      function createProjectListItem(project) {
+        const item = document.createElement('div');
+        item.className = 'project-list-item';
+        item.onclick = () => openProject(project.id, project.name);
         
-        console.log('📝 Creating new project:', projectData);
+        const chatId = project.id;
         
-        // Use AuthService to create project
-        const result = await window.AuthService.executeFunction('create_project', projectData);
+        item.innerHTML = `
+          <div class="project-list-header">
+            <h3 class="project-list-title">${escapeHtml(project.name)}</h3>
+            <div class="project-list-stats">
+              <span>${project.message_count || 0} messages</span>
+              <span>${formatDate(project.created_at)}</span>
+              <span>${formatRelativeTime(project.last_accessed_at || project.created_at)}</span>
+              <span title="Chat ID">ID: ${chatId.substring(0, 8)}...</span>
+              <button class="project-menu" onclick="event.stopPropagation(); showProjectMenu('${project.id}', event)" data-project-id="${project.id}">⋮</button>
+            </div>
+          </div>
+          <p class="project-description">${escapeHtml(project.description || 'No description provided')}</p>
+        `;
         
-        if (result?.status === 'success' && result?.data?.success) {
-          // Update local state
-          const newProject = result.data.project;
-          projects.unshift(newProject);
+        return item;
+      }
+      
+      /**
+       * Setup event listeners
+       */
+      function setupEventListeners() {
+        elements.logoutBtn?.addEventListener('click', handleLogout);
+        elements.searchInput?.addEventListener('input', handleSearch);
+        elements.gridViewBtn?.addEventListener('click', () => switchView('grid'));
+        elements.listViewBtn?.addEventListener('click', () => switchView('list'));
+        elements.newProjectBtn?.addEventListener('click', showNewProjectModal);
+        elements.newProjectForm?.addEventListener('submit', handleCreateProject);
+        elements.editProjectForm?.addEventListener('submit', handleUpdateProject);
+        elements.confirmDeleteBtn?.addEventListener('click', handleDeleteProject);
+        
+        // Modal click handlers
+        elements.newProjectModal?.addEventListener('click', function(e) {
+          if (e.target === elements.newProjectModal) {
+            hideNewProjectModal();
+          }
+        });
+        
+        elements.editProjectModal?.addEventListener('click', function(e) {
+          if (e.target === elements.editProjectModal) {
+            hideEditProjectModal();
+          }
+        });
+        
+        elements.deleteConfirmModal?.addEventListener('click', function(e) {
+          if (e.target === elements.deleteConfirmModal) {
+            hideDeleteConfirmModal();
+          }
+        });
+        
+        // Close context menu when clicking outside
+        document.addEventListener('click', function(e) {
+          if (!elements.projectContextMenu.contains(e.target) && 
+              !e.target.classList.contains('project-menu') &&
+              !e.target.closest('.context-menu-item')) {
+            hideContextMenu();
+          }
+        });
+      }
+      
+      /**
+       * Show project context menu
+       */
+      function showProjectMenu(projectId, event) {
+        event.preventDefault();
+        event.stopPropagation();
+        
+        selectedProjectId = projectId;
+        selectedProject = projects.find(p => p.id === projectId);
+        
+        if (!selectedProject) {
+          console.error('Project not found:', projectId);
+          showToast('Project not found', 'error');
+          return;
+        }
+        
+        const rect = event.target.getBoundingClientRect();
+        const menu = elements.projectContextMenu;
+        
+        menu.style.display = 'block';
+        menu.style.left = (rect.left + window.scrollX - menu.offsetWidth + rect.width) + 'px';
+        menu.style.top = (rect.bottom + window.scrollY + 5) + 'px';
+        
+        // Adjust position if menu goes off screen
+        const menuRect = menu.getBoundingClientRect();
+        if (menuRect.right > window.innerWidth) {
+          menu.style.left = (rect.left + window.scrollX - menu.offsetWidth) + 'px';
+        }
+        if (menuRect.bottom > window.innerHeight) {
+          menu.style.top = (rect.top + window.scrollY - menu.offsetHeight - 5) + 'px';
+        }
+      }
+      
+      /**
+       * Hide context menu
+       */
+      function hideContextMenu() {
+        elements.projectContextMenu.style.display = 'none';
+      }
+      
+      /**
+       * Edit project
+       */
+      function editProject() {
+        if (!selectedProject) {
+          showToast('No project selected', 'error');
+          return;
+        }
+        
+        hideContextMenu();
+        
+        elements.editProjectName.value = selectedProject.name || '';
+        elements.editProjectDescription.value = selectedProject.description || '';
+        
+        elements.editProjectModal.style.display = 'flex';
+        elements.editProjectName.focus();
+      }
+      
+      /**
+       * Delete project
+       */
+      function deleteProject() {
+        if (!selectedProject) {
+          showToast('No project selected', 'error');
+          return;
+        }
+        
+        hideContextMenu();
+        
+        elements.deleteProjectName.textContent = selectedProject.name;
+        elements.deleteConfirmModal.style.display = 'flex';
+      }
+      
+      /**
+       * Handle search
+       */
+      function handleSearch(e) {
+        const query = e.target.value.toLowerCase().trim();
+        
+        if (query === '') {
           filteredProjects = [...projects];
-          
-          hideNewProjectModal();
-          renderProjects();
-          
-          showToast(`Project "${name}" created successfully!`, 'success');
-          
-          console.log('✅ Project created successfully');
         } else {
-          throw new Error(result?.data?.message || 'Failed to create project');
+          filteredProjects = projects.filter(project => 
+            project.name.toLowerCase().includes(query) ||
+            (project.description && project.description.toLowerCase().includes(query)) ||
+            project.id.toLowerCase().includes(query)
+          );
         }
         
-      } catch (error) {
-        console.error('❌ Error creating project:', error);
-        showToast(`Failed to create project: ${error.message}`, 'error');
-      } finally {
-        setButtonLoading(elements.createProjectBtn, false);
-      }
-    }
-
-    /**
-    * Handle project update
-    */
-    async function handleUpdateProject(e) {
-      e.preventDefault();
-      
-      if (!selectedProject) {
-        showToast('No project selected', 'error');
-        return;
+        renderProjects();
       }
       
-      const name = elements.editProjectName.value.trim();
-      const description = elements.editProjectDescription.value.trim();
-      
-      if (!name) {
-        showToast('Project name is required', 'error');
-        return;
+      /**
+       * Switch view between grid and list
+       */
+      function switchView(view) {
+        currentView = view;
+        
+        document.querySelectorAll('.view-toggle-btn').forEach(btn => {
+          btn.classList.remove('active');
+        });
+        
+        if (view === 'grid') {
+          elements.gridViewBtn.classList.add('active');
+          elements.projectsGrid.style.display = 'grid';
+          elements.projectsList.style.display = 'none';
+        } else {
+          elements.listViewBtn.classList.add('active');
+          elements.projectsGrid.style.display = 'none';
+          elements.projectsList.style.display = 'block';
+          elements.projectsList.classList.add('active');
+        }
+        
+        renderProjects();
       }
       
-      try {
-        setButtonLoading(elements.updateProjectBtn, true);
+      /**
+       * Show/hide new project modal
+       */
+      function showNewProjectModal() {
+        elements.newProjectModal.style.display = 'flex';
+        elements.projectName.focus();
+      }
+      
+      function hideNewProjectModal() {
+        elements.newProjectModal.style.display = 'none';
+        elements.newProjectForm.reset();
+      }
+      
+      /**
+       * Show/hide edit project modal
+       */
+      function hideEditProjectModal() {
+        elements.editProjectModal.style.display = 'none';
+        elements.editProjectForm.reset();
+        selectedProjectId = null;
+        selectedProject = null;
+      }
+      
+      /**
+       * Show/hide delete confirmation modal
+       */
+      function hideDeleteConfirmModal() {
+        elements.deleteConfirmModal.style.display = 'none';
+        selectedProjectId = null;
+        selectedProject = null;
+      }
+      
+      /**
+       * Handle project creation
+       */
+      async function handleCreateProject(e) {
+        e.preventDefault();
         
-        const updateData = {
-          project_id: selectedProject.id,
-          name: name,
-          description: description,
-          tags: selectedProject.tags || []
-        };
+        const name = elements.projectName.value.trim();
+        const description = elements.projectDescription.value.trim();
         
-        console.log('📝 Updating project:', updateData);
+        if (!name) {
+          showToast('Project name is required', 'error');
+          return;
+        }
         
-        const result = await window.AuthService.executeFunction('update_project', updateData);
+        try {
+          setButtonLoading(elements.createProjectBtn, true);
+          
+          const user = window.AuthService.getCurrentUser();
+          if (!user?.email) {
+            throw new Error('User information not available');
+          }
+          
+          const projectData = {
+            name: name,
+            description: description,
+            email: user.email,
+            tags: []
+          };
+          
+          console.log('Creating new project:', projectData);
+          
+          const result = await window.AuthService.executeFunction('create_project_with_context', projectData);
+          
+          if (result?.status === 'success' && result?.data?.success) {
+            const newProject = result.data.project;
+            projects.unshift(newProject);
+            filteredProjects = [...projects];
+            
+            hideNewProjectModal();
+            renderProjects();
+            
+            showToast(`Project "${name}" created successfully!`, 'success');
+            console.log('Project created successfully');
+          } else {
+            throw new Error(result?.data?.message || 'Failed to create project');
+          }
+          
+        } catch (error) {
+          console.error('Error creating project:', error);
+          showToast(`Failed to create project: ${error.message}`, 'error');
+        } finally {
+          setButtonLoading(elements.createProjectBtn, false);
+        }
+      }
+      
+      /**
+       * Handle project update
+       */
+      async function handleUpdateProject(e) {
+        e.preventDefault();
         
-        if (result?.status === 'success' && result?.data?.success) {
-          // Update local state
-          const projectIndex = projects.findIndex(p => p.id === selectedProject.id);
-          if (projectIndex !== -1) {
-            projects[projectIndex] = { ...projects[projectIndex], name: name, description: description };
+        if (!selectedProject) {
+          showToast('No project selected', 'error');
+          return;
+        }
+        
+        const name = elements.editProjectName.value.trim();
+        const description = elements.editProjectDescription.value.trim();
+        
+        if (!name) {
+          showToast('Project name is required', 'error');
+          return;
+        }
+        
+        try {
+          setButtonLoading(elements.updateProjectBtn, true);
+          
+          const updateData = {
+            project_id: selectedProject.id,
+            name: name,
+            description: description,
+            tags: selectedProject.tags || []
+          };
+          
+          console.log('Updating project:', updateData);
+          
+          const result = await window.AuthService.executeFunction('update_project', updateData);
+          
+          if (result?.status === 'success' && result?.data?.success) {
+            const projectIndex = projects.findIndex(p => p.id === selectedProject.id);
+            if (projectIndex !== -1) {
+              projects[projectIndex] = { ...projects[projectIndex], name: name, description: description };
+              filteredProjects = [...projects];
+              renderProjects();
+            }
+            
+            hideEditProjectModal();
+            showToast(`Project "${name}" updated successfully!`, 'success');
+            console.log('Project updated successfully');
+          } else {
+            throw new Error(result?.data?.message || 'Failed to update project');
+          }
+          
+        } catch (error) {
+          console.error('Error updating project:', error);
+          showToast(`Failed to update project: ${error.message}`, 'error');
+        } finally {
+          setButtonLoading(elements.updateProjectBtn, false);
+        }
+      }
+      
+      /**
+       * Handle project deletion
+       */
+      async function handleDeleteProject() {
+        if (!selectedProject) {
+          showToast('No project selected', 'error');
+          return;
+        }
+        
+        const projectToDelete = { ...selectedProject };
+        
+        try {
+          setButtonLoading(elements.confirmDeleteBtn, true);
+          
+          const deleteData = {
+            project_id: projectToDelete.id
+          };
+          
+          console.log('Deleting project:', deleteData);
+          
+          const result = await window.AuthService.executeFunction('delete_project', deleteData);
+          
+          if (result?.status === 'success' && result?.data?.success) {
+            projects = projects.filter(p => p.id !== projectToDelete.id);
             filteredProjects = [...projects];
             renderProjects();
+            
+            hideDeleteConfirmModal();
+            showToast(`Project "${projectToDelete.name}" deleted successfully!`, 'success');
+            console.log('Project deleted successfully');
+          } else {
+            throw new Error(result?.data?.message || 'Failed to delete project');
           }
           
-          hideEditProjectModal();
-          showToast(`Project "${name}" updated successfully!`, 'success');
-          
-          console.log('✅ Project updated successfully');
-        } else {
-          throw new Error(result?.data?.message || 'Failed to update project');
-        }
-        
-      } catch (error) {
-        console.error('❌ Error updating project:', error);
-        showToast(`Failed to update project: ${error.message}`, 'error');
-      } finally {
-        setButtonLoading(elements.updateProjectBtn, false);
-      }
-    }
-
-    /**
-    * Handle project deletion
-    */
-    async function handleDeleteProject() {
-      if (!selectedProject) {
-        showToast('No project selected', 'error');
-        return;
-      }
-      
-      const projectToDelete = { ...selectedProject };
-      
-      try {
-        setButtonLoading(elements.confirmDeleteBtn, true);
-        
-        const deleteData = {
-          project_id: projectToDelete.id
-        };
-        
-        console.log('🗑️ Deleting project:', deleteData);
-        
-        const result = await window.AuthService.executeFunction('delete_project', deleteData);
-        
-        if (result?.status === 'success' && result?.data?.success) {
-          // Update local state
-          projects = projects.filter(p => p.id !== projectToDelete.id);
-          filteredProjects = [...projects];
-          renderProjects();
-          
-          hideDeleteConfirmModal();
-          showToast(`Project "${projectToDelete.name}" deleted successfully!`, 'success');
-          
-          console.log('✅ Project deleted successfully');
-        } else {
-          throw new Error(result?.data?.message || 'Failed to delete project');
-        }
-        
-      } catch (error) {
-        console.error('❌ Error deleting project:', error);
-        showToast(`Failed to delete project: ${error.message}`, 'error');
-      } finally {
-        setButtonLoading(elements.confirmDeleteBtn, false);
-      }
-    }
-
-    /**
-    * Open existing project
-    */
-    async function openProject(projectId, projectName) {
-      try {
-        console.log('📂 Opening project:', { projectId, projectName });
-        
-        // Navigate to chat page
-        const chatUrl = `chat.html?project=${projectId}&project_name=${encodeURIComponent(projectName)}`;
-        window.location.href = chatUrl;
-        
-      } catch (error) {
-        console.error('❌ Error opening project:', error);
-        showToast(`Failed to open project: ${error.message}`, 'error');
-      }
-    }
-
-    /**
-    * Handle logout
-    */
-    async function handleLogout() {
-      if (confirm('Are you sure you want to sign out?')) {
-        try {
-          await window.AuthService.logout();
-          window.location.href = 'login.html';
         } catch (error) {
-          console.error('Logout error:', error);
-          window.location.href = 'login.html';
+          console.error('Error deleting project:', error);
+          showToast(`Failed to delete project: ${error.message}`, 'error');
+        } finally {
+          setButtonLoading(elements.confirmDeleteBtn, false);
         }
       }
-    }
-
-    // Utility functions
-
-    function showLoading(show) {
-      elements.loadingContainer.style.display = show ? 'flex' : 'none';
-      elements.projectsGrid.style.display = show ? 'none' : 'grid';
-      elements.projectsList.style.display = show ? 'none' : (currentView === 'list' ? 'block' : 'none');
-    }
-
-    function showEmptyState(show) {
-      elements.emptyState.style.display = show ? 'block' : 'none';
-      elements.projectsGrid.style.display = show ? 'none' : (currentView === 'grid' ? 'grid' : 'none');
-      elements.projectsList.style.display = show ? 'none' : (currentView === 'list' ? 'block' : 'none');
-    }
-
-    function showNoResults() {
-      const noResultsHtml = `
-        <div class="empty-state">
-          <div class="empty-state-icon">🔍</div>
-          <h3>No Projects Found</h3>
-          <p>No projects match your search criteria. Try adjusting your search terms.</p>
-        </div>
-      `;
       
-      if (currentView === 'grid') {
-        elements.projectsGrid.innerHTML = noResultsHtml;
-      } else {
-        elements.projectsList.innerHTML = noResultsHtml;
-      }
-    }
-
-    function setButtonLoading(button, loading) {
-      const span = button.querySelector('span');
-      if (loading) {
-        button.disabled = true;
-        button.classList.add('loading');
-        if (span) {
-          const originalText = span.textContent;
-          button.setAttribute('data-original-text', originalText);
-          span.textContent = 'Processing...';
+      /**
+       * Open existing project
+       */
+      async function openProject(projectId, projectName) {
+        try {
+          console.log('Opening project:', { projectId, projectName });
+          
+          const chatUrl = `chat.html?project=${projectId}&project_name=${encodeURIComponent(projectName)}`;
+          window.location.href = chatUrl;
+          
+        } catch (error) {
+          console.error('Error opening project:', error);
+          showToast(`Failed to open project: ${error.message}`, 'error');
         }
-      } else {
-        button.disabled = false;
-        button.classList.remove('loading');
-        if (span) {
-          const originalText = button.getAttribute('data-original-text');
-          if (originalText) {
-            span.textContent = originalText;
-            button.removeAttribute('data-original-text');
+      }
+      
+      /**
+       * Handle logout
+       */
+      async function handleLogout() {
+        if (confirm('Are you sure you want to sign out?')) {
+          try {
+            await window.AuthService.logout();
+            window.location.href = 'login.html';
+          } catch (error) {
+            console.error('Logout error:', error);
+            window.location.href = 'login.html';
           }
         }
       }
-    }
-
-    function showToast(message, type = 'success') {
-      // Remove existing toasts
-      document.querySelectorAll('.toast').forEach(toast => toast.remove());
       
-      const toast = document.createElement('div');
-      toast.className = `toast ${type}`;
-      toast.textContent = message;
+      // Utility functions
       
-      document.body.appendChild(toast);
+      function showLoading(show) {
+        elements.loadingContainer.style.display = show ? 'flex' : 'none';
+        elements.projectsGrid.style.display = show ? 'none' : 'grid';
+        elements.projectsList.style.display = show ? 'none' : (currentView === 'list' ? 'block' : 'none');
+      }
       
-      // Show toast
-      setTimeout(() => toast.classList.add('show'), 100);
+      function showEmptyState(show) {
+        elements.emptyState.style.display = show ? 'block' : 'none';
+        elements.projectsGrid.style.display = show ? 'none' : (currentView === 'grid' ? 'grid' : 'none');
+        elements.projectsList.style.display = show ? 'none' : (currentView === 'list' ? 'block' : 'none');
+      }
       
-      // Hide toast after 5 seconds
-      setTimeout(() => {
-        toast.classList.remove('show');
-        setTimeout(() => toast.remove(), 300);
-      }, 5000);
-    }
-
-    function escapeHtml(text) {
-      const div = document.createElement('div');
-      div.textContent = text;
-      return div.innerHTML;
-    }
-
-    function formatDate(dateString) {
-      const date = new Date(dateString);
-      return date.toLocaleDateString('en-US', { 
-        year: 'numeric', 
-        month: 'short', 
-        day: 'numeric' 
-      });
-    }
-
-    function formatRelativeTime(dateString) {
-      const date = new Date(dateString);
-      const now = new Date();
-      const diffInMinutes = Math.floor((now - date) / (1000 * 60));
-      
-      if (diffInMinutes < 1) return 'Just now';
-      if (diffInMinutes < 60) return `${diffInMinutes}m ago`;
-      
-      const diffInHours = Math.floor(diffInMinutes / 60);
-      if (diffInHours < 24) return `${diffInHours}h ago`;
-      
-      const diffInDays = Math.floor(diffInHours / 24);
-      if (diffInDays < 7) return `${diffInDays}d ago`;
-      
-      return formatDate(dateString);
-    }
-
-    // Global functions for onclick handlers
-    window.showNewProjectModal = showNewProjectModal;
-    window.hideNewProjectModal = hideNewProjectModal;
-    window.hideEditProjectModal = hideEditProjectModal;
-    window.hideDeleteConfirmModal = hideDeleteConfirmModal;
-    window.openProject = openProject;
-    window.showProjectMenu = showProjectMenu;
-    window.hideContextMenu = hideContextMenu;
-    window.editProject = editProject;
-    window.deleteProject = deleteProject;
-    window.showWelcomeMessage = showWelcomeMessage;
-
-    /**
-    * SIMPLIFIED: Main document ready handler
-    */
-    document.addEventListener('DOMContentLoaded', async function() {
-        console.log('📄 Project page loaded, starting simplified initialization...');
+      function showNoResults() {
+        const noResultsHtml = `
+          <div class="empty-state">
+            <div class="empty-state-icon">🔍</div>
+            <h3>No Projects Found</h3>
+            <p>No projects match your search criteria. Try adjusting your search terms.</p>
+          </div>
+        `;
         
-        // Small delay to ensure all scripts are loaded
-        await new Promise(resolve => setTimeout(resolve, 100));
+        if (currentView === 'grid') {
+          elements.projectsGrid.innerHTML = noResultsHtml;
+        } else {
+          elements.projectsList.innerHTML = noResultsHtml;
+        }
+      }
+      
+      function showErrorState(message) {
+        if (elements.loadingContainer) {
+          elements.loadingContainer.innerHTML = `
+            <div style="text-align: center; color: #fff; padding: 40px;">
+              <h3>Error</h3>
+              <p>${message}</p>
+              <button onclick="window.location.reload()" style="padding: 10px 20px; margin: 10px; background: #007acc; color: white; border: none; border-radius: 4px; cursor: pointer;">
+                Refresh
+              </button>
+            </div>
+          `;
+        }
+      }
+      
+      function setButtonLoading(button, loading) {
+        const span = button.querySelector('span');
+        if (loading) {
+          button.disabled = true;
+          button.classList.add('loading');
+          if (span) {
+            const originalText = span.textContent;
+            button.setAttribute('data-original-text', originalText);
+            span.textContent = 'Processing...';
+          }
+        } else {
+          button.disabled = false;
+          button.classList.remove('loading');
+          if (span) {
+            const originalText = button.getAttribute('data-original-text');
+            if (originalText) {
+              span.textContent = originalText;
+              button.removeAttribute('data-original-text');
+            }
+          }
+        }
+      }
+      
+      function showToast(message, type = 'success') {
+        document.querySelectorAll('.toast').forEach(toast => toast.remove());
         
-        // Start the simplified initialization process
-        await initializeApp();
+        const toast = document.createElement('div');
+        toast.className = `toast ${type}`;
+        toast.textContent = message;
+        
+        document.body.appendChild(toast);
+        
+        setTimeout(() => toast.classList.add('show'), 100);
+        
+        setTimeout(() => {
+          toast.classList.remove('show');
+          setTimeout(() => toast.remove(), 300);
+        }, 5000);
+      }
+      
+      function escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+      }
+      
+      function formatDate(dateString) {
+        const date = new Date(dateString);
+        return date.toLocaleDateString('en-US', { 
+          year: 'numeric', 
+          month: 'short', 
+          day: 'numeric' 
+        });
+      }
+      
+      function formatRelativeTime(dateString) {
+        const date = new Date(dateString);
+        const now = new Date();
+        const diffInMinutes = Math.floor((now - date) / (1000 * 60));
+        
+        if (diffInMinutes < 1) return 'Just now';
+        if (diffInMinutes < 60) return `${diffInMinutes}m ago`;
+        
+        const diffInHours = Math.floor(diffInMinutes / 60);
+        if (diffInHours < 24) return `${diffInHours}h ago`;
+        
+        const diffInDays = Math.floor(diffInHours / 24);
+        if (diffInDays < 7) return `${diffInDays}d ago`;
+        
+        return formatDate(dateString);
+      }
+      
+      // Global functions for onclick handlers
+      window.showNewProjectModal = showNewProjectModal;
+      window.hideNewProjectModal = hideNewProjectModal;
+      window.hideEditProjectModal = hideEditProjectModal;
+      window.hideDeleteConfirmModal = hideDeleteConfirmModal;
+      window.openProject = openProject;
+      window.showProjectMenu = showProjectMenu;
+      window.hideContextMenu = hideContextMenu;
+      window.editProject = editProject;
+      window.deleteProject = deleteProject;
+      
+      // Initialize the application
+      await initializeApp();
     });
-  </script>
-
+    </script>
 </body>
 
 </html>
