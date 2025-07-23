@@ -659,78 +659,56 @@
         }, 5000);
     }
     
+    /**
+     * FIXED: Login page with proper redirect timing
+     */
     async function handleOTPVerificationSuccess(data) {
         try {
-            console.log('🎉 OTP verification successful:', data);
+            console.log('✅ Login successful, setting up session...');
             
             // Validate response structure
             if (!data.user || !data.tokens) {
                 throw new Error('Invalid login response structure');
             }
             
-            console.log('🔧 Setting up authentication state...');
-            
-            // Wait for cookies to be set by the browser
-            await new Promise(resolve => setTimeout(resolve, 200));
-            
-            // Manually set AuthService state from response
-            if (window.AuthService) {
-                // Clear any existing state first
-                window.AuthService._clearAuthState();
-                
-                // Set the authentication state directly from response
-                window.AuthService.authenticated = true;
-                window.AuthService.userEmail = data.user.email;
-                window.AuthService.userId = data.user.id;
-                window.AuthService.sessionId = data.user.session_id;
-                window.AuthService.accessToken = data.tokens.access_token;
-                window.AuthService.tokenExpiry = Date.now() + (data.tokens.expires_in * 1000);
-                window.AuthService.lastValidation = Date.now();
-                
-                // Store token for persistence
+            // Ensure AuthService state is properly set
+            if (data.tokens?.access_token && data.user) {
                 window.AuthService._storeAccessToken(
                     data.tokens.access_token,
-                    data.tokens.expires_in,
+                    data.tokens.expires_in || 21600,
                     data.user
                 );
                 
-                // Cache the auth state
-                window.AuthService._cacheAuthState({
-                    token: data.tokens.access_token,
-                    expiresIn: data.tokens.expires_in,
-                    user: data.user
-                });
-                
-                // Start proactive refresh
-                if (window.AuthService._scheduleProactiveRefresh) {
-                    window.AuthService._scheduleProactiveRefresh();
-                }
-                
-                console.log('✅ AuthService state set:', {
+                // Verify the state was set
+                const authState = {
                     authenticated: window.AuthService.authenticated,
-                    userEmail: window.AuthService.userEmail,
+                    hasToken: !!window.AuthService.accessToken,
+                    hasUserInfo: !!(window.AuthService.userEmail && window.AuthService.userId),
                     isAuthenticated: window.AuthService.isAuthenticated()
-                });
+                };
+                
+                console.log('🔍 Auth state after login:', authState);
+                
+                if (!window.AuthService.isAuthenticated()) {
+                    console.error('❌ Authentication state not properly set after login');
+                    throw new Error('Failed to establish authenticated session');
+                }
             }
             
             // Show success message
             showToast('Login successful! Redirecting...', 'success');
             
-            // Wait a moment to ensure everything is set
-            await new Promise(resolve => setTimeout(resolve, 300));
+            // FIXED: Add delay to ensure cookies are properly written
+            console.log('⏳ Allowing time for session persistence...');
+            await new Promise(resolve => setTimeout(resolve, 1000));
             
             // Redirect to project page
-            console.log('🚀 Redirecting to project page...');
+            console.log('🔄 Redirecting to project page...');
             window.location.href = 'project.html';
             
         } catch (error) {
             console.error('❌ Login success handling failed:', error);
-            showToast(`Login completed but setup failed: ${error.message}`, 'error');
-            
-            // Fallback: still redirect but show warning
-            setTimeout(() => {
-                window.location.href = 'project.html';
-            }, 2000);
+            showToast('Login succeeded but session setup failed. Please try again.', 'error');
         }
     }
     

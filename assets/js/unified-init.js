@@ -109,21 +109,31 @@
     }
 
     /**
-     * UPDATED: Enhanced protected page authentication with multiple attempts
+     * FIXED: More patient protected page authentication
      */
     async function handleProtectedPageAuthEnhanced() {
         console.log('🔐 Enhanced protected page auth check');
         
-        // UPDATED: Multiple authentication attempts with delays
+        // FIXED: Give more time for initial setup and cookie reading
+        console.log('⏳ Allowing time for cookie processing...');
+        await new Promise(resolve => setTimeout(resolve, 500));
+        
+        // FIXED: More attempts with longer delays
         let authSuccess = false;
-        const maxAttempts = 3;
+        const maxAttempts = 5; // Increased from 3
         
         for (let attempt = 1; attempt <= maxAttempts; attempt++) {
             console.log(`🔐 Authentication attempt ${attempt}/${maxAttempts}`);
             
+            // Debug current auth state
+            if (window.AuthService.debugAuthState) {
+                const state = window.AuthService.debugAuthState();
+                console.log('🔍 Current auth state:', state);
+            }
+            
             // Quick authentication check
             if (window.AuthService.isAuthenticated()) {
-                console.log('🔐 Already authenticated');
+                console.log('🔐 Authentication confirmed');
                 authSuccess = true;
                 break;
             }
@@ -141,28 +151,45 @@
                         break;
                     }
                     
-                    // Wait before next attempt (except last)
-                    if (attempt < maxAttempts) {
-                        console.log(`🔐 Attempt ${attempt} failed, waiting before retry...`);
-                        await new Promise(resolve => setTimeout(resolve, 500));
-                    }
+                    console.log(`🔐 Attempt ${attempt} failed, will retry...`);
+                    
                 } catch (error) {
                     console.error('🔐 Session restoration failed:', error);
-                    
-                    // Wait before next attempt (except last)
-                    if (attempt < maxAttempts) {
-                        await new Promise(resolve => setTimeout(resolve, 500));
-                    }
                 }
             } else {
                 console.log('🔐 No persistent session available');
-                break; // No point in retrying without session
+                
+                // FIXED: For early attempts, wait a bit more for cookies to be processed
+                if (attempt <= 2) {
+                    console.log('⏳ No session found yet, waiting for cookies to be processed...');
+                } else {
+                    console.log('❌ No session available after waiting');
+                    break; // No point in retrying without session
+                }
+            }
+            
+            // FIXED: Longer delays for better cookie processing
+            if (attempt < maxAttempts) {
+                const delay = attempt <= 2 ? 1000 : 500; // Longer delays for first attempts
+                console.log(`⏳ Waiting ${delay}ms before next attempt...`);
+                await new Promise(resolve => setTimeout(resolve, delay));
             }
         }
         
         if (!authSuccess) {
-            console.log('🔐 All authentication attempts failed, redirecting to login');
-            window.location.href = 'login.html';
+            console.log('❌ All authentication attempts failed, redirecting to login');
+            
+            // FIXED: Add debug info before redirecting
+            console.log('🔍 Final state before redirect:');
+            if (window.AuthService.debugAuthState) {
+                window.AuthService.debugAuthState();
+            }
+            
+            // Small delay before redirect to see debug info
+            setTimeout(() => {
+                window.location.href = 'login.html';
+            }, 2000);
+            
             return { success: false, redirect: true };
         }
         

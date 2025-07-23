@@ -37,11 +37,14 @@ const AuthService = {
     },
 
     /**
-     * FIXED: Split out initialization logic
+     * FIXED: More patient initialization for page redirects
      */
     async _performInit() {
         try {
             this._log('🚀 Initializing AuthService...');
+            
+            // FIXED: Add small delay to ensure cookies are fully written
+            await new Promise(resolve => setTimeout(resolve, 100));
             
             // Try to restore from cookie-based session
             const sessionRestored = await this._initializeFromCookies();
@@ -77,13 +80,17 @@ const AuthService = {
     },
 
     /**
-     * FIXED: Initialize from cookies with graceful new session handling
+     * FIXED: More thorough cookie-based session restoration
      */
     async _initializeFromCookies() {
         try {
+            // FIXED: Add debug info about available cookies
+            this._log('🔍 Checking for authentication cookies...');
+            this._debugCookies();
+            
             // Check if we have authentication indicators
             if (!this._hasCookieAuth()) {
-                this._log('No existing session found (normal for new users)');
+                this._log('No existing session found (no auth cookie)');
                 return false;
             }
 
@@ -95,9 +102,27 @@ const AuthService = {
                 return false;
             }
 
-            // Try to refresh token
+            this._log('✅ Found valid user info in cookies:', { email: userInfo.email, id: userInfo.id });
+
+            // Try to refresh token with more patience
             this._log('Attempting to restore session with refresh token...');
-            const refreshResult = await this._getAccessTokenFromStandardRefresh();
+            
+            // FIXED: Multiple attempts for token refresh (network issues)
+            let refreshResult = false;
+            for (let attempt = 1; attempt <= 3; attempt++) {
+                this._log(`Token refresh attempt ${attempt}/3...`);
+                
+                refreshResult = await this._getAccessTokenFromStandardRefresh();
+                
+                if (refreshResult) {
+                    break;
+                }
+                
+                // Wait before retry (except last attempt)
+                if (attempt < 3) {
+                    await new Promise(resolve => setTimeout(resolve, 1000));
+                }
+            }
             
             if (refreshResult) {
                 // Always restore user info after successful token refresh
@@ -106,19 +131,22 @@ const AuthService = {
                 this.lastValidation = Date.now();
                 
                 this._log('✅ Session restored from cookies with fresh access token');
+                
+                // FIXED: Final validation
+                const finalCheck = this.isAuthenticated();
+                this._log('Final authentication check:', finalCheck);
+                
                 return true;
             } else {
-                // FIXED: Don't treat this as an error for new sessions
-                this._log('ℹ️ Session restoration not available (normal for new logins)');
+                this._log('❌ Token refresh failed after all attempts');
                 this._clearInvalidCookies();
                 return false;
             }
             
         } catch (error) {
-            // FIXED: Better error handling - don't crash on session restore failures
-            this._log('Session restoration attempt failed (this may be normal):', error.message);
+            this._error('Session restoration error:', error);
             this._clearInvalidCookies();
-            return false; // Return false instead of throwing
+            return false;
         }
     },
 
@@ -160,6 +188,29 @@ const AuthService = {
         }
 
         return false;
+    },
+
+    /**
+     * ADD debugging method for cookies
+     */
+    _debugCookies() {
+        try {
+            const cookies = document.cookie.split(';').map(c => c.trim());
+            const authCookies = cookies.filter(c => 
+                c.startsWith('authenticated=') || 
+                c.startsWith('user_info=') || 
+                c.startsWith('refresh_token=') ||
+                c.startsWith('access_token=')
+            );
+            
+            this._log('🍪 Available auth cookies:', authCookies.length > 0 ? authCookies : 'None found');
+            
+            if (authCookies.length === 0) {
+                this._log('🚨 No authentication cookies found! Login may not have set cookies properly.');
+            }
+        } catch (error) {
+            this._log('Cookie debug failed:', error);
+        }
     },
 
     /**
@@ -374,6 +425,9 @@ const AuthService = {
     /**
      * FIXED: Verify OTP and establish session with better state management
      */
+    /**
+     * UPDATED: Enhanced OTP verification with state validation
+     */
     async verifyOTP(email, otp) {
         try {
             this._log(`Verifying OTP for: ${email}`);
@@ -400,7 +454,7 @@ const AuthService = {
             
             const { user, tokens } = data;
             
-            // FIXED: Better validation of response data
+            // Validate response data
             if (!user || !user.id || !user.email) {
                 this._error('Invalid user data in response:', user);
                 throw new Error('Invalid user data received from server');
@@ -415,33 +469,47 @@ const AuthService = {
             
             // Set authentication state in memory
             this._storeAccessToken(tokens.access_token, tokens.expires_in || 21600, user);
-            
-            // FIXED: Ensure authentication flag is properly set
             this.authenticated = true;
+            
+            // FIXED: Ensure cookies are written and verify state multiple times
+            await new Promise(resolve => setTimeout(resolve, 200));
+            
+            // Verify state was set correctly
+            for (let i = 0; i < 3; i++) {
+                const isAuth = this.isAuthenticated();
+                this._log(`Authentication verification attempt ${i + 1}: ${isAuth}`);
+                
+                if (isAuth) {
+                    break;
+                }
+                
+                // Try to fix state if needed
+                if (!this.authenticated && this.accessToken && this.userEmail) {
+                    this.authenticated = true;
+                    this._log('🔧 Fixed authentication flag');
+                }
+                
+                await new Promise(resolve => setTimeout(resolve, 100));
+            }
             
             // Start proactive refresh
             this._scheduleProactiveRefresh();
             
-            // FIXED: Verify the authentication state was set correctly
-            const verifyState = {
+            // Final state verification
+            const finalState = {
                 authenticated: this.authenticated,
                 hasToken: !!this.accessToken,
                 hasUser: !!this.userEmail,
-                isAuthenticated: this.isAuthenticated()
+                isAuthenticated: this.isAuthenticated(),
+                cookiesSet: this._hasCookieAuth()
             };
-            this._log('✅ Authentication state after OTP verification:', verifyState);
+            
+            this._log('✅ Final authentication state after OTP verification:', finalState);
             
             if (!this.isAuthenticated()) {
                 this._error('❌ Authentication state check failed after OTP verification');
                 throw new Error('Failed to establish authenticated session');
             }
-            
-            // ADDED: Setup new session context (non-blocking)
-            setTimeout(() => {
-                this.setupNewSession().catch(error => {
-                    this._log('⚠️ Session setup failed (non-critical):', error.message);
-                });
-            }, 100);
             
             this._log('✅ Authentication successful - user logged in');
             return data;
