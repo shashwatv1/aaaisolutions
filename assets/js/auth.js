@@ -65,31 +65,84 @@ const AuthService = {
      */
     async _initializeFromCookies() {
         try {
-            this._log('🔍 Checking for authentication cookies...');
+            this._log('🔍 Enhanced cookie check with debugging...');
             
-            // Check if we have authentication indicators
-            if (!this._hasCookieAuth()) {
-                this._log('No existing session found');
+            // CRITICAL: Debug all available cookies
+            const allCookies = document.cookie;
+            this._log('📋 All available cookies:', allCookies);
+            
+            if (!allCookies || allCookies.trim() === '') {
+                this._log('❌ No cookies found at all');
                 return false;
             }
-
-            // Get user info from cookie
-            const userInfo = this._getUserInfoFromCookie();
-            if (!userInfo?.email || !userInfo?.id) {
-                this._log('Invalid or missing session data');
-                // DON'T clear cookies - they might be valid for other processes
+            
+            // Parse cookies manually for better debugging
+            const cookieArray = allCookies.split(';').map(c => c.trim());
+            this._log('🍪 Parsed cookies:', cookieArray);
+            
+            // Look for authentication indicators
+            const authCookie = cookieArray.find(c => c.startsWith('authenticated='));
+            const userInfoCookie = cookieArray.find(c => c.startsWith('user_info='));
+            const accessTokenCookie = cookieArray.find(c => c.startsWith('access_token='));
+            const refreshTokenCookie = cookieArray.find(c => c.startsWith('refresh_token='));
+            
+            this._log('🔍 Auth cookies found:', {
+                authenticated: !!authCookie,
+                userInfo: !!userInfoCookie,
+                accessToken: !!accessTokenCookie,
+                refreshToken: !!refreshTokenCookie
+            });
+            
+            if (!authCookie || !authCookie.includes('authenticated=true')) {
+                this._log('❌ No authenticated=true cookie found');
                 return false;
             }
-
-            this._log('✅ Found valid user info in cookies:', { email: userInfo.email, id: userInfo.id });
-
-            // Set AuthService state from cookies
+            
+            if (!userInfoCookie) {
+                this._log('❌ No user_info cookie found');
+                return false;
+            }
+            
+            // Extract and parse user info
+            let userInfo;
+            try {
+                const userInfoValue = userInfoCookie.split('=')[1];
+                this._log('🔍 Raw user_info value:', userInfoValue);
+                
+                userInfo = JSON.parse(decodeURIComponent(userInfoValue));
+                this._log('✅ Parsed user info:', userInfo);
+                
+                if (!userInfo.email || !userInfo.id) {
+                    this._log('❌ Invalid user info structure:', userInfo);
+                    return false;
+                }
+            } catch (parseError) {
+                this._log('❌ Failed to parse user_info cookie:', parseError);
+                return false;
+            }
+            
+            // CRITICAL: Set AuthService state from cookies
+            this._log('🔧 Setting AuthService state from cookies...');
             this._setUserInfo(userInfo);
             this.authenticated = true;
             this.lastValidation = Date.now();
-
-            // Try to refresh token if available
-            if (this._hasRefreshTokenCookie()) {
+            
+            // Try to get access token from cookie if available
+            if (accessTokenCookie) {
+                try {
+                    const tokenValue = accessTokenCookie.split('=')[1];
+                    if (tokenValue && tokenValue !== '') {
+                        // Set token with default expiry (6 hours)
+                        this._setAccessToken(tokenValue, 21600);
+                        this._log('✅ Access token restored from cookie');
+                    }
+                } catch (tokenError) {
+                    this._log('⚠️ Could not restore access token:', tokenError);
+                }
+            }
+            
+            // Try token refresh if refresh token available
+            if (refreshTokenCookie) {
                 this._log('🔄 Attempting token refresh...');
                 try {
                     const refreshed = await this._getAccessTokenFromStandardRefresh();
@@ -103,10 +156,21 @@ const AuthService = {
                 }
             }
             
+            // Final state verification
+            const finalState = {
+                authenticated: this.authenticated,
+                userEmail: this.userEmail,
+                userId: this.userId,
+                hasToken: !!this.accessToken,
+                isAuthenticated: this.isAuthenticated()
+            };
+            
+            this._log('✅ Final AuthService state:', finalState);
+            
             return true;
             
         } catch (error) {
-            this._error('Session restoration error:', error);
+            this._error('❌ Cookie initialization error:', error);
             return false;
         }
     },

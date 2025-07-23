@@ -699,63 +699,74 @@
     
     // FIXED: Enhanced OTP verification success handler
     async function handleOTPVerificationSuccess(data) {
-        try {
-            console.log('✅ Login successful, setting up session...');
-            
-            // Validate response structure
-            if (!data.user || !data.tokens) {
-                throw new Error('Invalid login response structure');
-            }
-            
-            // Show immediate success message
-            showToast('Login successful! Setting up session...', 'success');
-            
-            // FIXED: Ensure AuthService is available
-            if (!window.AuthService) {
-                throw new Error('AuthService not available');
-            }
-            
-            // FIXED: Store the authentication data in AuthService
-            console.log('🔧 Setting up AuthService state...');
-            window.AuthService._storeAccessToken(
-                data.tokens.access_token,
-                data.tokens.expires_in || 21600,
-                data.user
-            );
-            
-            // Verify the state was set correctly
-            const authState = {
-                authenticated: window.AuthService.authenticated,
-                hasToken: !!window.AuthService.accessToken,
-                hasUserInfo: !!(window.AuthService.userEmail && window.AuthService.userId),
-                isAuthenticated: window.AuthService.isAuthenticated()
-            };
-            
-            console.log('🔍 AuthService state after login:', authState);
-            
-            if (!window.AuthService.isAuthenticated()) {
-                console.error('❌ Authentication state not properly set after login');
-                throw new Error('Failed to establish authenticated session');
-            }
-            
-            // FIXED: Wait for backend cookies to be fully written
-            console.log('⏳ Waiting for backend cookies to be set...');
-            await new Promise(resolve => setTimeout(resolve, 1500));
-            
-            // Final success message
-            showToast('Session established! Redirecting...', 'success');
-            
-            // Redirect to project page
-            console.log('🔄 Redirecting to project page...');
-            window.location.href = 'project.html';
-            
-        } catch (error) {
-            console.error('❌ Login success handling failed:', error);
-            showToast('Login succeeded but session setup failed. Please try again.', 'error');
-            throw error;
-        }
+      try {
+          console.log('✅ Login successful, setting up session...');
+          
+          if (!data.user || !data.tokens) {
+              throw new Error('Invalid login response structure');
+          }
+          
+          showToast('Login successful! Setting up session...', 'success');
+          
+          if (!window.AuthService) {
+              throw new Error('AuthService not available');
+          }
+          
+          // Store the authentication data
+          console.log('🔧 Setting up AuthService state...');
+          window.AuthService._storeAccessToken(
+              data.tokens.access_token,
+              data.tokens.expires_in || 21600,
+              data.user
+          );
+          
+          // Verify the state was set
+          const authState = {
+              authenticated: window.AuthService.authenticated,
+              hasToken: !!window.AuthService.accessToken,
+              hasUserInfo: !!(window.AuthService.userEmail && window.AuthService.userId),
+              isAuthenticated: window.AuthService.isAuthenticated()
+          };
+          
+          console.log('🔍 AuthService state after login:', authState);
+          
+          if (!window.AuthService.isAuthenticated()) {
+              throw new Error('Failed to establish authenticated session');
+          }
+          
+          // CRITICAL: Also store in localStorage as backup
+          console.log('💾 Storing backup authentication data...');
+          try {
+              localStorage.setItem('aaai_backup_auth', JSON.stringify({
+                  user: data.user,
+                  token: data.tokens.access_token,
+                  expires: Date.now() + ((data.tokens.expires_in || 21600) * 1000),
+                  timestamp: Date.now()
+              }));
+              console.log('✅ Backup auth data stored');
+          } catch (storageError) {
+              console.warn('⚠️ Could not store backup auth:', storageError);
+          }
+          
+          // Wait for backend cookies
+          console.log('⏳ Waiting for backend cookies to be set...');
+          await new Promise(resolve => setTimeout(resolve, 2000)); // Increased wait time
+          
+          // Debug cookies before redirect
+          console.log('🔍 Cookies before redirect:', document.cookie);
+          
+          showToast('Session established! Redirecting...', 'success');
+          
+          console.log('🔄 Redirecting to project page...');
+          window.location.href = 'project.html';
+          
+      } catch (error) {
+          console.error('❌ Login success handling failed:', error);
+          showToast('Login succeeded but session setup failed. Please try again.', 'error');
+          throw error;
+      }
     }
-    
+
     function clearMessages() {
         [authError, authSuccess, otpError, otpSuccess].forEach(el => {
             if (el) {
