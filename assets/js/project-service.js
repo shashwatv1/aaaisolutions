@@ -111,10 +111,10 @@ const ProjectService = {
         if (!this.authService) {
             throw new Error('AuthService not available');
         }
-    
+
         // Wait for auth service to be ready
         await this.authService.waitForInit();
-    
+
         // FIXED: Always verify we have a valid token before proceeding
         if (!this.authService.isAuthenticated()) {
             this._log('Not authenticated, attempting token refresh...');
@@ -126,7 +126,7 @@ const ProjectService = {
             
             this._log('Authentication restored via token refresh');
         }
-    
+
         // FIXED: Verify we have an actual access token, not just authentication status
         const accessToken = await this.authService.getToken();
         if (!accessToken) {
@@ -145,7 +145,7 @@ const ProjectService = {
             
             this._log('Access token obtained via refresh');
         }
-    
+
         // Update user context if needed
         if (!this.currentContext.user_id) {
             const user = this.authService.getCurrentUser();
@@ -153,7 +153,7 @@ const ProjectService = {
                 this.currentContext.user_id = user.id;
             }
         }
-    
+
         return true;
     },
 
@@ -577,6 +577,33 @@ const ProjectService = {
     },
 
     /**
+     * Check if cached data should be used
+     */
+    _shouldUseCache(key) {
+        const timestamp = this.cacheTimestamps.get(key);
+        if (!timestamp) return false;
+        
+        const age = Date.now() - timestamp;
+        return age < this.options.cacheExpiry;
+    },
+
+    /**
+     * Set cache item with timestamp
+     */
+    _setCacheItem(key, data) {
+        this.projectCache.set(key, data);
+        this.cacheTimestamps.set(key, Date.now());
+        
+        // Simple cleanup if too many items
+        if (this.projectCache.size > this.options.maxCacheSize) {
+            const oldestKey = Array.from(this.cacheTimestamps.entries())
+                .sort((a, b) => a[1] - b[1])[0][0];
+            this.projectCache.delete(oldestKey);
+            this.cacheTimestamps.delete(oldestKey);
+        }
+    },
+
+    /**
      * Clear cache efficiently
      */
     _clearCache() {
@@ -588,7 +615,7 @@ const ProjectService = {
     },
 
     /**
-     * FIXED: Clear user context on auth failure
+     * FIXED: Enhanced user context clearing with complete cleanup
      */
     _clearUserContext() {
         this.currentContext = {
@@ -599,6 +626,15 @@ const ProjectService = {
         };
         this.contextCache = null;
         this.lastCacheUpdate = null;
+        
+        // Clear session storage context
+        try {
+            sessionStorage.removeItem('aaai_project_context');
+        } catch (error) {
+            // Ignore storage errors
+        }
+        
+        this._log('User context cleared completely');
     },
 
     onUpdate(callback) {
