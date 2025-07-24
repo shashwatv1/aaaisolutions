@@ -293,37 +293,79 @@ const ProjectService = {
     },
 
     /**
-     * Fast project list with aggressive caching
+     * FIXED: Fast project list with aggressive caching and enhanced auth
      */
-    async getProjects() {
+    async getProjects(options = {}) {
         try {
-            this._log('Getting projects list...');
+            // FIXED: Add await to _requireAuth()
+            await this._requireAuth();
             
-            // Check cache first (but ensure we have valid auth)
-            if (this._shouldUseCache('projects_list')) {
-                const cached = this.projectCache.get('projects_list');
+            const {
+                limit = 20,
+                offset = 0,
+                search = '',
+                forceRefresh = false
+            } = options;
+            
+            const cacheKey = `list_${limit}_${offset}_${search}`;
+            
+            // Check cache first (aggressive caching)
+            if (!forceRefresh) {
+                const cached = this._getQuickCache(cacheKey);
                 if (cached) {
-                    this._log('✅ Using cached projects list');
+                    this._log('Projects from cache');
                     return cached;
                 }
             }
             
-            // Make API call with auth verification
-            const result = await this._executeFunction('get_projects', {});
-            
-            if (result && result.status === 'success') {
-                // Cache the successful result
-                this._setCacheItem('projects_list', result);
-                this._log(`✅ Retrieved ${result.data?.length || 0} projects`);
-                return result;
-            } else {
-                this._error('Unexpected response format for getProjects:', result);
-                throw new Error('Invalid response format from projects API');
+            const user = this.authService.getCurrentUser();
+            if (!user?.email) {
+                throw new Error('User information not available');
             }
+            
+            this._log('Getting projects for:', user.email);
+            
+            // FIXED: Use enhanced _executeFunction with retry logic
+            const result = await this._executeFunction('list_user_projects', {
+                email: user.email,
+                limit,
+                offset,
+                search: search.trim()
+            });
+            
+            if (result?.data?.success) {
+                const projectData = {
+                    projects: result.data.projects || [],
+                    total: result.data.total || 0,
+                    hasMore: result.data.has_more || false,
+                    limit,
+                    offset
+                };
+                
+                // Cache projects individually and list result
+                projectData.projects.forEach(project => this._quickCacheProject(project));
+                this._setQuickCache(cacheKey, projectData);
+                
+                this._log('Projects retrieved:', projectData.projects.length);
+                return projectData;
+            }
+            
+            throw new Error(result?.data?.message || 'Failed to get projects');
             
         } catch (error) {
             this._error('[FastProject] Error getting projects:', error);
-            throw error;
+            
+            // FIXED: Handle authentication errors specifically
+            if (error.message.includes('Authentication required') || 
+                error.message.includes('Session expired') ||
+                error.message.includes('No valid access token')) {
+                
+                this._log('Authentication error in getProjects, clearing cache...');
+                this._clearCache();
+                throw new Error('Authentication required - please log in');
+            }
+            
+            throw new Error(`Failed to get projects: ${error.message}`);
         }
     },
 
