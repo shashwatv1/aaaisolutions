@@ -1087,32 +1087,45 @@
       /**
        * Initialize the application
        */
-      async function initializeApp() {
+       async function initializeApp() {
         try {
-          console.log('Initializing application...');
+          console.log('🚀 Initializing application...');
           
-          if (!window.AuthService || !window.AuthService.isAuthenticated()) {
-            console.log('Not authenticated, redirecting to login');
+          // STEP 1: Wait for AuthService to be fully initialized
+          console.log('⏳ Waiting for AuthService initialization...');
+          if (!window.AuthService) {
+            throw new Error('AuthService not available');
+          }
+          
+          // Wait for AuthService init to complete
+          await window.AuthService.waitForInit();
+          
+          // STEP 2: Verify authentication status
+          if (!window.AuthService.isAuthenticated()) {
+            console.log('❌ Not authenticated, redirecting to login');
             window.location.href = 'login.html';
             return;
           }
           
-          console.log('Authentication confirmed');
+          console.log('✅ Authentication confirmed');
           
+          // STEP 3: Initialize application components
           initializeEnvironment();
           await initializeServices();
           initializeUI();
           setupEventListeners();
           
-          await loadProjects();
+          // STEP 4: Load projects with retry mechanism
+          await loadProjectsWithRetry();
           
-          console.log('Application initialized successfully');
+          console.log('✅ Application initialized successfully');
           
         } catch (error) {
-          console.error('Failed to initialize application:', error);
+          console.error('❌ Failed to initialize application:', error);
           showErrorState(error.message);
         }
       }
+      
       
       /**
        * Initialize environment indicators
@@ -1128,6 +1141,9 @@
       }
       
       
+      /**
+      * FIXED: Enhanced service initialization with proper sequencing
+      */
       async function initializeServices() {
         try {
           console.log('🔧 Initializing services...');
@@ -1136,8 +1152,8 @@
           if (window.AAAI_APP && !window.AAAI_APP.initialized) {
             console.log('⏳ Waiting for unified initialization...');
             
-            // Wait up to 5 seconds for unified init
-            const timeout = Date.now() + 5000;
+            // Wait up to 10 seconds for unified init (increased timeout)
+            const timeout = Date.now() + 10000;
             while (!window.AAAI_APP.initialized && Date.now() < timeout) {
               await new Promise(resolve => setTimeout(resolve, 100));
             }
@@ -1153,9 +1169,9 @@
           // Manual service initialization if unified init didn't complete
           console.log('🔧 Manual service initialization...');
           
-          // Initialize ProjectService
+          // Initialize ProjectService with auth service
           if (window.ProjectService && !window.ProjectService.isInitialized) {
-            window.ProjectService.init(window.AuthService, {
+            await window.ProjectService.init(window.AuthService, {
               debug: window.AAAI_CONFIG?.ENABLE_DEBUG || false
             });
             console.log('✅ ProjectService initialized');
@@ -1163,7 +1179,7 @@
           
           // Initialize NavigationManager
           if (window.NavigationManager && !window.NavigationManager.isInitialized) {
-            window.NavigationManager.init(window.AuthService, window.ProjectService, {
+            await window.NavigationManager.init(window.AuthService, window.ProjectService, {
               debug: window.AAAI_CONFIG?.ENABLE_DEBUG || false
             });
             console.log('✅ NavigationManager initialized');
@@ -1238,32 +1254,98 @@
       }
       
       /**
-       * Load projects
-       */
+      * FIXED: Enhanced project loading with retry mechanism
+      */
+      async function loadProjectsWithRetry(maxRetries = 3) {
+        let retryCount = 0;
+        
+        while (retryCount < maxRetries) {
+          try {
+            console.log(`📋 Loading projects (attempt ${retryCount + 1}/${maxRetries})...`);
+            
+            // Ensure auth is still valid before loading
+            if (!window.AuthService.isAuthenticated()) {
+              const refreshed = await window.AuthService.refreshTokenIfNeeded();
+              if (!refreshed) {
+                throw new Error('Authentication expired');
+              }
+            }
+            
+            await loadProjects();
+            console.log('✅ Projects loaded successfully');
+            return; // Success - exit retry loop
+            
+          } catch (error) {
+            retryCount++;
+            console.error(`❌ Error loading projects (attempt ${retryCount}):`, error);
+            
+            if (retryCount >= maxRetries) {
+              throw new Error(`Failed to load projects after ${maxRetries} attempts: ${error.message}`);
+            }
+            
+            // Wait before retry (exponential backoff)
+            const delay = Math.min(1000 * Math.pow(2, retryCount - 1), 5000);
+            console.log(`⏳ Retrying in ${delay}ms...`);
+            await new Promise(resolve => setTimeout(resolve, delay));
+          }
+        }
+      }
+
+      /**
+      * FIXED: Enhanced loadProjects function with better error handling
+      */
       async function loadProjects() {
         try {
           showLoading(true);
           
-          const result = await window.ProjectService.getProjects({ limit: 50 });
+          console.log('📋 Loading projects...');
           
-          if (result && result.projects) {
-            projects = result.projects;
+          // Use ProjectService for consistent API calls
+          const result = await window.ProjectService.getProjects();
+          
+          if (result && Array.isArray(result.data)) {
+            projects = result.data;
             filteredProjects = [...projects];
-            renderProjects();
+            
             console.log(`✅ Loaded ${projects.length} projects`);
+            renderProjects();
+            
+          } else if (result && result.status === 'success' && Array.isArray(result.data)) {
+            projects = result.data;
+            filteredProjects = [...projects];
+            
+            console.log(`✅ Loaded ${projects.length} projects`);
+            renderProjects();
+            
           } else {
+            console.warn('⚠️ Unexpected projects response format:', result);
             projects = [];
             filteredProjects = [];
             renderProjects();
           }
           
         } catch (error) {
-          console.error('Error loading projects:', error);
+          console.error('❌ Error loading projects:', error);
+          
+          // Handle specific error types
+          if (error.message.includes('Authentication required') || 
+              error.message.includes('Session expired')) {
+            console.log('🔄 Authentication issue detected, redirecting to login...');
+            window.location.href = 'login.html';
+            return;
+          }
+          
+          // For other errors, show empty state
+          projects = [];
+          filteredProjects = [];
+          renderProjects();
           showToast(`Failed to load projects: ${error.message}`, 'error');
+          
         } finally {
           showLoading(false);
         }
       }
+
       
       /**
        * Render projects based on current view

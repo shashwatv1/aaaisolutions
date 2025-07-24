@@ -111,13 +111,12 @@ const ProjectService = {
         if (!this.authService) {
             throw new Error('AuthService not available');
         }
-
+    
         // Wait for auth service to be ready
         await this.authService.waitForInit();
-
-        // Check if authenticated
+    
+        // FIXED: Always verify we have a valid token before proceeding
         if (!this.authService.isAuthenticated()) {
-            // Try one refresh attempt
             this._log('Not authenticated, attempting token refresh...');
             const refreshed = await this.authService.refreshTokenIfNeeded();
             
@@ -127,7 +126,26 @@ const ProjectService = {
             
             this._log('Authentication restored via token refresh');
         }
-
+    
+        // FIXED: Verify we have an actual access token, not just authentication status
+        const accessToken = await this.authService.getToken();
+        if (!accessToken) {
+            this._log('No access token available, attempting refresh...');
+            const refreshed = await this.authService.refreshTokenIfNeeded();
+            
+            if (!refreshed) {
+                throw new Error('Unable to obtain valid access token');
+            }
+            
+            // Verify token is now available
+            const newToken = await this.authService.getToken();
+            if (!newToken) {
+                throw new Error('Token refresh succeeded but no token available');
+            }
+            
+            this._log('Access token obtained via refresh');
+        }
+    
         // Update user context if needed
         if (!this.currentContext.user_id) {
             const user = this.authService.getCurrentUser();
@@ -135,13 +153,13 @@ const ProjectService = {
                 this.currentContext.user_id = user.id;
             }
         }
-
+    
         return true;
     },
 
     /**
      * FIXED: Enhanced function execution with better auth handling
-     */
+    */
     async _executeFunction(functionName, inputData) {
         await this._requireAuth();
         
@@ -154,22 +172,35 @@ const ProjectService = {
             this._logAPIResponse(functionName, result);
             
             return result;
+            
         } catch (error) {
-            // FIXED: Better error handling for auth failures
-            if (error.message.includes('Authentication') || error.message.includes('401')) {
-                this._log('Authentication error in function execution, clearing context');
-                this._clearUserContext();
+            this._error('Function execution failed:', functionName, error.message);
+            
+            // Handle authentication errors specifically
+            if (error.message.includes('Authentication required') || 
+                error.message.includes('Session expired') ||
+                error.message.includes('No valid access token')) {
+                
+                this._log('Authentication error detected, clearing cache and retrying once...');
+                
+                // Clear any cached auth state and try once more
+                this._clearCache();
+                
+                try {
+                    await this._requireAuth();
+                    const retryResult = await this.authService.executeFunction(functionName, inputData);
+                    this._log('Retry successful after auth error');
+                    return retryResult;
+                } catch (retryError) {
+                    this._error('Retry after auth error also failed:', retryError.message);
+                    throw retryError;
+                }
             }
             
-            this._error('Function execution failed:', functionName, {
-                error: error.message,
-                stack: error.stack,
-                inputData: inputData
-            });
             throw error;
         }
     },
-
+    
     /**
      * Fast project creation with post-creation recovery
      */
@@ -264,64 +295,35 @@ const ProjectService = {
     /**
      * Fast project list with aggressive caching
      */
-    async getProjects(options = {}) {
+    async getProjects() {
         try {
-            await this._requireAuth();
+            this._log('Getting projects list...');
             
-            const {
-                limit = 20,
-                offset = 0,
-                search = '',
-                forceRefresh = false
-            } = options;
-            
-            const cacheKey = `list_${limit}_${offset}_${search}`;
-            
-            // Check cache first (aggressive caching)
-            if (!forceRefresh) {
-                const cached = this._getQuickCache(cacheKey);
+            // Check cache first (but ensure we have valid auth)
+            if (this._shouldUseCache('projects_list')) {
+                const cached = this.projectCache.get('projects_list');
                 if (cached) {
-                    this._log('Projects from cache');
+                    this._log('✅ Using cached projects list');
                     return cached;
                 }
             }
             
-            const user = this.authService.getCurrentUser();
-            if (!user?.email) {
-                throw new Error('User information not available');
+            // Make API call with auth verification
+            const result = await this._executeFunction('get_projects', {});
+            
+            if (result && result.status === 'success') {
+                // Cache the successful result
+                this._setCacheItem('projects_list', result);
+                this._log(`✅ Retrieved ${result.data?.length || 0} projects`);
+                return result;
+            } else {
+                this._error('Unexpected response format for getProjects:', result);
+                throw new Error('Invalid response format from projects API');
             }
-            
-            this._log('Getting projects for:', user.email);
-            
-            const result = await this._executeFunction('list_user_projects', {
-                email: user.email,
-                limit,
-                offset,
-                search: search.trim()
-            });
-            
-            if (result?.data?.success) {
-                const projectData = {
-                    projects: result.data.projects || [],
-                    total: result.data.total || 0,
-                    hasMore: result.data.has_more || false,
-                    limit,
-                    offset
-                };
-                
-                // Cache projects individually and list result
-                projectData.projects.forEach(project => this._quickCacheProject(project));
-                this._setQuickCache(cacheKey, projectData);
-                
-                this._log('Projects retrieved:', projectData.projects.length);
-                return projectData;
-            }
-            
-            throw new Error(result?.data?.message || 'Failed to get projects');
             
         } catch (error) {
-            this._error('Error getting projects:', error);
-            throw new Error(`Failed to get projects: ${error.message}`);
+            this._error('[FastProject] Error getting projects:', error);
+            throw error;
         }
     },
 
@@ -577,22 +579,12 @@ const ProjectService = {
     /**
      * Clear cache efficiently
      */
-    clearCache() {
-        const cleared = this.projectCache.size;
+    _clearCache() {
         this.projectCache.clear();
         this.cacheTimestamps.clear();
         this.contextCache = null;
         this.lastCacheUpdate = null;
-        
-        try {
-            sessionStorage.removeItem('aaai_project_context');
-            sessionStorage.removeItem('aaai_project_cache');
-        } catch (error) {
-            // Ignore storage errors
-        }
-        
-        this._log(`Cleared ${cleared} cached items`);
-        return cleared;
+        this._log('Cache cleared due to auth error');
     },
 
     /**

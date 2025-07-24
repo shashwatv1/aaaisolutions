@@ -1,4 +1,6 @@
-// Replace your unified-init.js with this minimal version:
+/**
+ * FIXED: Simplified unified coordination that doesn't interfere with auth flow
+ */
 (function() {
     'use strict';
     
