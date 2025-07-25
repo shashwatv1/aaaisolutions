@@ -1,6 +1,6 @@
 const cors = require('cors')({
   origin: 'https://aaai.solutions',
-  credentials: true, // ← FIXED: Enable credentials for CORS
+  credentials: true,
   optionsSuccessStatus: 200
 });
 const jwt = require('jsonwebtoken');
@@ -21,7 +21,7 @@ async function refreshToken(req, res) {
 
     res.set({
       'Access-Control-Allow-Origin': 'https://aaai.solutions',
-      'Access-Control-Allow-Credentials': 'true' // ← FIXED: Required for credentials: 'include'
+      'Access-Control-Allow-Credentials': 'true'
     });
 
     if (req.method === 'OPTIONS') {
@@ -45,13 +45,17 @@ async function refreshToken(req, res) {
       try {
         console.log('🔄 Fast JWT token refresh starting (6-hour tokens for 7-day sessions)...');
         
-        const refreshToken = req.cookies?.refresh_token;
+        // CRITICAL FIX: Get refresh token from multiple sources
+        let refreshToken = req.body?.refresh_token || 
+                          req.cookies?.refresh_token || 
+                          req.headers['x-refresh-token'];
         
         if (!refreshToken) {
-          console.log('❌ No refresh token in cookies');
+          console.log('❌ No refresh token provided');
+          clearAuthCookies(res);
           return res.status(401).json({
-            error: 'Refresh token required',
-            code: 'MISSING_REFRESH_TOKEN'
+            error: 'No refresh token provided',
+            code: 'NO_REFRESH_TOKEN'
           });
         }
         
@@ -79,13 +83,14 @@ async function refreshToken(req, res) {
           });
         }
         
+        // CRITICAL FIX: Enhanced database verification
         const isValid = await verifyRefreshTokenFast(refreshToken, payload.user_id);
         if (!isValid) {
           console.log('❌ Refresh token not found in database');
           clearAuthCookies(res);
           return res.status(401).json({
-            error: 'Refresh token revoked',
-            code: 'TOKEN_REVOKED'
+            error: 'Refresh token revoked or expired',
+            code: 'TOKEN_NOT_FOUND'
           });
         }
         
@@ -96,6 +101,7 @@ async function refreshToken(req, res) {
         
         setRefreshCookies(req, res, newAccessToken, newRefreshToken, payload);
         
+        // CRITICAL FIX: Update refresh token in database with better error handling
         await updateRefreshTokenInDatabase(refreshToken, newRefreshToken, payload.user_id);
         
         const responseTime = Date.now() - startTime;
@@ -126,6 +132,7 @@ async function refreshToken(req, res) {
         
       } catch (error) {
         console.error('💥 Fast token refresh error:', error);
+        clearAuthCookies(res);
         res.status(500).json({
           error: 'Internal server error during token refresh',
           code: 'INTERNAL_ERROR',
@@ -207,24 +214,40 @@ async function createFastRefreshToken(payload) {
 
 function setRefreshCookies(req, res, accessToken, refreshToken, payload) {
   try {
-    const secure = req.headers['x-forwarded-proto'] === 'https';
+    const secure = req.headers['x-forwarded-proto'] === 'https' || process.env.NODE_ENV === 'production';
+    const domain = process.env.COOKIE_DOMAIN || undefined;
     
-    res.cookie('refresh_token', refreshToken, {
+    const cookieOptions = {
       httpOnly: true,
       secure: secure,
       sameSite: 'lax',
       path: '/',
+      domain: domain
+    };
+    
+    // CRITICAL FIX: Set refresh token cookie - 7 days
+    res.cookie('refresh_token', refreshToken, {
+      ...cookieOptions,
       maxAge: 7 * 24 * 60 * 60 * 1000
     });
     
+    // CRITICAL FIX: Set access token cookie - 6 hours
+    res.cookie('access_token', accessToken, {
+      ...cookieOptions,
+      maxAge: 21600000
+    });
+    
+    // Authentication status cookie - 6 hours
     res.cookie('authenticated', 'true', {
       httpOnly: false,
       secure: secure,
       sameSite: 'lax',
       path: '/',
+      domain: domain,
       maxAge: 21600000
     });
     
+    // User info cookie - 6 hours
     res.cookie('user_info', JSON.stringify({
       id: payload.user_id,
       email: payload.email,
@@ -237,7 +260,7 @@ function setRefreshCookies(req, res, accessToken, refreshToken, payload) {
       maxAge: 21600000
     });
     
-    console.log('✅ Refresh cookies set successfully');
+    console.log('✅ All refresh cookies set successfully');
     
   } catch (error) {
     console.error('❌ Error setting refresh cookies:', error);
@@ -248,7 +271,7 @@ function setRefreshCookies(req, res, accessToken, refreshToken, payload) {
 function clearAuthCookies(res) {
   const cookieOptions = {
     httpOnly: true,
-    secure: true,
+    secure: process.env.NODE_ENV === 'production',
     sameSite: 'lax',
     path: '/'
   };
@@ -261,15 +284,13 @@ function clearAuthCookies(res) {
   console.log('✅ Auth cookies cleared');
 }
 
-// FIXED: Proper database verification implementation
+// CRITICAL FIX: Enhanced database verification with better error handling
 async function verifyRefreshTokenFast(token, userId) {
   try {
-    // Initialize Supabase client if needed
     if (!supabaseClient) {
       await initializeSupabaseClient();
     }
     
-    // Check if refresh token exists and is active
     const { data, error } = await supabaseClient
       .from('user_refresh_token')
       .select('id, user_id, is_active, expires_at')
@@ -280,7 +301,7 @@ async function verifyRefreshTokenFast(token, userId) {
       .single();
     
     if (error || !data) {
-      console.log('❌ Refresh token not found or expired in database');
+      console.log('❌ Refresh token not found or expired in database:', error?.message);
       return false;
     }
     
@@ -298,7 +319,7 @@ async function verifyRefreshTokenFast(token, userId) {
   }
 }
 
-// FIXED: Proper database update implementation with token rotation
+// CRITICAL FIX: Enhanced database update with better error handling
 async function updateRefreshTokenInDatabase(oldToken, newToken, userId) {
   try {
     if (!supabaseClient) {
@@ -310,7 +331,6 @@ async function updateRefreshTokenInDatabase(oldToken, newToken, userId) {
     const newPayload = jwt.verify(newToken, jwtSecret);
     const newExpiresAt = new Date(newPayload.exp * 1000).toISOString();
     
-    // Start transaction-like operations
     // 1. Deactivate old refresh token
     const { error: deactivateError } = await supabaseClient
       .from('user_refresh_token')
@@ -340,7 +360,7 @@ async function updateRefreshTokenInDatabase(oldToken, newToken, userId) {
           session_id: newPayload.session_id,
           created_via: 'token_refresh',
           user_agent: 'web_client',
-          rotated_from: oldToken.substring(0, 10) + '...' // Store partial old token for audit
+          rotated_from: oldToken.substring(0, 10) + '...'
         },
         is_active: true,
         last_used_at: now

@@ -171,7 +171,8 @@ async function createJWTTokenPair(userData) {
   
   // Store refresh token in database - WAIT for completion
   await storeRefreshToken(refreshToken, userData.id, sessionId);
-  
+  console.log('✅ Refresh token stored in database');
+
   return {
     accessToken,
     refreshToken,

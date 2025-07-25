@@ -123,7 +123,7 @@ const NavigationManager = {
      */
     async goToProject() {
         try {
-            this._requireAuth();
+            await this._requireAuth();
             return this._navigateToPage('project');
             
         } catch (error) {
@@ -137,7 +137,7 @@ const NavigationManager = {
      */
     async goToChat(projectId, projectName = null, options = {}) {
         try {
-            this._requireAuth();
+            await this._requireAuth();
             
             if (!projectId) {
                 throw new Error('Project ID is required for chat navigation');
@@ -192,7 +192,7 @@ const NavigationManager = {
      */
     async createProjectAndNavigate(projectData) {
         try {
-            this._requireAuth();
+            await this._requireAuth();
             
             if (!this.projectService) {
                 throw new Error('ProjectService not available');
@@ -230,7 +230,7 @@ const NavigationManager = {
      */
     async openProject(projectId, projectName = null) {
         try {
-            this._requireAuth();
+            await this._requireAuth();
             
             if (!projectId) {
                 throw new Error('Project ID is required');
