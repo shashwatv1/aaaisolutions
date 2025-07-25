@@ -199,21 +199,44 @@ const AuthService = {
      */
     async _attemptTokenRefresh() {
         try {
+            // Try to get refresh token from cookies first
+            let refreshToken = null;
+            try {
+                const cookies = document.cookie.split(';');
+                const refreshCookie = cookies.find(c => c.trim().startsWith('refresh_token='));
+                if (refreshCookie) {
+                    refreshToken = refreshCookie.split('=')[1];
+                }
+            } catch (error) {
+                this._log('Error extracting refresh token from cookies:', error);
+            }
+    
+            const requestBody = refreshToken ? { refresh_token: refreshToken } : {};
+            
             const response = await fetch(`${this.AUTH_BASE_URL}/auth/refresh`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                credentials: 'include'
+                headers: { 
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json'
+                },
+                credentials: 'include',
+                body: JSON.stringify(requestBody)
             });
             
             if (!response.ok) {
-                this._log('Token refresh failed:', response.status);
+                this._log('Token refresh failed:', response.status, response.statusText);
+                const errorData = await response.json().catch(() => ({}));
+                this._log('Refresh error details:', errorData);
                 return false;
             }
             
             const data = await response.json();
             
-            if (data.tokens?.access_token) {
-                this._setAccessToken(data.tokens.access_token, data.tokens.expires_in || 21600);
+            if (data.tokens?.access_token || data.access_token) {
+                const accessToken = data.tokens?.access_token || data.access_token;
+                const expiresIn = data.tokens?.expires_in || data.expires_in || 21600;
+                
+                this._setAccessToken(accessToken, expiresIn);
                 
                 if (data.user) {
                     this._setUserInfo(data.user);
@@ -225,8 +248,8 @@ const AuthService = {
                 // Update localStorage backup
                 const backupData = {
                     user: data.user || { email: this.userEmail, id: this.userId },
-                    token: data.tokens.access_token,
-                    expires: Date.now() + ((data.tokens.expires_in || 21600) * 1000),
+                    token: accessToken,
+                    expires: Date.now() + (expiresIn * 1000),
                     timestamp: Date.now()
                 };
                 localStorage.setItem('aaai_backup_auth', JSON.stringify(backupData));
@@ -235,10 +258,11 @@ const AuthService = {
                 return true;
             }
             
+            this._log('❌ Token refresh response missing tokens');
             return false;
             
         } catch (error) {
-            this._log('Token refresh failed:', error);
+            this._log('❌ Token refresh failed:', error);
             return false;
         }
     },
