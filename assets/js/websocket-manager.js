@@ -43,6 +43,13 @@ class ProductionWebSocketManager {
             throw new Error('AuthService is required');
         }
         
+        console.log('[WebSocket] Initializing with AuthService:', {
+            authServiceExists: !!authService,
+            isAuthenticated: authService.isAuthenticated ? authService.isAuthenticated() : 'unknown',
+            hasGetToken: typeof authService.getToken === 'function',
+            hasGetCurrentUser: typeof authService.getCurrentUser === 'function'
+        });
+        
         this.authService = authService;
         this.setState('initialized');
         
@@ -53,6 +60,8 @@ class ProductionWebSocketManager {
         this.registerHandler('chat_error', this.handleChatError.bind(this));
         this.registerHandler('ping', this.handlePing.bind(this));
         this.registerHandler('pong', this.handlePong.bind(this));
+        
+        console.log('[WebSocket] Initialization complete');
         
         return this;
     }
@@ -385,21 +394,53 @@ class ProductionWebSocketManager {
     }
     
     /**
-     * MINIMAL CHANGE: Accept token as parameter to avoid sync/async issues
+     * FIXED: Build WebSocket URL with proper token validation
      */
     buildWebSocketURL(user, token) {
-        const wsHost = window.AAAI_CONFIG.WEBSOCKET_BASE_URL || 'aaai.solutions';
+        if (!token || typeof token !== 'string') {
+            throw new Error('Invalid token for WebSocket connection');
+        }
         
-        const params = new URLSearchParams({
-            token: token,
+        if (!user?.id || !user?.email) {
+            throw new Error('Invalid user data for WebSocket connection');
+        }
+        
+        // Check WebSocket configuration
+        const wsHost = window.AAAI_CONFIG?.WEBSOCKET_BASE_URL || 'aaai.solutions';
+        console.log('[WebSocket] Using WebSocket host:', wsHost);
+        
+        if (!wsHost || wsHost.trim() === '') {
+            throw new Error('WebSocket host not configured');
+        }
+        
+        // Build parameters with proper validation
+        const params = new URLSearchParams();
+        params.set('token', token.trim());
+        params.set('user_id', user.id);
+        params.set('email', user.email);
+        params.set('chat_id', this.projectId || '');
+        params.set('session_id', user.sessionId || 'production_session');
+        params.set('auth_method', 'jwt_production');
+        
+        const wsUrl = `wss://${wsHost}/ws/${user.id}?${params.toString()}`;
+        
+        // Validate URL length and format
+        if (wsUrl.length > 2000) {
+            console.warn('[WebSocket] URL length is very long:', wsUrl.length);
+        }
+        
+        console.log('[WebSocket] Built URL with parameters:', {
             user_id: user.id,
-            email: encodeURIComponent(user.email),
+            email: user.email,
             chat_id: this.projectId || '',
             session_id: user.sessionId || 'production_session',
-            auth_method: 'jwt_production'
+            token_length: token.length,
+            wsHost: wsHost,
+            total_url_length: wsUrl.length,
+            url_preview: wsUrl.substring(0, 100) + '...[TOKEN_HIDDEN]'
         });
         
-        return `wss://${wsHost}/ws/${user.id}?${params}`;
+        return wsUrl;
     }
     
     setState(newState) {
@@ -429,10 +470,18 @@ class ProductionWebSocketManager {
         this.connectionAttempts++;
         const delay = this.reconnectDelay * Math.pow(1.5, this.connectionAttempts - 1);
         
+        console.log(`[WebSocket] Scheduling reconnect attempt ${this.connectionAttempts}/${this.maxConnectionAttempts} in ${Math.min(delay, 30000)}ms`);
+        
         setTimeout(() => {
-            if (this.state !== 'connected') {
+            if (this.state !== 'connected' && this.connectionAttempts <= this.maxConnectionAttempts) {
+                console.log(`[WebSocket] Attempting reconnect ${this.connectionAttempts}/${this.maxConnectionAttempts}`);
                 this.connect().catch(error => {
-                    console.error('Reconnection failed:', error);
+                    console.error(`[WebSocket] Reconnection attempt ${this.connectionAttempts} failed:`, error.message);
+                    
+                    if (this.connectionAttempts >= this.maxConnectionAttempts) {
+                        console.error('[WebSocket] Max reconnection attempts reached, giving up');
+                        this.setState('failed');
+                    }
                 });
             }
         }, Math.min(delay, 30000));
