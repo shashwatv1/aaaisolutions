@@ -38,7 +38,7 @@ const ProjectService = {
     updateListeners: [],
     
     /**
-     * FIXED: Enhanced initialization with proper auth waiting
+     * Enhanced initialization with proper auth waiting
      */
     async init(authService, options = {}) {
         if (this.initPromise) {
@@ -66,11 +66,9 @@ const ProjectService = {
         }
 
         try {
-            // FIXED: Wait for AuthService to be properly initialized
             this._log('Waiting for AuthService initialization...');
             await this.authService.waitForInit();
             
-            // FIXED: Check authentication status after auth service is ready
             if (this.authService.isAuthenticated()) {
                 const user = this.authService.getCurrentUser();
                 if (user) {
@@ -100,50 +98,15 @@ const ProjectService = {
     },
 
     /**
-     * FIXED: Enhanced auth requirement check with retry
+     * CRITICAL CHANGE: Simplified auth requirement check - only verify state
      */
     async _requireAuth() {
-        // Wait for initialization if needed
-        if (!this.isInitialized && this.initPromise) {
-            await this.initPromise;
-        }
-        
         if (!this.authService) {
             throw new Error('AuthService not available');
         }
 
-        // Wait for auth service to be ready
-        await this.authService.waitForInit();
-
-        // FIXED: Always verify we have a valid token before proceeding
         if (!this.authService.isAuthenticated()) {
-            this._log('Not authenticated, attempting token refresh...');
-            const refreshed = await this.authService.refreshTokenIfNeeded();
-            
-            if (!refreshed || !this.authService.isAuthenticated()) {
-                throw new Error('Authentication required - please log in');
-            }
-            
-            this._log('Authentication restored via token refresh');
-        }
-
-        // FIXED: Verify we have an actual access token, not just authentication status
-        const accessToken = await this.authService.getToken();
-        if (!accessToken) {
-            this._log('No access token available, attempting refresh...');
-            const refreshed = await this.authService.refreshTokenIfNeeded();
-            
-            if (!refreshed) {
-                throw new Error('Unable to obtain valid access token');
-            }
-            
-            // Verify token is now available
-            const newToken = await this.authService.getToken();
-            if (!newToken) {
-                throw new Error('Token refresh succeeded but no token available');
-            }
-            
-            this._log('Access token obtained via refresh');
+            throw new Error('Authentication required - please log in');
         }
 
         // Update user context if needed
@@ -158,8 +121,8 @@ const ProjectService = {
     },
 
     /**
-     * FIXED: Enhanced function execution with better auth handling
-    */
+     * CRITICAL CHANGE: Simplified function execution with basic auth handling
+     */
     async _executeFunction(functionName, inputData) {
         await this._requireAuth();
         
@@ -167,10 +130,7 @@ const ProjectService = {
         
         try {
             const result = await this.authService.executeFunction(functionName, inputData);
-            
-            // Log detailed response structure
             this._logAPIResponse(functionName, result);
-            
             return result;
             
         } catch (error) {
@@ -181,20 +141,9 @@ const ProjectService = {
                 error.message.includes('Session expired') ||
                 error.message.includes('No valid access token')) {
                 
-                this._log('Authentication error detected, clearing cache and retrying once...');
-                
-                // Clear any cached auth state and try once more
+                this._log('Authentication error detected, clearing cache');
                 this._clearCache();
-                
-                try {
-                    await this._requireAuth();
-                    const retryResult = await this.authService.executeFunction(functionName, inputData);
-                    this._log('Retry successful after auth error');
-                    return retryResult;
-                } catch (retryError) {
-                    this._error('Retry after auth error also failed:', retryError.message);
-                    throw retryError;
-                }
+                throw new Error('Authentication required - please log in');
             }
             
             throw error;
@@ -293,11 +242,10 @@ const ProjectService = {
     },
 
     /**
-     * FIXED: Fast project list with aggressive caching and enhanced auth
+     * Fast project list with aggressive caching
      */
     async getProjects(options = {}) {
         try {
-            // FIXED: Add await to _requireAuth()
             await this._requireAuth();
             
             const {
@@ -325,7 +273,6 @@ const ProjectService = {
             
             this._log('Getting projects for:', user.email);
             
-            // FIXED: Use enhanced _executeFunction with retry logic
             const result = await this._executeFunction('list_user_projects', {
                 email: user.email,
                 limit,
@@ -355,7 +302,6 @@ const ProjectService = {
         } catch (error) {
             this._error('[FastProject] Error getting projects:', error);
             
-            // FIXED: Handle authentication errors specifically
             if (error.message.includes('Authentication required') || 
                 error.message.includes('Session expired') ||
                 error.message.includes('No valid access token')) {
@@ -368,6 +314,7 @@ const ProjectService = {
             throw new Error(`Failed to get projects: ${error.message}`);
         }
     },
+
     /**
      * Fast project details with caching
      */
@@ -482,10 +429,7 @@ const ProjectService = {
     },
 
     /**
-     * Fast context retrieval with caching
-     */
-    /**
-     * NEW: Initialize user context for new sessions
+     * Initialize user context for new sessions
      */
     async initializeUserContext(user) {
         try {
@@ -561,7 +505,7 @@ const ProjectService = {
                 return contextResult;
             }
             
-            // UPDATED: Handle case where user has no context yet (new user)
+            // Handle case where user has no context yet (new user)
             if (result?.status === 'success' && result?.data?.success === false) {
                 this._log('ℹ️ No existing context found for user (normal for new users)');
                 
@@ -591,7 +535,7 @@ const ProjectService = {
         } catch (error) {
             this._error('Error getting context:', error);
             
-            // UPDATED: For new users, return empty context instead of failure
+            // For new users, return empty context instead of failure
             if (error.message.includes('not found') || error.message.includes('no context')) {
                 const user = this.authService.getCurrentUser();
                 if (user) {
@@ -656,7 +600,7 @@ const ProjectService = {
     },
 
     /**
-     * FIXED: Enhanced user context clearing with complete cleanup
+     * Enhanced user context clearing with complete cleanup
      */
     _clearUserContext() {
         this.currentContext = {
@@ -961,7 +905,7 @@ const ProjectService = {
     },
 
     /**
-     * Efficient auto-sync that respects page visibility and network conditions
+     * CRITICAL CHANGE: Simplified efficient auto-sync with basic auth check
      */
     _setupEfficientAutoSync() {
         if (!this.options.autoSync) return;
@@ -975,10 +919,8 @@ const ProjectService = {
                 return;
             }
 
-            // FIXED: Check auth properly
-            try {
-                await this._requireAuth();
-            } catch (error) {
+            // Simple auth check
+            if (!this.authService?.isAuthenticated()) {
                 this._log('Auto-sync skipped - authentication required');
                 return;
             }

@@ -119,11 +119,11 @@ const NavigationManager = {
     },
     
     /**
-     * Navigate to projects page
+     * CRITICAL CHANGE: Navigate to projects page - simplified auth check
      */
     async goToProject() {
         try {
-            await this._requireAuth();
+            this._requireAuth();
             return this._navigateToPage('project');
             
         } catch (error) {
@@ -133,11 +133,11 @@ const NavigationManager = {
     },
     
     /**
-     * Navigate to chat with project context - MAIN INTEGRATION POINT
+     * CRITICAL CHANGE: Navigate to chat with project context - simplified auth check
      */
     async goToChat(projectId, projectName = null, options = {}) {
         try {
-            await this._requireAuth();
+            this._requireAuth();
             
             if (!projectId) {
                 throw new Error('Project ID is required for chat navigation');
@@ -188,11 +188,11 @@ const NavigationManager = {
     },
     
     /**
-     * Create new project and navigate to it - INTEGRATION POINT
+     * CRITICAL CHANGE: Create new project and navigate to it - simplified auth check
      */
     async createProjectAndNavigate(projectData) {
         try {
-            await this._requireAuth();
+            this._requireAuth();
             
             if (!this.projectService) {
                 throw new Error('ProjectService not available');
@@ -226,11 +226,11 @@ const NavigationManager = {
     },
     
     /**
-     * Open existing project - INTEGRATION POINT
+     * CRITICAL CHANGE: Open existing project - simplified auth check
      */
     async openProject(projectId, projectName = null) {
         try {
-            await this._requireAuth();
+            this._requireAuth();
             
             if (!projectId) {
                 throw new Error('Project ID is required');
@@ -787,7 +787,7 @@ const NavigationManager = {
     },
 
     /**
-     * Check authentication for navigation operations
+     * CRITICAL CHANGE: Simplified authentication check - only verify state
      */
     _requireAuth() {
         if (!this.authService || !this.authService.isAuthenticated()) {

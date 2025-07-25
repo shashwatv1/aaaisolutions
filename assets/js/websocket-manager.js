@@ -58,13 +58,14 @@ class ProductionWebSocketManager {
     }
     
     /**
-     * Connect to WebSocket server
+     * MINIMAL CHANGE: Simplified connect with proper token handling
      */
     async connect() {
         if (this.state === 'connecting' || this.state === 'connected') {
             return this.state === 'connected';
         }
         
+        // Simple authentication check
         if (!this.authService?.isAuthenticated()) {
             throw new Error('Authentication required');
         }
@@ -75,7 +76,13 @@ class ProductionWebSocketManager {
             const user = this.authService.getCurrentUser();
             this.userId = user.id;
             
-            const wsUrl = this.buildWebSocketURL(user);
+            // MINIMAL CHANGE: Ensure we have a valid token before connecting
+            const token = await this.authService.getToken();
+            if (!token) {
+                throw new Error('No valid access token available');
+            }
+            
+            const wsUrl = this.buildWebSocketURL(user, token);
             this.socket = new WebSocket(wsUrl);
             
             // Set up event handlers
@@ -377,9 +384,11 @@ class ProductionWebSocketManager {
         }
     }
     
-    buildWebSocketURL(user) {
+    /**
+     * MINIMAL CHANGE: Accept token as parameter to avoid sync/async issues
+     */
+    buildWebSocketURL(user, token) {
         const wsHost = window.AAAI_CONFIG.WEBSOCKET_BASE_URL || 'aaai.solutions';
-        const token = this.authService.getToken();
         
         const params = new URLSearchParams({
             token: token,

@@ -24,7 +24,6 @@ const AuthService = {
      * GLOBAL INITIALIZATION - Called once when script loads
      */
     async init() {
-        
         if (this.initPromise) {
             return this.initPromise;
         }
@@ -42,7 +41,7 @@ const AuthService = {
             this._log('🚀 AuthService initializing globally...');
             this._log('Using AUTH_BASE_URL:', this.AUTH_BASE_URL);
             
-            // FIXED: Always try to restore session with token refresh priority
+            // Try to restore session
             const restored = await this._restoreSession();
             
             this.isInitialized = true;
@@ -57,36 +56,32 @@ const AuthService = {
             
         } catch (error) {
             this._error('AuthService initialization failed:', error);
-            this.isInitialized = true; // Mark as initialized even if failed
+            this.isInitialized = true;
             return { success: false, error: error.message };
         }
     },
 
     /**
-     * FIXED: Enhanced session restoration with token refresh priority
+     * SIMPLIFIED: Session restoration with priority order
      */
     async _restoreSession() {
         try {
-            // Method 1: Try refresh token FIRST (most reliable for normal refresh)
-            this._log('Attempting token refresh first...');
-            if (await this._restoreFromRefreshToken()) {
-                this._log('✅ Session restored via token refresh');
+            // Method 1: Try localStorage backup if recent and valid
+            if (this._restoreFromLocalStorage()) {
+                this._log('✅ Session restored from localStorage');
                 return true;
             }
             
-            // Method 2: Try localStorage backup if recent and valid
-            if (this._restoreFromLocalStorage()) {
-                this._log('✅ Session restored from localStorage');
-                // Still attempt refresh to ensure fresh token
-                await this._attemptTokenRefresh();
+            // Method 2: Try refresh token
+            this._log('Attempting token refresh...');
+            if (await this._attemptTokenRefresh()) {
+                this._log('✅ Session restored via token refresh');
                 return true;
             }
             
             // Method 3: Try cookies as fallback
             if (await this._restoreFromCookies()) {
                 this._log('✅ Session restored from cookies');
-                // Attempt refresh to get fresh access token
-                await this._attemptTokenRefresh();
                 return true;
             }
             
@@ -118,7 +113,6 @@ const AuthService = {
                 this.lastValidation = Date.now();
                 return true;
             } else {
-                // Clean up expired backup
                 localStorage.removeItem('aaai_backup_auth');
                 return false;
             }
@@ -150,7 +144,6 @@ const AuthService = {
                 return false;
             }
             
-            // Parse user info
             const userInfoValue = userInfoCookie.split('=')[1];
             const userInfo = JSON.parse(decodeURIComponent(userInfoValue));
             
@@ -159,17 +152,15 @@ const AuthService = {
                 return false;
             }
             
-            // Set session from cookies
             this._setUserInfo(userInfo);
             this.authenticated = true;
             this.lastValidation = Date.now();
             
-            // Try to get access token from cookie (but don't rely on it)
             const accessTokenCookie = cookieArray.find(c => c.startsWith('access_token='));
             if (accessTokenCookie) {
                 const tokenValue = accessTokenCookie.split('=')[1];
                 if (tokenValue && tokenValue !== '') {
-                    this._setAccessToken(tokenValue, 21600); // 6 hours default
+                    this._setAccessToken(tokenValue, 21600);
                 }
             }
             
@@ -182,24 +173,10 @@ const AuthService = {
     },
 
     /**
-     * RESTORE FROM REFRESH TOKEN
-     */
-    async _restoreFromRefreshToken() {
-        try {
-            const refreshResult = await this._attemptTokenRefresh();
-            return refreshResult;
-        } catch (error) {
-            this._log('Refresh token restore failed:', error);
-            return false;
-        }
-    },
-
-    /**
-     * TOKEN REFRESH - Use standard refresh endpoint
+     * SIMPLIFIED: Token refresh with single attempt
      */
     async _attemptTokenRefresh() {
         try {
-            // Try to get refresh token from cookies first
             let refreshToken = null;
             try {
                 const cookies = document.cookie.split(';');
@@ -224,9 +201,7 @@ const AuthService = {
             });
             
             if (!response.ok) {
-                this._log('Token refresh failed:', response.status, response.statusText);
-                const errorData = await response.json().catch(() => ({}));
-                this._log('Refresh error details:', errorData);
+                this._log('Token refresh failed:', response.status);
                 return false;
             }
             
@@ -278,31 +253,7 @@ const AuthService = {
     },
 
     /**
-     * FIXED: Enhanced token refresh with guarantee
-     */
-    async refreshTokenIfNeeded() {
-        try {
-            if (!this.tokenExpiry) {
-                this._log('No token expiry set, attempting refresh...');
-                return await this._attemptTokenRefresh();
-            }
-            
-            const timeUntilExpiry = this.tokenExpiry - Date.now();
-            if (timeUntilExpiry > this.options.refreshBuffer) {
-                return true; // Token is still valid
-            }
-            
-            this._log('Token needs refresh, attempting...');
-            return await this._attemptTokenRefresh();
-            
-        } catch (error) {
-            this._error('Token refresh error:', error);
-            return false;
-        }
-    },
-
-    /**
-     * FIXED: Enhanced token getter with automatic refresh
+     * SIMPLIFIED: Token getter with basic refresh only when expired
      */
     async getToken() {
         // If we have a valid token, return it
@@ -310,42 +261,34 @@ const AuthService = {
             return this.accessToken;
         }
         
-        // If no valid token, attempt refresh immediately
-        this._log('No valid access token, attempting refresh...');
-        const refreshed = await this._attemptTokenRefresh();
-        
-        if (refreshed && this._isAccessTokenValid()) {
-            return this.accessToken;
+        // If token is expired, try one refresh attempt
+        if (this.accessToken && this.tokenExpiry && this.tokenExpiry <= Date.now()) {
+            this._log('Token expired, attempting refresh...');
+            const refreshed = await this._attemptTokenRefresh();
+            if (refreshed && this._isAccessTokenValid()) {
+                return this.accessToken;
+            }
         }
         
         return null;
     },
 
     /**
-     * AUTHENTICATION CHECK
+     * CRITICAL CHANGE: Simplified authentication check - only verify state
      */
     isAuthenticated() {
-        const hasValidToken = this.accessToken && this._isAccessTokenValid();
         const hasUserInfo = this.userEmail && this.userId;
         const isMarkedAuth = this.authenticated;
         
-        return isMarkedAuth && hasUserInfo && (hasValidToken || this._hasRefreshCapability());
+        return isMarkedAuth && hasUserInfo;
     },
 
     _isAccessTokenValid() {
-        return this.accessToken && this.tokenExpiry && Date.now() < this.tokenExpiry;
-    },
-
-    _hasRefreshCapability() {
-        try {
-            return document.cookie.includes('refresh_token=') || document.cookie.includes('authenticated=true');
-        } catch {
-            return false;
-        }
+        return this.accessToken && this.tokenExpiry && Date.now() < (this.tokenExpiry - this.options.refreshBuffer);
     },
 
     /**
-     * LOGIN METHODS - FIXED: Use proper nginx proxy routes
+     * LOGIN METHODS
      */
     async requestOTP(email) {
         try {
@@ -381,7 +324,6 @@ const AuthService = {
             
             const data = await response.json();
             
-            // Store authentication data immediately
             if (data.user && data.tokens) {
                 this.storeAuthData(data.tokens.access_token, data.tokens.expires_in || 21600, data.user);
             }
@@ -400,13 +342,11 @@ const AuthService = {
         try {
             this._log('📝 Storing authentication data...');
             
-            // Set AuthService state
             this._setAccessToken(token, expiresIn);
             this._setUserInfo(user);
             this.authenticated = true;
             this.lastValidation = Date.now();
             
-            // Store backup in localStorage
             const backupData = {
                 user: user,
                 token: token,
@@ -440,14 +380,14 @@ const AuthService = {
     },
 
     /**
-     * FIXED: Enhanced function execution with guaranteed token
+     * CRITICAL CHANGE: Simplified function execution with guaranteed token
      */
     async executeFunction(functionName, inputData) {
         if (!this.isAuthenticated()) {
             throw new Error('Authentication required');
         }
      
-        // FIXED: Always ensure we have a fresh access token
+        // Get access token (with automatic refresh if needed)
         const accessToken = await this.getToken();
         if (!accessToken) {
             throw new Error('No valid access token available');
@@ -457,7 +397,7 @@ const AuthService = {
         
         try {
             const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 30000); // 30s timeout
+            const timeoutId = setTimeout(() => controller.abort(), 30000);
             
             const response = await fetch(`${this.AUTH_BASE_URL}/api/function/${functionName}`, {
                 method: 'POST',
@@ -472,24 +412,7 @@ const AuthService = {
             
             clearTimeout(timeoutId);
             
-            this._log('Response status:', response.status, response.statusText);
-            
             if (!response.ok) {
-                if (response.status === 401) {
-                    // Try refresh once more and retry
-                    const refreshed = await this._attemptTokenRefresh();
-                    if (refreshed) {
-                        // Retry the function call with new token
-                        const newToken = await this.getToken();
-                        if (newToken) {
-                            // Recursive retry with new token
-                            return this.executeFunction(functionName, inputData);
-                        }
-                    }
-                    this._clearAuthState();
-                    throw new Error('Session expired');
-                }
-                
                 const errorData = await response.json().catch(() => ({}));
                 this._error('API error response:', errorData);
                 throw new Error(errorData.error || errorData.detail || `Function execution failed with status ${response.status}`);
@@ -511,7 +434,7 @@ const AuthService = {
     },
 
     /**
-     * LOGOUT - FIXED: Use proper nginx proxy route
+     * LOGOUT
      */
     async logout() {
         try {
@@ -549,7 +472,6 @@ const AuthService = {
         this.tokenExpiry = null;
         this.lastValidation = null;
         
-        // Clear localStorage backup
         try {
             localStorage.removeItem('aaai_backup_auth');
         } catch (error) {
