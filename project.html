@@ -1192,7 +1192,7 @@
           throw error;
         }
       }
-      
+
       /**
        * Initialize UI components
        */
@@ -1303,12 +1303,12 @@
           // Use ProjectService for consistent API calls
           const result = await window.ProjectService.getProjects();
           
-          if (result && Array.isArray(result.data)) {
-            projects = result.data;
+          if (result && result.projects) {
+          
+            projects = result.projects;
             filteredProjects = [...projects];
-            
-            console.log(`✅ Loaded ${projects.length} projects`);
             renderProjects();
+            console.log(`✅ Loaded ${projects.length} projects`);
             
           } else if (result && result.status === 'success' && Array.isArray(result.data)) {
             projects = result.data;
