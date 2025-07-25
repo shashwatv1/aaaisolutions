@@ -368,7 +368,6 @@ const ProjectService = {
             throw new Error(`Failed to get projects: ${error.message}`);
         }
     },
-
     /**
      * Fast project details with caching
      */
